@@ -1,62 +1,78 @@
-# Clockwork
+<p align="center">
+  <img src="docs/media/cover.svg" alt="Clockwork — plan the work, see the capacity" width="100%">
+</p>
 
-Resource and process planning for managers: projects, Gantt schedules, resource
-availability, timesheets and reporting. The shared Vue client runs in the browser
-and in Electron; the backend is written in Go.
+<p align="center">
+  <a href="https://github.com/Koshsky/clockwork/actions/workflows/ci.yml"><img src="https://github.com/Koshsky/clockwork/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+  <img src="https://img.shields.io/badge/Go-00ADD8?style=flat&amp;logo=go&amp;logoColor=white" alt="Go backend">
+  <img src="https://img.shields.io/badge/Vue_3-42B883?style=flat&amp;logo=vuedotjs&amp;logoColor=white" alt="Vue 3 interface">
+  <img src="https://img.shields.io/badge/Electron-47848F?style=flat&amp;logo=electron&amp;logoColor=white" alt="Electron desktop app">
+  <img src="https://img.shields.io/badge/Interface-EN_%2F_RU-64748B?style=flat" alt="English and Russian interface">
+</p>
 
-## Repository layout
+<p align="center">
+  <strong>Projects, processes, tasks and people — on a shared timeline.</strong><br>
+  Clockwork helps managers turn plans into schedules that account for real team capacity.
+</p>
 
-- `backend/` — API, authorization, embedded SQL migrations and Go tests.
-- `frontend/` — Vue application, generated API client and frontend tests.
-- `frontend/desktop/` — Electron wrapper using the same frontend.
-- `deploy/` — development infrastructure and optional container stack.
-- `docs/` — migration, development and release instructions.
+<p align="center">
+  <a href="#planning-with-capacity-in-view">Planning</a> ·
+  <a href="#one-task-one-workspace">Task workspace</a> ·
+  <a href="#a-clearer-picture-of-the-team">Team structure</a> ·
+  <a href="#more-than-a-timeline">More features</a>
+</p>
 
-## Development
+## Planning with capacity in view
 
-`main` is the only permanent branch. Make all changes in short-lived branches
-created from the latest `main`, then open a pull request into `main`. Run the
-required checks before merging and delete the branch after the merge. Do not
-commit changes directly to `main` or create permanent `dev` or `staging` branches.
-See [Contributing](CONTRIBUTING.md) for commands and conventions.
+See the schedule and available resources together. Move tasks, adjust their
+dates and spot overloads in the resource header, without switching screens.
 
-Use Node.js 22.12+ and the Go version declared in `backend/go.mod`. Docker Compose
-is needed for PostgreSQL and optional supporting services.
+![Task planning with resource availability, assignments, milestones and dependency links](docs/media/planning.png)
 
-```sh
-cp .env.example .env
-# Set local passwords and JWT keys before starting services.
-make infra
-make backend
-# In another terminal:
-cd frontend
-npm ci
-npm start
-```
+- **Three planning levels.** Navigate between projects, processes and tasks while
+  keeping the calendar position, zoom and selected time unit.
+- **Days and ISO weeks.** Switch between detailed daily planning and a weekly
+  overview; weekly resource cells show peak load and minimum availability.
+- **Dependencies and milestones.** Connect tasks, track checkpoints and see the
+  relationships directly on the chart.
+- **Useful information on the bars.** Configure badges for owners, responsible
+  people, resources and subtasks. Filter resource rows and their badges by owner.
 
-The frontend serves `http://localhost:5173` and proxies `/api/v1` to the native
-backend on port 8080. See [development](docs/development.md), including reuse of
-existing data and isolated test configuration.
+## One task, one workspace
 
-## Checks
+Task details, assigned resources, subtasks, dependencies and discussion live in
+one large window. Move between sections without juggling separate dialogs.
 
-```sh
-make check
-```
+![Unified task workspace with section navigation and task details](docs/media/task-workspace.png)
 
-See the service-level `AGENTS.md` files for focused commands. Integration tests
-need an explicit local test configuration; real deployment credentials and seeds
-are never part of this repository.
+## A clearer picture of the team
 
-## Source repositories
+Explore the company through manager cards and compact employee lists. Start with
+two levels, expand a branch when needed, or switch to the table view.
 
-Clockwork starts with a new initial commit containing the current source trees.
-Historical commits, Git tags and GitHub Releases remain in the original projects:
+![Company structure in dark mode, with manager cards and compact employee lists](docs/media/company-structure.png)
 
-- [ERP frontend](https://github.com/Koshsky/erp-frontend)
-- [ERP backend](https://github.com/Koshsky/erp-backend)
+## More than a timeline
 
-See [migration decisions](docs/monorepo-migration.md) for source revisions and
-compatibility choices. The original repositories can be archived after cutover.
-Docker images and published versions remain available in Docker Hub as
-`koshsky/erp-frontend` and `koshsky/erp-backend`.
+| Capability | What it brings to planning |
+| --- | --- |
+| **Timesheets and absences** | Employee availability feeds the resource calendar, so time away is reflected in capacity. |
+| **Roles and permissions** | Control viewing and management separately, with ownership rules, inherited viewing and individual overrides enforced by the backend. |
+| **PDF and printing** | Export the current date window and scale with its colors and badges; choose the content to include. `Ctrl/Cmd+S` and `Ctrl/Cmd+P` open print preparation. |
+| **Offline work and synchronization** | Cached data stays available during a connection loss. Supported changes are queued locally and synchronized when connectivity returns. |
+| **Browser and desktop** | The same Vue interface runs on the web and inside Electron. |
+| **Light and dark themes** | Choose the appearance and switch between English and Russian. |
+
+<sub>Screenshots show the current application with fictional demonstration data.</sub>
+
+---
+
+**Docker images:** [Frontend](https://hub.docker.com/r/koshsky/erp-frontend) ·
+[Backend](https://hub.docker.com/r/koshsky/erp-backend)
+
+**Contributing:** setup, checks, repository layout and branch workflow are in
+[AGENTS.md](AGENTS.md).
+
+**Previously:** [erp-frontend](https://github.com/Koshsky/erp-frontend) ·
+[erp-backend](https://github.com/Koshsky/erp-backend).
+Clockwork combines both projects; their earlier history remains in those repositories.

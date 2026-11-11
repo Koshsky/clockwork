@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="400" viewBox="0 0 1280 400" role="img" aria-labelledby="title desc">
+  <title id="title">Clockwork — resource and process planning</title>
+  <desc id="desc">A blue and teal timeline beside the Clockwork wordmark. Plan the work. See the capacity.</desc>
+  <defs>
+    <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#101e36"/><stop offset="1" stop-color="#173e58"/></linearGradient>
+    <pattern id="grid" width="56" height="56" patternUnits="userSpaceOnUse"><path d="M56 0H0V56" fill="none" stroke="#a5ceee" stroke-opacity=".055"/></pattern>
+  </defs>
+  <rect width="1280" height="400" rx="24" fill="url(#bg)"/>
+  <rect width="1280" height="400" rx="24" fill="url(#grid)"/>
+  <circle cx="1170" cy="45" r="210" fill="#3d9cbb" opacity=".07"/>
+  <g font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif">
+    <rect x="64" y="64" width="42" height="42" rx="12" fill="#74b6ff" fill-opacity=".12" stroke="#7bb9ff" stroke-opacity=".4"/>
+    <g fill="none" stroke="#8bc5ff" stroke-width="2.4" stroke-linecap="round">
+      <rect x="75" y="76" width="20" height="20" rx="3"/><path d="M75 83h20M80 73v6m10-6v6M80 91h5m4-3h2"/>
+    </g>
+    <text x="120" y="91" fill="#aec8de" font-size="13" font-weight="600" letter-spacing="2.3">RESOURCE &amp; PROCESS PLANNING</text>
+    <text x="60" y="194" fill="#f6faff" font-size="76" font-weight="700" letter-spacing="-3">Clockwork</text>
+    <text x="64" y="246" fill="#b9cede" font-size="25">Plan the work. See the capacity.</text>
+    <g font-size="12" fill="#c2d6e5">
+      <rect x="64" y="293" width="103" height="30" rx="15" fill="#bddafa" fill-opacity=".08"/><text x="76" y="313">Gantt planning</text>
+      <rect x="177" y="293" width="115" height="30" rx="15" fill="#bddafa" fill-opacity=".08"/><text x="195" y="313">Team capacity</text>
+      <rect x="302" y="293" width="111" height="30" rx="15" fill="#bddafa" fill-opacity=".08"/><text x="316" y="313">Web + desktop</text>
+    </g>
+    <g transform="translate(710 66)">
+      <rect width="500" height="268" rx="18" fill="#101f34" stroke="#89bddf" stroke-opacity=".2"/>
+      <path d="M0 48h500" stroke="#89bddf" stroke-opacity=".16"/>
+      <g fill="#88a6bf" font-size="11" text-anchor="middle"><text x="61" y="29">PLAN</text><text x="186" y="29">BUILD</text><text x="311" y="29">REVIEW</text><text x="436" y="29">DELIVER</text></g>
+      <g stroke="#8dbbde" stroke-opacity=".1"><path d="M125 48v220m125-220v220m125-220v220M0 103h500M0 158h500M0 213h500"/></g>
+      <rect x="26" y="67" width="184" height="20" rx="6" fill="#65a9ff"/>
+      <rect x="153" y="122" width="207" height="20" rx="6" fill="#6bd9cb"/>
+      <rect x="279" y="177" width="139" height="20" rx="6" fill="#a797e5"/>
+      <path d="M210 77h22q8 0 8 8v39q0 8 8 8h21m-5-4 6 4-6 4" fill="none" stroke="#91b0ca" stroke-width="1.6"/>
+      <path d="m451 180 7 7-7 7-7-7z" fill="#f0cb7e"/>
+      <g fill="#6fd2be" opacity=".65">
+        <rect x="27" y="231" width="21" height="14" rx="3"/><rect x="54" y="231" width="21" height="14" rx="3"/><rect x="81" y="231" width="21" height="14" rx="3"/>
+        <rect x="108" y="231" width="21" height="14" rx="3"/><rect x="135" y="231" width="21" height="14" rx="3"/><rect x="162" y="231" width="21" height="14" rx="3"/>
+        <rect x="243" y="231" width="21" height="14" rx="3"/><rect x="270" y="231" width="21" height="14" rx="3"/><rect x="297" y="231" width="21" height="14" rx="3"/>
+        <rect x="324" y="231" width="21" height="14" rx="3"/><rect x="351" y="231" width="21" height="14" rx="3"/><rect x="378" y="231" width="21" height="14" rx="3"/>
+        <rect x="405" y="231" width="21" height="14" rx="3"/><rect x="432" y="231" width="21" height="14" rx="3"/>
+      </g>
+      <rect x="189" y="231" width="21" height="14" rx="3" fill="#ead58e"/><rect x="216" y="231" width="21" height="14" rx="3" fill="#df9b9b"/>
+    </g>
+  </g>
+</svg>
