@@ -1,0 +1,58 @@
+name: Docker release
+run-name: Docker release (${{ inputs.component }}) by @${{ github.actor }}
+on:
+  workflow_dispatch:
+    inputs:
+      component:
+        description: Component to release using its committed version file
+        required: true
+        type: choice
+        default: frontend
+        options: [frontend, backend, both]
+permissions:
+  contents: read
+concurrency:
+  group: docker-release
+  cancel-in-progress: false
+jobs:
+  release:
+    name: Build, publish and promote selected images
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate one-step SemVer against Docker Hub
+        env:
+          COMPONENT: ${{ inputs.component }}
+        run: python3 scripts/release.py plan --component "$COMPONENT" --plan "$RUNNER_TEMP/release-plan.json"
+      - name: Require Docker Hub credentials
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [ -z "$DOCKERHUB_USERNAME" ] || [ -z "$DOCKERHUB_TOKEN" ]; then
+            echo '::error::Configure DOCKERHUB_USERNAME and DOCKERHUB_TOKEN repository secrets'
+            exit 1
+          fi
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Build versioned linux/amd64 images
+        run: python3 scripts/release.py build --plan "$RUNNER_TEMP/release-plan.json"
+      - name: Publish immutable version tags
+        run: python3 scripts/release.py publish --plan "$RUNNER_TEMP/release-plan.json"
+      - name: Point latest at published digests
+        run: python3 scripts/release.py promote --plan "$RUNNER_TEMP/release-plan.json"
+      - name: Retain release report, including partial failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/release-plan.json
+          if-no-files-found: ignore
+          retention-days: 30

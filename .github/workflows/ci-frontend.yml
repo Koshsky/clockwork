@@ -1,0 +1,33 @@
+name: Frontend
+on:
+  workflow_call:
+    outputs:
+      checks_result:
+        description: Frontend check and build job result
+        value: ${{ jobs.frontend.outputs.result }}
+permissions:
+  contents: read
+jobs:
+  frontend:
+    name: Frontend checks and build
+    runs-on: ubuntu-latest
+    outputs:
+      result: ${{ job.status }}
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run check
+      - run: npm run lint
+      - run: npm run test:stories -- --project unit
+      - run: node --test tests/security.test.cjs
+      - run: npm run build

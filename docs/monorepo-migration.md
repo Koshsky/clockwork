@@ -21,9 +21,17 @@ Electron appId, product name and userData remain unchanged. A repository rename
 must not create an empty profile or orphan offline work. Separation of the offline
 engine is the next project after repository acceptance.
 
-Every PR checks both services. This intentionally favors complete coverage over
-path filtering for the initial migration; there are no skipped required jobs.
-CI does not publish Docker images, move deployment tags or deploy a server.
+The initial migration checked both services on every PR. CI now selects service
+jobs by application/build inputs. Documentation, workflow, root tooling and
+deployment-only changes do not independently select backend/frontend checks.
+The unconditional repository-policy job validates tooling and workflow syntax;
+the final gate requires all selected checks and accepts deliberate skips.
+See AGENTS.md for the current path rules.
+
+Docker publication is a separate workflow_dispatch-only workflow. It reads
+committed service versions, requires exactly one stable SemVer step from the
+latest published Hub version, publishes version tags and promotes staging by
+digest. It never edits source versions, moves prod/latest or deploys a server.
 
 The source repositories remain intact. Their archival is performed by the owner.
 GitHub issues/releases and private Actions settings are not copied; source links

@@ -10,81 +10,64 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
-  policy:
-    name: Branch policy
+  backend-changes:
+    name: Is backend changed?
     runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
     steps:
       - uses: actions/checkout@v4
-      - run: python3 scripts/check-repository.py
-      - name: Verify topic branch
-        env:
-          BASE: ${{ github.base_ref }}
-          HEAD: ${{ github.head_ref }}
-        run: |
-          [ -n "$BASE" ] || exit 0
-          case "$HEAD" in main|dev|staging) exit 1 ;; esac
+        with:
+          fetch-depth: 0
+      - id: filter
+        run: python3 scripts/ci.py detect
+  frontend-changes:
+    name: Is frontend changed?
+    runs-on: ubuntu-latest
+    outputs:
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: filter
+        run: python3 scripts/ci.py detect
+  common-changes:
+    name: Is API changed?
+    runs-on: ubuntu-latest
+    outputs:
+      api: ${{ steps.filter.outputs.api }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: filter
+        run: python3 scripts/ci.py detect
   backend:
-    name: Backend build, vet and tests
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: backend/go.mod
-          cache-dependency-path: backend/go.sum
-      - run: go build ./...
-      - run: go vet ./...
-      - run: go test ./...
-  backend-lint:
-    name: Backend lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: backend/go.mod
-          cache-dependency-path: backend/go.sum
-      # Both the linter's importer and its build toolchain must support Go 1.27.
-      - run: go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0 run ./...
-        working-directory: backend
+    name: Backend
+    needs: backend-changes
+    if: needs.backend-changes.outputs.backend == 'true'
+    uses: ./.github/workflows/ci-backend.yml
   frontend:
-    name: Frontend checks and build
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
-    env:
-      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - run: npm ci
-      - run: npm run check
-      - run: npm run lint
-      - run: npm run test:stories -- --project unit
-      - run: node --test tests/security.test.cjs
-      - run: npm run build
-  api-client:
-    name: Generated API client
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: scripts/generate-api.sh --check
+    name: Frontend
+    needs: frontend-changes
+    if: needs.frontend-changes.outputs.frontend == 'true'
+    uses: ./.github/workflows/ci-frontend.yml
+  common:
+    name: Common checks
+    needs: common-changes
+    if: always()
+    uses: ./.github/workflows/ci-common.yml
+    with:
+      check-api: ${{ needs.common-changes.outputs.api == 'true' }}
   required:
     name: All checks
     if: always()
-    needs: [policy, backend, backend-lint, frontend, api-client]
+    needs: [backend-changes, frontend-changes, common-changes, backend, frontend, common]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - name: Require all service checks
         env:
-          RESULTS: ${{ join(needs.*.result, ',') }}
-        run: |
-          case ",$RESULTS," in *,failure,*|*,cancelled,*|*,skipped,*) exit 1 ;; esac
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: python3 scripts/ci.py verify

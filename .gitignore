@@ -55,6 +55,8 @@ coverage.html
 /frontend/src/api/docs/
 
 # Runtime, tooling and editor files
+__pycache__/
+*.py[cod]
 *.log
 logs/
 *.pid

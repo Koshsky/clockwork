@@ -1,0 +1,53 @@
+name: Common checks
+on:
+  workflow_call:
+    inputs:
+      check-api:
+        description: Validate the generated API client
+        required: true
+        type: boolean
+    outputs:
+      policy_result:
+        description: Repository policy job result
+        value: ${{ jobs.policy.outputs.result }}
+      api_result:
+        description: Generated API client job result
+        value: ${{ jobs.api-client.outputs.result || 'skipped' }}
+permissions:
+  contents: read
+jobs:
+  policy:
+    name: Branch policy
+    runs-on: ubuntu-latest
+    outputs:
+      result: ${{ job.status }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: python3 scripts/check-repository.py
+      - run: python3 -m unittest discover -s scripts/tests -v
+      - name: Validate workflows
+        run: >-
+          docker run --rm --network none -v "$PWD:/repo:ro" -w /repo
+          rhysd/actionlint:1.7.7@sha256:887a259a5a534f3c4f36cb02dca341673c6089431057242cdc931e9f133147e9
+          -shellcheck= -pyflakes=
+      - name: Verify topic branch
+        env:
+          BASE: ${{ github.base_ref }}
+          HEAD: ${{ github.head_ref }}
+        run: |
+          [ -n "$BASE" ] || exit 0
+          case "$HEAD" in main|dev|staging) exit 1 ;; esac
+      - name: Validate changed versions against Docker Hub
+        if: github.event_name == 'pull_request'
+        run: python3 scripts/check-pr-versions.py
+  api-client:
+    name: Generated API client
+    if: inputs.check-api
+    runs-on: ubuntu-latest
+    outputs:
+      result: ${{ job.status }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: scripts/generate-api.sh --check

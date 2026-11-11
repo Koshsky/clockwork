@@ -28,8 +28,11 @@ for component in ['backend', 'frontend']:
         raise SystemExit('Use the shared root .gitignore')
     if not (root / component / '.dockerignore').is_file():
         raise SystemExit('Missing service Docker context policy')
-tracked = subprocess.check_output(['git', 'ls-files'], cwd=root, text=True).splitlines()
+tracked = subprocess.check_output(['git', 'ls-files', '-z'], cwd=root, text=True).split('\0')
 for path in tracked:
+    # Glob filters cannot reliably select paths containing line separators.
+    if any(character in path for character in '\r\n\u2028\u2029'):
+        raise SystemExit('Unsupported line separator in tracked path: ' + repr(path))
     if path in ignored or path.startswith(('local/', 'backups/', 'server-backup')):
         raise SystemExit('Local state is tracked: ' + path)
 print('PASS: shared ignore policy and service context boundaries')
