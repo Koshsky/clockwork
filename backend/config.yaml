@@ -1,0 +1,139 @@
+server:
+  port: 8080
+  read_timeout: 15s
+  write_timeout: 15s
+  idle_timeout: 60s
+  # Max request body size (H3): larger bodies are rejected with a 400-class
+  # error instead of being buffered unboundedly.
+  max_body_bytes: 1048576
+  # Per-request context timeout (H3): cancels long-running handlers/DB queries
+  # (planning/calendar aggregates) so goroutines and pool connections are
+  # released. Must be lower than write_timeout to take effect.
+  request_timeout: 10s
+  # Trusted reverse-proxy networks that may supply the real client IP via
+  # X-Forwarded-For / X-Real-IP. Only nginx (in the docker app-network) is
+  # allowed; never 0.0.0.0/0. MUST match the app-network subnet fixed in
+  # docker-compose.yml (172.18.0.0/16) so the value is stable across rebuilds.
+  # If unset/invalid the backend trusts nobody and rate limits on the proxy IP.
+  trusted_proxies:
+    - 172.18.0.0/16
+
+jwt:
+  access_expiry: 15m
+  refresh_expiry: 168h
+  # Refresh cookie: HttpOnly, SameSite=Strict. The Secure flag applies only
+  # behind real https (True — a hard https requirement); over actual http
+  # (native dev, direct http access) it is lifted automatically, otherwise the
+  # browser would not persist the cookie and access-token auto-renewal breaks.
+  refresh_cookie_secure: true
+  issuer: mvs-erp
+
+cors:
+  allow_origins:
+    - "*"
+  allow_methods:
+    - GET
+    - POST
+    - PUT
+    - PATCH
+    - DELETE
+    - OPTIONS
+  allow_headers:
+    - Origin
+    - Content-Type
+    - Accept
+    - Authorization
+    - X-Requested-With
+  expose_headers:
+    - Content-Length
+  allow_credentials: true
+  max_age: 12h
+
+rate_limiting:
+  enabled: true
+  requests_per_second: 10
+  burst: 20
+  cleanup_interval: 1m
+  expiration: 10m
+
+# Per authenticated user limit for protected /api/v1/* routes (keyed by the
+# JWT user id, not by IP, so heavy users behind a shared NAT do not trip the
+# public per-IP bucket and block their neighbors).
+user_rate_limiting:
+  enabled: true
+  requests_per_second: 20
+  burst: 40
+  cleanup_interval: 1m
+  expiration: 10m
+
+postgres:
+  max_conns: 25
+  min_conns: 5
+  max_conn_lifetime: 30m
+  max_conn_idle_time: 5m
+  health_check_period: 5m
+  connect_timeout: 10s
+
+redis:
+  # Shared Redis (M1): the rate limiter token buckets live here so N instances
+  # enforce one global limit per client. The backend is chosen explicitly:
+  # enabled=false selects the in-memory limiter; enabled=true requires a
+  # reachable Redis — otherwise the app fails to start (fail-fast).
+  enabled: true
+  address: "redis:6379"
+  password: ""
+  db: 0
+  dial_timeout: 3s
+  read_timeout: 1s
+  write_timeout: 1s
+  pool_size: 20
+  key_prefix: "erp:ratelimit"
+
+logging:
+  level: debug
+  format: json
+
+swagger:
+  # Disabled in production (M6): the API schema is not exposed. Dev-only
+  # standalone UI stays available via cmd/swagger/main.go; enable locally by
+  # flipping this to true.
+  enabled: false
+
+profiling:
+  enabled: false
+  # pprof on loopback only (AD-13): even when enabled it is not exposed.
+  address: "127.0.0.1:6060"
+
+tracing:
+  enabled: true
+  # OTLP/gRPC endpoint — in-stack Jaeger collector (see docker-compose.yml).
+  exporter_endpoint: "jaeger:4317"
+  service_name: "erp-backend"
+  sampler_ratio: 1.0
+
+rbac:
+  # Background reload interval for rules from Postgres (eventual consistency
+  # between instances; local edits apply immediately).
+  refresh_interval: 30s
+
+security:
+  password:
+    # Optional Have I Been Pwned breach check on password change (k-anonymity
+    # range API). Best-effort: if the feed is unreachable the check is skipped;
+    # the local password policy always applies.
+    hibp:
+      enabled: true
+      timeout: 2s
+
+audit:
+  # Audit-log capture of all CRUD mutations + auth events. Events are pushed
+  # to Grafana Loki (the log-storage service) over its HTTP API; the admin
+  # page reads them back through GET /api/v1/audit/events.
+  enabled: true
+  # Loki base URL (docker network); native dev — http://localhost:3100.
+  # Loki runs inside the app-network with auth disabled (no tokens needed).
+  url: "http://loki:3100"
+  timeout: 10s
+  # sync: true — send events synchronously (strict, slower); false (default) —
+  # buffer and retry asynchronously without blocking the user request.
+  sync: false

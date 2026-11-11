@@ -1,0 +1,377 @@
+/* ==========================================================================
+ * MVS ERP — shared design tokens (Soft UI Evolution x Minimalism)
+ * --------------------------------------------------------------------------
+ * Single source of truth for the whole application.
+ *
+ * Scheme resolution:
+ *   1. :root — light by default.
+ *   2. @media (prefers-color-scheme: dark) — OS fallback for contexts without
+ *      the runtime (Storybook, isolated rendering, pre-JS paint).
+ *   3. :root[data-scheme="dark"] / :root[data-scheme="light"] — explicit
+ *      scheme set by src/theme.ts (manual toggle, persisted); placed after
+ *      the media query so manual choice always wins.
+ * ========================================================================== */
+
+:root {
+  /* Multiplies every `font-size: Npx` in the app (see the calc() pattern).
+     The "UI font size" setting toggles `data-ui-size` on <html>. */
+  --ui-font-scale: 1;
+
+  color-scheme: light;
+
+  /* Surfaces */
+  --ui-bg: #F6F7F9;
+  --ui-surface: #FFFFFF;
+  --ui-surface-2: #F8F9FA;
+  --ui-surface-3: #F1F3F5;
+
+  /* Text hierarchy */
+  --ui-text: #1F2937;
+  --ui-text-2: #4B5563;
+  --ui-text-muted: #6B7280;
+  --ui-text-faint: #9AA0A8;
+
+  /* Lines & grids */
+  --ui-border: #E6E8EC;
+  --ui-border-strong: #D5D9E0;
+
+  /* Brand accent (the planner's established blue) */
+  --ui-accent: #1A73E8;
+  --ui-accent-soft: #E8F0FE;
+  --ui-accent-on: #FFFFFF;
+
+  /* Status colors */
+  --ui-success: #34A853;
+  --ui-success-soft: #C8EAD3;
+  --ui-danger: #D93025;
+  --ui-danger-soft: #F9DEDC;
+  --ui-warning: #B06000;
+  --ui-warning-soft: #FDF0D5;
+  --ui-milestone: #FBBC04;
+
+  /* Resource usage cells (traffic light: ok / warn / critical) */
+  --ui-usage-ok: #AACFCF;
+  --ui-usage-ok-text: #1F3B3B;
+  --ui-usage-warn: #E6D488;
+  --ui-usage-warn-text: #4A3D14;
+  --ui-usage-crit: #E09A9A;
+  --ui-usage-crit-text: #5A2020;
+  --ui-usage-weekend: #EEF0F3;
+  --ui-usage-weekend-text: #9AA0A8;
+  --ui-usage-unknown: #FFFFFF;
+  --ui-usage-unknown-text: #B0B0B0;
+
+  /* Gantt colors */
+  --ui-gantt-task: #34A853;
+  --ui-gantt-task-soft: #C8EAD3;
+  --ui-gantt-process: #1A73E8;
+  --ui-gantt-process-soft: #D2E3FC;
+  --ui-gantt-project: #1A73E8;
+  --ui-gantt-project-soft: #D2E3FC;
+  --ui-today: #E53935;
+  --ui-drop: #1A73E8;
+  --ui-overlay: rgba(15, 23, 42, 0.04);
+
+  /* Soft shadows (Soft UI: layered, low opacity) */
+  --ui-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05), 0 1px 3px rgba(15, 23, 42, 0.06);
+  --ui-shadow-md: 0 1px 2px rgba(15, 23, 42, 0.05), 0 2px 4px rgba(15, 23, 42, 0.06), 0 8px 24px rgba(15, 23, 42, 0.07);
+  --ui-shadow-lg: 0 2px 4px rgba(15, 23, 42, 0.06), 0 12px 32px rgba(15, 23, 42, 0.12);
+
+  /* Radius scale */
+  --ui-radius-sm: 8px;
+  --ui-radius-md: 12px;
+  --ui-radius-lg: 14px;
+
+  /* Spacing scale */
+  --ui-space-xs: 4px;
+  --ui-space-sm: 8px;
+  --ui-space-md: 12px;
+  --ui-space-lg: 16px;
+  --ui-space-xl: 24px;
+  --ui-space-2xl: 32px;
+  --ui-space-3xl: 48px;
+  --ui-space-4xl: 64px;
+
+  /* Typography */
+  --ui-font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --ui-text-xs: 11px;
+  --ui-text-sm: 12px;
+  --ui-text-base: 13px;
+  --ui-text-md: 14px;
+  --ui-text-lg: 16px;
+  --ui-text-xl: 20px;
+  --ui-text-2xl: 24px;
+
+  /* Motion & focus */
+  --ui-duration: 0.18s;
+  --ui-focus: #1A73E8;
+
+  /* ==========================================================================
+   * z-index ladder — the stacking order of the diagram and its chrome.
+   *
+   * Components never write a raw number: they use these tokens, so the order is
+   * decided here once and stays greppable. The rules behind the order:
+   *   1. content first (grid, bars, milestones/links/separators, insertion line);
+   *   2. the side panel (row names, merged labels, resource codes) and the
+   *      calendar header are CHROME: they stay on screen while panning, so they
+   *      must win over content;
+   *   3. the today line is content drawn across the diagram — above the bars,
+   *      below the chrome (that is why it sits between --z-header and the panel);
+   *   4. the corner cell belongs to the side panel AND the header, so it is the
+   *      highest layer of the diagram (90).
+   * The values are spaced apart on purpose: a new layer can be inserted between
+   * two levels without renumbering the rest. Popups, toasts and the PDF preview
+   * live above this range (they are app-level overlays, not diagram layers).
+   * src/styles/zIndex.test.ts keeps the ladder honest (no raw numbers, every
+   * token defined, strictly increasing order).
+   * ========================================================================== */
+  --z-cell-overlay: 0; /* row background/overlay inside a group */
+  --z-grid: 1; /* grid lines, the bar's focus ring */
+  --z-bar: 2; /* bars, resize handles, the selected timesheet cell */
+  --z-content-top: 3; /* milestones, dependency links, group divider */
+  --z-drop-line: 12; /* insertion line while dragging rows */
+  --z-resource-cells: 20; /* resource load cells (side panel) */
+  --z-header: 30; /* calendar header */
+  --z-today: 35; /* the today line */
+  --z-side-backdrop: 45; /* opaque band of the side column: hides content under it */
+  --z-scale-badge: 50; /* the zoom percentage pill */
+  --z-side-row: 65; /* sticky row names, milestone band label */
+  --z-side-merged: 70; /* merged group labels */
+  --z-side-panel: 80; /* resource codes layer, timesheet names panel */
+  --z-corner: 90; /* the corner cell (side panel + header) */
+}
+
+/* OS fallback (no explicit data-scheme yet) — dark */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-scheme='light']) {
+    color-scheme: dark;
+
+    --ui-bg: #121417;
+    --ui-surface: #1A1D22;
+    --ui-surface-2: #20242B;
+    --ui-surface-3: #262B33;
+
+    --ui-text: #E5E7EB;
+    --ui-text-2: #C9CED6;
+    --ui-text-muted: #9CA3AF;
+    --ui-text-faint: #6B7280;
+
+    --ui-border: #2C313A;
+    --ui-border-strong: #3A4150;
+
+    --ui-accent: #7FB2FF;
+    --ui-accent-soft: #1C2A44;
+    --ui-accent-on: #0B1220;
+
+    --ui-success: #4ADE80;
+    --ui-success-soft: #1E3B2A;
+    --ui-danger: #F87171;
+    --ui-danger-soft: #44211F;
+    --ui-warning: #FBBF24;
+    --ui-warning-soft: #4A3D14;
+    --ui-milestone: #FBBF24;
+
+    --ui-usage-ok: #2E4B4B;
+    --ui-usage-ok-text: #C9E6E6;
+    --ui-usage-warn: #5A4A1A;
+    --ui-usage-warn-text: #F5E6B8;
+    --ui-usage-crit: #5A2A2A;
+    --ui-usage-crit-text: #F3C9C9;
+    --ui-usage-weekend: #1F2329;
+    --ui-usage-weekend-text: #6B7280;
+    --ui-usage-unknown: #121417;
+    --ui-usage-unknown-text: #6B7280;
+
+    --ui-gantt-task: #4ADE80;
+    --ui-gantt-task-soft: #1E3B2A;
+    --ui-gantt-process: #7FB2FF;
+    --ui-gantt-process-soft: #1C2A44;
+    --ui-gantt-project: #7FB2FF;
+    --ui-gantt-project-soft: #1C2A44;
+    --ui-today: #FF6B6B;
+    --ui-drop: #7FB2FF;
+    --ui-overlay: rgba(255, 255, 255, 0.05);
+
+    --ui-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.35);
+    --ui-shadow-md: 0 1px 2px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.38), 0 8px 20px rgba(0, 0, 0, 0.45);
+    --ui-shadow-lg: 0 2px 8px rgba(0, 0, 0, 0.45), 0 16px 40px rgba(0, 0, 0, 0.55);
+
+    --ui-focus: #7FB2FF;
+  }
+}
+
+/* Explicit scheme (manual toggle, persistent) — always wins over the OS */
+:root[data-scheme='dark'] {
+  color-scheme: dark;
+
+  --ui-bg: #121417;
+  --ui-surface: #1A1D22;
+  --ui-surface-2: #20242B;
+  --ui-surface-3: #262B33;
+
+  --ui-text: #E5E7EB;
+  --ui-text-2: #C9CED6;
+  --ui-text-muted: #9CA3AF;
+  --ui-text-faint: #6B7280;
+
+  --ui-border: #2C313A;
+  --ui-border-strong: #3A4150;
+
+  --ui-accent: #7FB2FF;
+  --ui-accent-soft: #1C2A44;
+  --ui-accent-on: #0B1220;
+
+  --ui-success: #4ADE80;
+  --ui-success-soft: #1E3B2A;
+  --ui-danger: #F87171;
+  --ui-danger-soft: #44211F;
+  --ui-warning: #FBBF24;
+  --ui-warning-soft: #4A3D14;
+  --ui-milestone: #FBBF24;
+
+  --ui-usage-ok: #2E4B4B;
+  --ui-usage-ok-text: #C9E6E6;
+  --ui-usage-warn: #5A4A1A;
+  --ui-usage-warn-text: #F5E6B8;
+  --ui-usage-crit: #5A2A2A;
+  --ui-usage-crit-text: #F3C9C9;
+  --ui-usage-weekend: #1F2329;
+  --ui-usage-weekend-text: #6B7280;
+  --ui-usage-unknown: #121417;
+  --ui-usage-unknown-text: #6B7280;
+
+  --ui-gantt-task: #4ADE80;
+  --ui-gantt-task-soft: #1E3B2A;
+  --ui-gantt-process: #7FB2FF;
+  --ui-gantt-process-soft: #1C2A44;
+  --ui-gantt-project: #7FB2FF;
+  --ui-gantt-project-soft: #1C2A44;
+  --ui-today: #FF6B6B;
+  --ui-drop: #7FB2FF;
+  --ui-overlay: rgba(255, 255, 255, 0.05);
+
+  --ui-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.35);
+  --ui-shadow-md: 0 1px 2px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.38), 0 8px 20px rgba(0, 0, 0, 0.45);
+  --ui-shadow-lg: 0 2px 8px rgba(0, 0, 0, 0.45), 0 16px 40px rgba(0, 0, 0, 0.55);
+
+  --ui-focus: #7FB2FF;
+}
+
+/* Explicit light — placed last so it wins over the OS-dark fallback */
+:root[data-scheme='light'] {
+  color-scheme: light;
+
+  --ui-bg: #F6F7F9;
+  --ui-surface: #FFFFFF;
+  --ui-surface-2: #F8F9FA;
+  --ui-surface-3: #F1F3F5;
+
+  --ui-text: #1F2937;
+  --ui-text-2: #4B5563;
+  --ui-text-muted: #6B7280;
+  --ui-text-faint: #9AA0A8;
+
+  --ui-border: #E6E8EC;
+  --ui-border-strong: #D5D9E0;
+
+  --ui-accent: #1A73E8;
+  --ui-accent-soft: #E8F0FE;
+  --ui-accent-on: #FFFFFF;
+
+  --ui-success: #34A853;
+  --ui-success-soft: #C8EAD3;
+  --ui-danger: #D93025;
+  --ui-danger-soft: #F9DEDC;
+  --ui-warning: #B06000;
+  --ui-warning-soft: #FDF0D5;
+  --ui-milestone: #FBBC04;
+
+  --ui-usage-ok: #AACFCF;
+  --ui-usage-ok-text: #1F3B3B;
+  --ui-usage-warn: #E6D488;
+  --ui-usage-warn-text: #4A3D14;
+  --ui-usage-crit: #E09A9A;
+  --ui-usage-crit-text: #5A2020;
+  --ui-usage-weekend: #EEF0F3;
+  --ui-usage-weekend-text: #9AA0A8;
+  --ui-usage-unknown: #FFFFFF;
+  --ui-usage-unknown-text: #B0B0B0;
+
+  --ui-gantt-task: #34A853;
+  --ui-gantt-task-soft: #C8EAD3;
+  --ui-gantt-process: #1A73E8;
+  --ui-gantt-process-soft: #D2E3FC;
+  --ui-gantt-project: #1A73E8;
+  --ui-gantt-project-soft: #D2E3FC;
+  --ui-today: #E53935;
+  --ui-drop: #1A73E8;
+  --ui-overlay: rgba(15, 23, 42, 0.04);
+
+  --ui-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05), 0 1px 3px rgba(15, 23, 42, 0.06);
+  --ui-shadow-md: 0 1px 2px rgba(15, 23, 42, 0.05), 0 2px 4px rgba(15, 23, 42, 0.06), 0 8px 24px rgba(15, 23, 42, 0.07);
+  --ui-shadow-lg: 0 2px 4px rgba(15, 23, 42, 0.06), 0 12px 32px rgba(15, 23, 42, 0.12);
+
+  --ui-focus: #1A73E8;
+}
+
+/* ==========================================================================
+ * Base (app-wide — this file is imported by every screen)
+ * ========================================================================== */
+
+body {
+  background: var(--ui-bg);
+  color: var(--ui-text);
+  font-family: var(--ui-font-sans);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ui-focus);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--ui-accent-soft);
+  color: var(--ui-text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+/* ==========================================================================
+ * UI font scale (the "Размер шрифта интерфейса" setting).
+ * Applied via `data-ui-size` on <html>; multiplies all calc()-wrapped
+ * font-size declarations through --ui-font-scale.
+ * ========================================================================== */
+
+html[data-ui-size='small'] {
+  --ui-font-scale: 0.9;
+}
+
+html[data-ui-size='large'] {
+  --ui-font-scale: 1.1;
+}
+
+/* ==========================================================================
+ * MMB drag panning cursor: while the middle mouse button is held, the whole
+ * page shows the "grabbing fist" — regardless of what is under the pointer
+ * (bars, headers, empty space). The class lives on <body> and is toggled by
+ * useTimelinePan (planner/timesheet) and DataTable.
+ * ========================================================================== */
+
+body.pan-grabbing,
+body.pan-grabbing * {
+  cursor: grabbing !important;
+}

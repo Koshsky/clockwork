@@ -1,0 +1,335 @@
+@import '../styles/tokens.css';
+
+.lp {
+  width: 860px;
+  max-width: calc(100vw - 32px);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-lg);
+  overflow: hidden;
+  box-shadow: var(--ui-shadow-lg);
+}
+
+/* === Left brand panel (Soft UI: soft accent tint, no gradient) === */
+.lp-brand {
+  background: var(--ui-accent-soft);
+  color: var(--ui-text);
+  padding: 44px 36px;
+  display: flex;
+  flex-direction: column;
+}
+
+.lp-logo {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-accent);
+  color: var(--ui-accent-on);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(var(--ui-font-scale, 1) * 18px);
+  font-weight: 800;
+  letter-spacing: 1px;
+  margin-bottom: 28px;
+}
+
+.lp-btitle {
+  font-size: calc(var(--ui-font-scale, 1) * 30px);
+  font-weight: 800;
+  line-height: 1.2;
+  color: var(--ui-accent);
+  margin-bottom: 6px;
+}
+
+.lp-bsub {
+  font-size: calc(var(--ui-font-scale, 1) * 15px);
+  color: var(--ui-text-muted);
+  margin-bottom: 36px;
+}
+
+.lp-features {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  margin-top: auto;
+}
+
+.feature {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.feature-icon {
+  font-size: calc(var(--ui-font-scale, 1) * 22px);
+  line-height: 1.2;
+  color: var(--ui-accent);
+}
+
+.feature-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.feature-body strong {
+  font-size: calc(var(--ui-font-scale, 1) * 14px);
+  font-weight: 600;
+  color: var(--ui-text);
+}
+
+.feature-body em {
+  font-style: normal;
+  font-size: calc(var(--ui-font-scale, 1) * 13px);
+  color: var(--ui-text-muted);
+}
+
+/* === Right form === */
+.lp-form-side {
+  padding: 40px 44px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.lp-title {
+  font-size: calc(var(--ui-font-scale, 1) * 22px);
+  font-weight: 700;
+  color: var(--ui-accent);
+  margin-bottom: 6px;
+}
+
+.lp-subtitle {
+  color: var(--ui-text-muted);
+  margin-bottom: 28px;
+  font-size: calc(var(--ui-font-scale, 1) * 14px);
+}
+
+/* === Tabs (token-ready; currently no tab markup in the template) === */
+.lp-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 20px;
+  background: var(--ui-surface-2);
+  border-radius: var(--ui-radius-md);
+  padding: 4px;
+}
+
+.lp-tab {
+  flex: 1;
+  padding: 9px 10px;
+  border: none;
+  border-radius: var(--ui-radius-sm);
+  background: transparent;
+  font-size: calc(var(--ui-font-scale, 1) * 13px);
+  font-weight: 600;
+  color: var(--ui-text-muted);
+  cursor: pointer;
+  transition: background var(--ui-duration), color var(--ui-duration);
+}
+
+.lp-tab.active {
+  background: var(--ui-surface);
+  color: var(--ui-accent);
+  box-shadow: var(--ui-shadow-sm);
+}
+
+.lp-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.lp-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: calc(var(--ui-font-scale, 1) * 13px);
+  font-weight: 600;
+  color: var(--ui-text-2);
+}
+
+.lp-field input {
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-md);
+  padding: 12px 14px;
+  font-size: calc(var(--ui-font-scale, 1) * 14px);
+  font-weight: 400;
+  transition: border-color var(--ui-duration), box-shadow var(--ui-duration);
+}
+
+.lp-field input::placeholder {
+  color: var(--ui-text-faint);
+}
+
+.lp-field input:focus {
+  outline: none;
+  border-color: var(--ui-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-accent) 18%, var(--ui-surface));
+}
+
+/* PasswordField child component — token-aligned from here via :deep(),
+   keeping its own .pwf scoped styles but winning on specificity. */
+.lp-form :deep(.pwf) {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: calc(var(--ui-font-scale, 1) * 13px);
+  font-weight: 600;
+  color: var(--ui-text-2);
+}
+
+.lp-form :deep(.pwf-label) {
+  color: var(--ui-text-2);
+}
+
+.lp-form :deep(.pwf-input) {
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-md);
+  font-size: calc(var(--ui-font-scale, 1) * 14px);
+  font-weight: 400;
+  padding: 12px 14px;
+  padding-right: 46px;
+  color: var(--ui-text);
+  transition: border-color var(--ui-duration), box-shadow var(--ui-duration);
+}
+
+.lp-form :deep(.pwf-input::placeholder) {
+  color: var(--ui-text-faint);
+}
+
+.lp-form :deep(.pwf-input:focus) {
+  outline: none;
+  border-color: var(--ui-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-accent) 18%, var(--ui-surface));
+}
+
+.lp-form :deep(.pwf-eye) {
+  color: var(--ui-text-muted);
+  transition: color var(--ui-duration), background var(--ui-duration);
+}
+
+.lp-form :deep(.pwf-eye:hover) {
+  color: var(--ui-accent);
+  background: var(--ui-surface-2);
+}
+
+.lp-error {
+  color: var(--ui-danger);
+  font-size: calc(var(--ui-font-scale, 1) * 13px);
+}
+
+.lp-warn,
+.lp-offline-hint {
+  color: var(--ui-warning);
+  font-size: calc(var(--ui-font-scale, 1) * 13px);
+}
+
+.lp-btn {
+  margin-top: 4px;
+  padding: 13px;
+  border: none;
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-accent);
+  color: var(--ui-accent-on);
+  font-size: calc(var(--ui-font-scale, 1) * 15px);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--ui-duration), transform 0.1s;
+}
+
+.lp-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ui-accent) 88%, black);
+}
+
+.lp-btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.lp-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.lp-settings-link {
+  display: block;
+  text-align: center;
+  margin-top: 14px;
+  font-size: calc(var(--ui-font-scale, 1) * 13px);
+  color: var(--ui-accent);
+  text-decoration: none;
+}
+
+.lp-settings-link:hover {
+  text-decoration: underline;
+}
+
+/* === "Server: …" row + ping (symbol-button with status indicator) === */
+.lp-server-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 14px;
+  font-size: calc(var(--ui-font-scale, 1) * 13px);
+  color: var(--ui-text-muted);
+}
+
+.lp-server {
+  max-width: 75%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Ping symbol-button: no border/background/shadow — just a "link"-style symbol */
+.lp-ping {
+  border: none;
+  background: transparent;
+  padding: 0 2px;
+  font-size: calc(var(--ui-font-scale, 1) * 15px);
+  line-height: 1;
+  color: var(--ui-text-faint);
+  cursor: pointer;
+  transition: color var(--ui-duration);
+}
+
+.lp-ping:hover:not(:disabled) {
+  color: var(--ui-accent);
+}
+
+.lp-ping:disabled {
+  cursor: default;
+}
+
+/* Connection indicator: symbol color = state */
+.lp-ping.ping-ok {
+  color: var(--ui-success);
+}
+
+.lp-ping.ping-fail {
+  color: var(--ui-danger);
+}
+
+/* Settings right below the server row — compact, as one group */
+.lp-server-row + .lp-settings-link {
+  margin-top: 4px;
+}
+
+@media (max-width: 760px) {
+  .lp {
+    grid-template-columns: 1fr;
+    width: 400px;
+  }
+  .lp-brand {
+    padding: 28px 28px;
+  }
+  .lp-features {
+    display: none;
+  }
+}

@@ -1,0 +1,50 @@
+# Git / CI
+.git
+.gitignore
+
+# Окружение и секреты
+.env
+.env.local
+.env.*.local
+.env.example
+
+# Докер — не нужен внутри контекста
+Dockerfile
+.dockerignore
+docker-compose.yml
+
+# Зависимости и артефакты сборки
+node_modules
+dist
+storybook-static
+coverage
+*.tsbuildinfo
+
+# Storybook — не участвует в vite build
+.storybook
+
+# Генерация API-клиента (нужны только сгенерированные TS в src/api)
+openapitools.json
+src/api/docs
+src/api/git_push.sh
+src/api/.openapi-generator
+src/api/.openapi-generator-ignore
+src/api/.npmignore
+
+# Локальные инструменты / редакторы / мусор
+.continue
+.vscode
+.idea
+.cache
+tmp
+logs
+*.log
+.DS_Store
+
+# Документация
+README.md
+*.md
+# ChangelogDialog imports both changelog files as ?raw (the dialog shows the
+# one matching the interface language) — keep them in the build context.
+!Changelog_RU.md
+!Changelog_ENG.md

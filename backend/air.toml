@@ -1,0 +1,21 @@
+root = "."
+tmp_dir = "build/air"
+
+[build]
+  cmd = "go build -p 2 -o ./build/air/service ./cmd/service"
+  entrypoint = ["./build/air/service"]
+  include_ext = ["go", "yaml", "toml", "mod", "sum"]
+  exclude_dir = [".git", "build", "tmp", "vendor", "migrations"]
+  delay = 500
+  send_interrupt = true
+  kill_delay = "3s"
+  stop_on_error = true
+  # Polling keeps reloads reliable when filesystem events are unavailable.
+  poll = true
+  poll_interval = 500
+
+[log]
+  time = true
+
+[misc]
+  clean_on_exit = true

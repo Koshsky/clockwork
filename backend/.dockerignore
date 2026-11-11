@@ -1,0 +1,18 @@
+.git
+.gitignore
+.env
+.env.example
+Dockerfile
+.dockerignore
+README.md
+*.md
+.continue
+.vscode
+# Historical deployment data must never enter a shared image.
+migrations/plugins/
+migrations/seed/
+build/
+bin/
+*.log
+air.toml
+.air.toml

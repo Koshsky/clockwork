@@ -1,0 +1,16 @@
+export default {
+  profile: 'Профиль',
+  themeToggle: 'Переключить тему (сейчас {theme})',
+  themeAria: 'Переключить тему',
+  themeLight: 'светлая',
+  themeDark: 'тёмная',
+  changelog: 'Журнал изменений',
+  languageToggle: 'Переключить язык (сейчас {language})',
+  languageAria: 'Переключить язык',
+  langRu: 'русский',
+  langEn: 'английский',
+  logout: 'Выйти из системы',
+  menuShortcut: 'Меню (Ctrl+B)',
+  menuOpen: 'Открыть меню',
+  menuClose: 'Закрыть меню',
+} as const

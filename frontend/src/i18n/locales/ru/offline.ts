@@ -1,0 +1,93 @@
+/**
+ * Russian catalog — offline mode: the mutation queue, sync/reconnect toasts,
+ * local-storage (IndexedDB) failures and messages the store raises for
+ * assignment rules that only the client can check.
+ */
+export default {
+  noCachedData: 'Нет сохранённых данных: откройте эту страницу онлайн хотя бы раз',
+  entity: {
+    resource: 'Ресурс',
+    user: 'Сотрудник',
+    member: 'Участник ресурса',
+    state: 'Статус',
+    period: 'Период табеля',
+    project: 'Проект',
+    process: 'Процесс',
+    task: 'Задача',
+    milestone: 'Веха',
+    assignment: 'Назначение',
+    reorder: 'Приоритет/порядок',
+  },
+  operation: {
+    create: 'Создание',
+    update: 'Изменение',
+    delete: 'Удаление',
+  },
+  field: {
+    code: 'Код',
+    title: 'Название',
+    name: 'Имя',
+    lastName: 'Фамилия',
+    firstName: 'Имя',
+    middleName: 'Отчество',
+    username: 'Логин',
+    position: 'Должность',
+    preset: 'Роль',
+    priority: 'Приоритет',
+    startDate: 'Начало',
+    endDate: 'Конец',
+    date: 'Дата',
+    ownerId: 'Владелец',
+    projectId: 'Проект',
+    processId: 'Процесс',
+    taskId: 'Задача',
+    resourceId: 'Ресурс',
+    userId: 'Сотрудник',
+    stateId: 'Статус',
+    quantity: 'Кол-во',
+  },
+  sync: {
+    close: 'Закрыть',
+    postpone: 'Отложить на потом',
+    networkLost: 'Сеть снова пропала: отправлено {ok}, остальное в очереди',
+    doneWithErrors: 'Синхронизировано {ok}, ошибок {failed}',
+    retry: 'Повторить',
+    skip: 'Пропустить',
+    done: 'Синхронизировано изменений: {ok}',
+  },
+  reconnect: {
+    offline: 'Нет соединения с сервером',
+    checking: 'Проверка соединения…',
+    attemptIn: 'Попытка реконнекта через {seconds} с',
+    retrying: 'Проверяю…',
+    retry: 'Повторить',
+  },
+  db: {
+    timeout: 'Локальное хранилище не отвечает. Закройте другие вкладки приложения и повторите попытку. Сохранённые данные не удалены.',
+    operationFailed: 'Не удалось выполнить операцию с локальным хранилищем',
+    unavailable: 'IndexedDB недоступен',
+    openFailed: 'Не удалось открыть IndexedDB',
+    repairFailed: 'Не удалось восстановить IndexedDB',
+  },
+  assignment: {
+    foreignResource: 'Назначить можно только ресурс, принадлежащий владельцу задачи',
+    notFound: 'Назначение не найдено',
+  },
+  http: {
+    insecureScheme: 'Сервер по http: сессия и автосинк (refresh) могут не работать — используйте https',
+  },
+  queue: {
+    foreignCreator:
+      'Запись создана под аккаунтом «{creator}», а синхронизация идёт как «{sender}»: переключите сохранённый аккаунт на экране «Синхронизация»',
+    noResponse: 'Запрос не выполнен (нет ответа от сервера)',
+    pendingCreation: 'Объект ещё не создан: сначала синхронизируется запись-создание с временным id',
+  },
+  server: {
+    forbidden: 'Нет прав на операцию (403)',
+    unauthorized: 'Требуется авторизация (401)',
+    notFound: 'Объект не найден (404)',
+    badRequest: 'Некорректные данные (400)',
+    conflict: 'Конфликт: такой объект уже существует (409)',
+    validation: 'Ошибка валидации (422)',
+  },
+} as const

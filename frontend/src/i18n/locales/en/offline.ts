@@ -1,0 +1,92 @@
+import type ru from '../ru/offline'
+import type { Translation } from '../types'
+
+/** English catalog mirroring locales/ru/offline.ts. */
+export default {
+  noCachedData: 'No saved data: open this page online at least once',
+  entity: {
+    resource: 'Resource',
+    user: 'Employee',
+    member: 'Resource member',
+    state: 'Status',
+    period: 'Timesheet period',
+    project: 'Project',
+    process: 'Process',
+    task: 'Task',
+    milestone: 'Milestone',
+    assignment: 'Assignment',
+    reorder: 'Priority/order',
+  },
+  operation: {
+    create: 'Create',
+    update: 'Update',
+    delete: 'Delete',
+  },
+  field: {
+    code: 'Code',
+    title: 'Title',
+    name: 'Name',
+    lastName: 'Last name',
+    firstName: 'First name',
+    middleName: 'Middle name',
+    username: 'Login',
+    position: 'Position',
+    preset: 'Role',
+    priority: 'Priority',
+    startDate: 'Start',
+    endDate: 'End',
+    date: 'Date',
+    ownerId: 'Owner',
+    projectId: 'Project',
+    processId: 'Process',
+    taskId: 'Task',
+    resourceId: 'Resource',
+    userId: 'Employee',
+    stateId: 'Status',
+    quantity: 'Qty',
+  },
+  sync: {
+    close: 'Close',
+    postpone: 'Postpone',
+    networkLost: 'The network dropped again: {ok} sent, the rest is queued',
+    doneWithErrors: 'Synced {ok}, failed {failed}',
+    retry: 'Retry',
+    skip: 'Skip',
+    done: 'Changes synced: {ok}',
+  },
+  reconnect: {
+    offline: 'No connection to the server',
+    checking: 'Checking the connection…',
+    attemptIn: 'Reconnect attempt in {seconds} s',
+    retrying: 'Checking…',
+    retry: 'Retry',
+  },
+  db: {
+    timeout: 'Local storage is not responding. Close other app tabs and try again. Saved data has not been deleted.',
+    operationFailed: 'Could not complete the local storage operation',
+    unavailable: 'IndexedDB is unavailable',
+    openFailed: 'Failed to open IndexedDB',
+    repairFailed: 'Failed to repair IndexedDB',
+  },
+  assignment: {
+    foreignResource: 'Only a resource owned by the task owner can be assigned',
+    notFound: 'Assignment not found',
+  },
+  http: {
+    insecureScheme: 'The server runs over http: the session and auto-sync (refresh) may fail — use https',
+  },
+  queue: {
+    foreignCreator:
+      'The entry was created under «{creator}» while syncing as «{sender}»: switch the saved account on the Sync screen',
+    noResponse: 'The request failed (no response from the server)',
+    pendingCreation: 'The object does not exist yet: the create entry with a temporary id is synced first',
+  },
+  server: {
+    forbidden: 'No permission for this operation (403)',
+    unauthorized: 'Authorization required (401)',
+    notFound: 'Object not found (404)',
+    badRequest: 'Invalid data (400)',
+    conflict: 'Conflict: this object already exists (409)',
+    validation: 'Validation failed (422)',
+  },
+} satisfies Translation<typeof ru>

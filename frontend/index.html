@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Планирование ресурсов</title>
+  <link rel="icon" href="https://service.mvsservice.ru/sd/favicons/favicon-180.png?id=-535744547" />
+  <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+</head>
+<body>
+  <div id="app">
+    <!-- Boot splash: shown instantly (inline, no JS) so the window is never
+         blank while the app starts up; Vue.mount replaces #app content. -->
+    <div class="boot-splash">
+      <div class="boot-logo">MVS ERP</div>
+      <div class="boot-spinner" aria-hidden="true"></div>
+    </div>
+  </div>
+  <style>
+    .boot-splash {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+      background: #f4f6f9;
+      font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    }
+    .boot-logo {
+      font-size: 26px;
+      font-weight: 700;
+      color: #1f2937;
+      letter-spacing: 0.02em;
+    }
+    .boot-spinner {
+      width: 26px;
+      height: 26px;
+      border: 3px solid #d1d5db;
+      border-top-color: #2563eb;
+      border-radius: 50%;
+      animation: boot-spin 0.9s linear infinite;
+    }
+    @keyframes boot-spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+    @media (prefers-color-scheme: dark) {
+      .boot-splash {
+        background: #111827;
+      }
+      .boot-logo {
+        color: #f9fafb;
+      }
+    }
+  </style>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
