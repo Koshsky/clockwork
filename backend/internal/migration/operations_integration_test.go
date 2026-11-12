@@ -29,7 +29,7 @@ INSERT INTO custom_plugin_marker VALUES ('preserve me');`)
 		t.Fatal(err)
 	}
 	state, err := Status(t.Context(), pool)
-	if err != nil || state.Version != 15 || state.Dirty {
+	if err != nil || state.Version != 16 || state.Dirty {
 		t.Fatalf("upgrade state: %+v, %v", state, err)
 	}
 	var legacyID, count int

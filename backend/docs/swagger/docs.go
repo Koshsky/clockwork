@@ -1453,7 +1453,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Check protocol=1, durable=true and a matching operations route/verb pattern before sending Operation-Id. Only planning/timesheet mutations are eligible; credentials, users, comments and administrative configuration are excluded. The ID is bound to the actor, method, complete request URI, exact body bytes and content type. An optional Idempotency-Key must exactly equal Operation-Id; without Operation-Id legacy TTL semantics remain unchanged. Successful durable receipts have no TTL. Non-2xx transactions roll back and remain unrecorded. Never change an existing legacy request into a durable request, or fall back to an unprotected request on an unsupported server.",
+                "description": "Check protocol=1, durable=true and a matching operations route/verb pattern before sending Operation-Id. Only planning/timesheet mutations are eligible; credentials, users, comments and administrative configuration are excluded. The ID is bound to the actor, method, complete request URI, exact body bytes and content type. An optional Idempotency-Key must exactly equal Operation-Id; without Operation-Id legacy TTL semantics remain unchanged. Successful durable receipts have no TTL. revision_protocol=1 enables Revision-Protocol: 1 reads and guarded mutations. Those successful replies wrap original data as data.snapshot and data._revisions (opaque aggregate tokens); guarded 204 becomes 200. Send _preconditions in the immutable JSON body plus Operation-Id and Revision-Protocol: 1. Never obtain fresh tokens separately from the edited snapshot. Strict process/project/resource/day aggregates may conservatively conflict; no field merging occurs. Existing clients without opt-in retain their original shapes and legacy writes still invalidate tokens. Non-2xx transactions roll back and remain unrecorded. Never change an existing legacy request into a durable request, or fall back to an unprotected request on an unsupported server.",
                 "produces": [
                     "application/json"
                 ],
@@ -9702,6 +9702,9 @@ const docTemplate = `{
                     }
                 },
                 "protocol": {
+                    "type": "integer"
+                },
+                "revision_protocol": {
                     "type": "integer"
                 }
             }

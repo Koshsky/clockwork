@@ -78,6 +78,7 @@ func (a *App) registerRoutes(router *gin.Engine) {
 	// Idempotency-Key header is present.
 	protected.Use(a.tracer.GinSpan("middleware.idempotency"))
 	protected.Use(a.idemMw.Handler())
+	protected.Use(a.idemMw.RevisionHandler())
 	protected.Use(a.tracer.GinSpan("middleware.ratelimit.user"))
 	protected.Use(a.rateLimiter.FromConfigKeyed(a.cfg.UserRateLimit, a.userKey))
 	a.idemMw.RegisterRoutes(protected)

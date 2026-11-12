@@ -5,6 +5,7 @@ sql:
     schema:
       - "../../../migrations/V1__initial_schema.sql"
       - "../../../migrations/V15__durable_operation_receipts.sql"
+      - "../../../migrations/V16__operation_revision_guards.sql"
     queries:
       - "./query"
     gen:

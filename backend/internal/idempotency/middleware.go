@@ -76,6 +76,7 @@ type Middleware struct {
 	logger     *slog.Logger
 	tracer     *tracingpkg.Tracer
 	operations OperationRepo
+	revisions  RevisionRepo
 
 	cleanupOnce sync.Once
 }
@@ -93,7 +94,8 @@ func New(
 		tracer = tracingpkg.New(nil)
 	}
 	operations, _ := repo.(OperationRepo)
-	return &Middleware{repo: repo, logger: logger, tracer: tracer, operations: operations}
+	revisions, _ := repo.(RevisionRepo)
+	return &Middleware{repo: repo, logger: logger, tracer: tracer, operations: operations, revisions: revisions}
 }
 
 // Handler wraps the route handler with the idempotency logic.

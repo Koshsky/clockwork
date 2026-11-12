@@ -109,5 +109,8 @@
   "durable operation outcome unknown": "Результат операции пока неизвестен",
   "durable operation claim failed": "Не удалось начать операцию",
   "operation request is too large": "Слишком большой запрос операции",
-  "durable operations unavailable": "Долговечное подтверждение операций недоступно"
+  "durable operations unavailable": "Долговечное подтверждение операций недоступно",
+  "revision storage unavailable": "Недоступно хранилище версий",
+  "data changed; reload before retrying": "Данные изменились. Обновите их перед повторной попыткой.",
+  "invalid revision preconditions": "Некорректные условия проверки версии"
 }

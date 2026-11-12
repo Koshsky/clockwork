@@ -10,4 +10,6 @@ func (e OperationError) Error() string {
 const (
 	ErrOperationTransactionRequired OperationError = "operation completion requires a request transaction"
 	ErrOperationResponseInvalid     OperationError = "operation response must be successful"
+	ErrRevisionTokenMissing         OperationError = "revision metadata is incomplete"
+	ErrRevisionRequestInvalid       OperationError = "invalid revision preconditions"
 )

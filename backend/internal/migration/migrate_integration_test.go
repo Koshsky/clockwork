@@ -106,7 +106,7 @@ func TestFlywayAdoption(t *testing.T) {
 		t.Fatal(err)
 	}
 	state, err = Status(t.Context(), pool)
-	if err != nil || state.Version != 15 || state.Dirty {
+	if err != nil || state.Version != 16 || state.Dirty {
 		t.Fatalf("state %v %v", state, err)
 	}
 	if got := historySnapshot(t, pool); got != before {
@@ -124,7 +124,7 @@ func TestFlywayAdoption(t *testing.T) {
 		t.Fatalf("repeat adoption %v %v", report, err)
 	}
 	state, err = Status(t.Context(), pool)
-	if err != nil || state.Version != 15 {
+	if err != nil || state.Version != 16 {
 		t.Fatalf("adoption rewound native version: %v %v", state, err)
 	}
 	if historySnapshot(t, pool) != before {
@@ -139,7 +139,7 @@ func TestFreshDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 	state, err := Status(t.Context(), pool)
-	if err != nil || state.Version != 15 || state.Dirty || state.Flyway {
+	if err != nil || state.Version != 16 || state.Dirty || state.Flyway {
 		t.Fatalf("state %v %v", state, err)
 	}
 }

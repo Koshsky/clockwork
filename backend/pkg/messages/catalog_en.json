@@ -93,5 +93,8 @@
   "durable operation outcome unknown": "The operation outcome is not yet known",
   "durable operation claim failed": "Could not start the operation",
   "operation request is too large": "The operation request is too large",
-  "durable operations unavailable": "Durable operation acknowledgements are unavailable"
+  "durable operations unavailable": "Durable operation acknowledgements are unavailable",
+  "revision storage unavailable": "Revision storage unavailable",
+  "data changed; reload before retrying": "The data changed. Reload it before retrying.",
+  "invalid revision preconditions": "Invalid revision preconditions"
 }
