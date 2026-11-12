@@ -10,6 +10,7 @@ The web app and the desktop wrapper are versioned together.
 
 ### Fixed
 
+- Task planning ignores stale replies across refreshes, cache hydration and account changes.
 - Session restoration avoids duplicate refreshes and restores authorization before manually sending offline changes.
 
 ## [1.6.3] - 2026-11-11

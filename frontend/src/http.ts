@@ -48,14 +48,16 @@ function redirectToLogin() {
  * generated API clients (src/api/base.ts: globalAxios).
  */
 export function setupHttp() {
-  const reads = new WeakMap<object, number | null>()
+  const reads = new WeakMap<object, { stamp: number | null; prefix: string; key: string }>()
   // Never attach an EMPTY Authorization header ("Bearer ") — the backend
   // answers such requests with INVALID_TOKEN (invalid authorization format),
   // which the UI misreads as «Сессия истекла». Without a token the header is
   // simply omitted; protected endpoints then return a plain 401 that flows
   // through the normal refresh/retry path below.
   axios.interceptors.request.use((config) => {
-    if ((config.method ?? 'get').toLowerCase() === 'get') reads.set(config, readStamp())
+    if ((config.method ?? 'get').toLowerCase() === 'get') {
+      reads.set(config, { stamp: readStamp(), prefix: userCachePrefix(), key: cacheKey(config) })
+    }
     const token = getAccessToken()
     config.headers = config.headers ?? {}
     const auth = String(config.headers['authorization'] || config.headers['Authorization'] || '')
@@ -79,6 +81,7 @@ export function setupHttp() {
   axios.interceptors.response.use(
     async (response) => {
       const { config, status } = response
+      const read = reads.get(config)
       if (
         status >= 200 &&
         status < 300 &&
@@ -86,9 +89,10 @@ export function setupHttp() {
         config.url &&
         !AUTH_PATHS.some((path) => config.url!.includes(path)) &&
         !config.headers.get('X-View-User-ID') &&
-        mayApplyRead(reads.get(config) ?? null)
+        read != null && read.prefix === userCachePrefix() && mayApplyRead(read.stamp)
       ) {
-        await cachePut(cacheKey(config), response.data)
+        // A delayed reply must never be written under a newly logged-in account.
+        await cachePut(read.key, response.data)
         // Invariant "cache = server + queue": after a fresh write we re-apply
         // unsynchronized mutations — warmup/reconcile must not erase them with
         // server truth (otherwise offline edits are lost after a reload).
@@ -103,6 +107,8 @@ export function setupHttp() {
       if (!config) {
         return Promise.reject(error)
       }
+      const read = reads.get(config)
+      if (read && read.prefix !== userCachePrefix()) return Promise.reject(error)
 
       // Server unreachable (network, timeout, abort — any request without an HTTP response):
       // serve the last saved response from the cache (same { data, error } format). Read-time
@@ -112,7 +118,8 @@ export function setupHttp() {
       if (!error.response) {
         if ((config.method ?? 'get').toLowerCase() === 'get') {
           await replayOutboxToCache()
-          const key = cacheKey(config)
+          if (read?.prefix !== userCachePrefix()) return Promise.reject(error)
+          const key = read.key
           let cached = await cacheGet<unknown>(key)
           // The exact key may not match (a GET with a date window depends on "today"
           // and differs after warmup) — look up the fresh response by endpoint.
@@ -126,10 +133,12 @@ export function setupHttp() {
             })()
             cached = await cacheGetByPath<unknown>(pathname)
           }
+          if (read.prefix !== userCachePrefix()) return Promise.reject(error)
           if (cached != null) {
             isOffline.value = true
             console.log(`[offline] served cache: ${key}`)
             return {
+              __erpLocalSnapshot: true,
               data: cached,
               status: 200,
               statusText: 'OK',

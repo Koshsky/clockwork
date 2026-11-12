@@ -1,8 +1,8 @@
 import { defineStore } from 'pinia'
-import { ref, computed, watch, onScopeDispose } from 'vue'
+import { ref, computed, watch, onScopeDispose, hasInjectionContext, inject } from 'vue'
 import axios, { type AxiosError, type Method } from 'axios'
 import { AuthApi, ProjectsApi, ProcessesApi, TasksApi, TimesheetResourcesApi, TimesheetCalendarApi, TimesheetStatesApi, PlanningApi, MilestonesApi, UsersApi, AssignmentsApi, AutoCreateApi, RBACApi, PermissionsApi, AuditApi, Configuration } from '@/api'
-import type { DtoUserInfo, DtoProject, DtoResourceResponse, DtoResourceCalendar, DtoResourceMemberResponse, DtoResourceAbsenceResponse, DtoUserResponse, DtoUserStateResponse, DtoStateResponse, DtoCreateResourceRequest, DtoUpdateResourceRequest, DtoCreateUserRequest, DtoUpdateUserRequest, DtoAdminUserResponse, DtoCreateUserResult, DtoAutoCreateConfig, DtoAutoCreatedCounts, DtoCommentResponse, DtoPresetView, DtoPresetRuleInput, DtoPresetRuleView, DtoMatrixCell, DtoRoutePolicyView, EngineKindInfo, DtoPermission, DtoUserPermissionsView, DtoUserPermissionsInput, DtoAuditEventView, DtoAssignmentResponse, DtoDetailedProcess, DtoDetailedProject, DtoDetailedTask, DtoMilestone, DtoProcess, DtoProcessPlanning, DtoProjectPlanning, DtoResource, DtoTaskDependency, DtoTaskPlanning } from '@/api'
+import type { DtoUserInfo, DtoProject, DtoResourceResponse, DtoResourceCalendar, DtoResourceMemberResponse, DtoResourceAbsenceResponse, DtoUserResponse, DtoUserStateResponse, DtoStateResponse, DtoCreateResourceRequest, DtoUpdateResourceRequest, DtoCreateUserRequest, DtoUpdateUserRequest, DtoAdminUserResponse, DtoCreateUserResult, DtoAutoCreateConfig, DtoAutoCreatedCounts, DtoCommentResponse, DtoPresetView, DtoPresetRuleInput, DtoPresetRuleView, DtoMatrixCell, DtoRoutePolicyView, EngineKindInfo, DtoPermission, DtoUserPermissionsView, DtoUserPermissionsInput, DtoAuditEventView, DtoAssignmentResponse, DtoDetailedProcess, DtoDetailedProject, DtoDetailedTask, DtoTaskResponse, DtoUpdateTaskRequest, DtoMilestone, DtoProcess, DtoProcessPlanning, DtoProjectPlanning, DtoResource, DtoTaskDependency, DtoTaskPlanning } from '@/api'
 import { apiErrorMessage } from '@/utils'
 import { t } from '@/i18n'
 import { getApiUrl } from '@/config'
@@ -10,7 +10,7 @@ import { tablePageSize } from '@/settings'
 import { isOffline } from '@/offline/state'
 import { offlineFailFastAdapter } from '@/offline/failFast'
 import { scheduleWarmup } from '@/offline/warmup'
-import { enqueueMutation, isNetworkError, pruneForeignOutbox, type MutationEntity } from '@/offline/outbox'
+import { enqueueMutation, isNetworkError, pruneForeignOutbox } from '@/offline/outbox'
 import { scheduleDomainRefresh } from '@/offline/sync'
 import { applyRangeSplit } from '@/offline/periodSplit'
 import { updatePeriodAvailability } from './periodAvailability'
@@ -28,6 +28,10 @@ import { saveRefreshToken, loadRefreshToken, clearRefreshToken } from '@/offline
 import { createTemporaryId } from '@/offline/temporaryId'
 import { hydrateFromCache, apiPath } from '@/offline/hydrate'
 import { cacheGetAllByPath } from '@/offline/cache'
+import { createReadGuard } from '@/data/readGuard'
+import { taskDataKey } from '@/data/taskData'
+import { createLegacyTaskData } from './data/legacyTasks'
+import { runMutation } from './data/legacyMutation'
 import { evalScope, type ScopeProbe } from '@/rbacScope'
 import { parentScope } from '@/utils/presetDefaults'
 import {
@@ -67,81 +71,6 @@ const BATCH_IDS_MAX = 200
 /** Temporary (negative) id for entities created offline (unique over time) */
 function nextTempId(): number {
   return createTemporaryId()
-}
-
-interface MutationOptions<T = unknown> {
-  call: () => Promise<unknown>
-  entity: MutationEntity
-  tempId?: number
-  /** Regular path after a successful server response (data — the useful part of the payload) */
-  apply: (data: T | null) => void | Promise<void>
-  /** Optimistic path when offline (the request has already gone into the outbox queue) */
-  optimistic: () => void
-  onError: (message: string) => void
-}
-
-/**
- * Runs a mutation with offline support:
- *  - network unavailable (or a network error) → the request is saved to the
- *    outbox queue and the optimistic change is applied, returns true;
- *  - online success → the regular apply, then a coalesced background refresh
- *    of the mutated domains (scheduleDomainRefresh): related pages (the other
- *    planning aggregates) become server-fresh immediately instead of waiting
- *    for the slow PULL cycle — the "backend > cache" rule while online;
- *  - server error → false + onError (as before offline support).
- *  Auth/passwords (/auth/*, changePassword) do not go through this path.
- */
-async function runMutation<T = unknown>(opts: MutationOptions<T>): Promise<boolean> {
-  const finish = beginMutation()
-  try {
-    const resp = await opts.call()
-    const body = (resp as { data?: { error?: { code?: unknown; message?: string } } } | undefined)?.data
-    if (body?.error && (body.error.code != null || body.error.message)) {
-      throw new Error(apiErrorMessage(body.error))
-    }
-    // Unwrap the unified envelope exactly TWO levels: `resp.data` is the body
-    // ({ data: <payload>, error }), `resp.data.data` is the payload DTO the
-    // apply callback expects (the created/updated entity). Going one level
-    // deeper (resp.data.data.data = payload.data) yields undefined for every
-    // create/update DTO and would silently drop online mutations from the UI
-    // (the offline/optimistic path is unaffected — it never reads the payload).
-    finish()
-    await opts.apply(((resp as { data?: { data?: unknown } } | undefined)?.data?.data as T | null) ?? null)
-    // Post-mutation consistency (online only): the outbox flush path owns the
-    // refresh of queued changes (reconcile), so here the refresh is skipped
-    // while isOffline — an optimistic entry would otherwise be reconciled
-    // against the pre-mutation server state.
-    if (!isOffline.value) scheduleDomainRefresh([opts.entity])
-    return true
-  } catch (e: unknown) {
-    const err = e as AxiosError
-    if (err?.config && isNetworkError(e)) {
-      // Mutation queue (outbox): on a network failure the request is stored in
-      // IndexedDB and the optimistic change is applied — in every environment
-      // (web and desktop share the same offline-first logic).
-      try {
-        await enqueueMutation({
-          entity: opts.entity,
-          tempId: opts.tempId,
-          method: (err.config.method ?? 'get') as Method,
-          url: axios.getUri(err.config),
-          body: err.config.data,
-          idempotencyKey: String(err.config.headers?.['Idempotency-Key'] ?? err.config.headers?.['idempotency-key'] ?? '') || undefined,
-        })
-      } catch {
-        finish()
-        opts.onError(e instanceof Error ? e.message ?? String(e) : String(e))
-        return false
-      }
-      opts.optimistic()
-      return true
-    }
-    finish()
-    opts.onError(e instanceof Error ? e.message ?? String(e) : String(e))
-    return false
-  } finally {
-    finish()
-  }
 }
 
 function apiConfig(): Configuration {
@@ -2007,6 +1936,9 @@ export const useTimesheetStore = defineStore('timesheet', () => {
 
 // === Planning (data from /planning/* for the three charts) ===
 export const usePlanningStore = defineStore('planning', () => {
+  const taskData = (hasInjectionContext() ? inject(taskDataKey, null) : null) ?? createLegacyTaskData(apiConfig)
+  const taskReads = createReadGuard()
+  let taskContext = 0
   const projectPlanning = ref<DtoProjectPlanning | null>(null)
   const processPlanning = ref<DtoProcessPlanning | null>(null)
   const taskPlanning = ref<DtoTaskPlanning | null>(null)
@@ -2018,11 +1950,13 @@ export const usePlanningStore = defineStore('planning', () => {
   const commentsByTask = ref<Record<number, DtoCommentResponse[]>>({})
   const commentsLoading = ref(false)
   const commentsError = ref<string | null>(null)
+  let foregroundLoads = 0
 
   /** Common planning load path: silent mode leaves loading/error untouched,
    *  so a background reload after a mutation does not clear a visible error and does not show a spinner. */
   async function runLoad(silent: boolean, load: () => Promise<unknown>) {
     if (!silent) {
+      foregroundLoads++
       loading.value = true
       error.value = null
     }
@@ -2031,7 +1965,7 @@ export const usePlanningStore = defineStore('planning', () => {
     } catch (e: unknown) {
       if (!silent) error.value = e instanceof Error ? e.message || String(e) : String(e)
     } finally {
-      if (!silent) loading.value = false
+      if (!silent) loading.value = --foregroundLoads > 0
     }
   }
 
@@ -2073,13 +2007,12 @@ export const usePlanningStore = defineStore('planning', () => {
   }
 
   async function loadTaskPlanning(): Promise<void> {
-    await hydratePlanning(
-      () => taskPlanning.value,
-      (v) => {
-        taskPlanning.value = v
-      },
-      apiPath('/planning/tasks'),
-    )
+    if (taskPlanning.value != null) return
+    const context = taskContext
+    const result = await taskData.readPlanning({ source: 'snapshot' })
+    if (context !== taskContext || taskPlanning.value != null) return
+    if (result.status === 'ok') taskPlanning.value = result.data
+    else if (result.status === 'failed') throw new Error(result.error.message)
   }
 
   async function refreshProjectPlanning(silent = false): Promise<void> {
@@ -2106,10 +2039,13 @@ export const usePlanningStore = defineStore('planning', () => {
 
   async function refreshTaskPlanning(silent = false): Promise<void> {
     await runLoad(silent, async () => {
+      const request = taskReads.begin()
       const stamp = readStamp()
-      const resp = await new PlanningApi(apiConfig()).planningTasksGet()
-      if (!mayApplyRead(stamp)) return
-      if (pendingRefs.value.size === 0) taskPlanning.value = resp.data?.data ?? null
+      const result = await taskData.readPlanning({ source: 'refresh' })
+      if (!request.isCurrent() || !mayApplyRead(stamp)) return
+      if (result.status === 'failed') throw new Error(result.error.message)
+      if (result.status === 'cancelled') return
+      if (pendingRefs.value.size === 0) taskPlanning.value = result.status === 'ok' ? result.data : null
       // A durable queue must preserve edits without blocking the first snapshot.
       else if (taskPlanning.value == null) await loadTaskPlanning()
     })
@@ -2180,30 +2116,49 @@ export const usePlanningStore = defineStore('planning', () => {
     }
   }
 
+  async function mutateTask(
+    id: number,
+    patch: DtoUpdateTaskRequest,
+    apply: (dto: DtoTaskResponse | null) => void,
+    optimistic: () => void,
+    onError: (message: string) => void,
+  ): Promise<boolean> {
+    const context = taskContext
+    const finish = beginMutation()
+    try {
+      const result = await taskData.update(id, patch)
+      if (context !== taskContext) return false
+      if (result.status === 'confirmed') {
+        apply(result.data)
+        return true
+      }
+      if (result.status === 'queued') {
+        optimistic()
+        return true
+      }
+      onError(result.error.message)
+      return false
+    } finally {
+      finish()
+    }
+  }
+
   /** Bar date shift: local edit first (see patchRow), then the PUT. */
   async function updateTaskDates(id: number, start_date: string, end_date: string): Promise<boolean> {
     const row = findTaskRow(id)
     const previous = { start_date: row?.start_date, end_date: row?.end_date }
     const applyLocally = () => patchRow(findTaskRow(id), { start_date, end_date })
     applyLocally()
-    return runMutation({
-      entity: 'task',
-      call: () => new TasksApi(apiConfig()).taskIdPut(id, { start_date, end_date }),
-      // The PUT echoes the stored row — apply it locally. The aggregate itself is
-      // re-read ONCE by the coalesced post-mutation refresh (scheduleDomainRefresh),
-      // so refreshing here as well would only duplicate that GET.
-      apply: (dto) => {
-        const d = dto as { start_date?: string; end_date?: string } | null
-        patchRow(findTaskRow(id), { start_date: d?.start_date, end_date: d?.end_date })
-      },
-      optimistic: applyLocally,
-      onError: (m) => {
+    return mutateTask(id, { start_date, end_date },
+      (dto) => patchRow(findTaskRow(id), { start_date: dto?.start_date, end_date: dto?.end_date }),
+      applyLocally,
+      (m) => {
         error.value = m
         const current = findTaskRow(id)
         if (current?.start_date === start_date && current?.end_date === end_date) patchRow(current, previous)
         void refreshTaskPlanning(true)
       },
-    })
+    )
   }
 
   // === Dependency constraints (scheduling links between top-level tasks) ===
@@ -2534,14 +2489,8 @@ export const usePlanningStore = defineStore('planning', () => {
     patch: { title?: string; owner_id?: number; responsible_id?: number; color?: string; status?: string },
   ): Promise<boolean> {
     const applyLocally = () => patchRow(findTaskRow(id), patch)
-    return runMutation({
-      entity: 'task',
-      call: () => new TasksApi(apiConfig()).taskIdPut(id, patch),
-      apply: applyLocally,
-      optimistic: applyLocally,
-      onError: (m) => {
-        error.value = m
-      },
+    return mutateTask(id, patch, applyLocally, applyLocally, (m) => {
+      error.value = m
     })
   }
 
@@ -2824,14 +2773,8 @@ export const usePlanningStore = defineStore('planning', () => {
     patch: { title?: string; color?: string; status?: string },
   ): Promise<boolean> {
     const applyLocally = () => patchRow(findTaskRow(id), patch)
-    return runMutation({
-      entity: 'task',
-      call: () => new TasksApi(apiConfig()).taskIdPut(id, patch),
-      apply: applyLocally,
-      optimistic: applyLocally,
-      onError: (m) => {
-        error.value = m
-      },
+    return mutateTask(id, patch, applyLocally, applyLocally, (m) => {
+      error.value = m
     })
   }
 
@@ -3324,6 +3267,8 @@ export const usePlanningStore = defineStore('planning', () => {
   /** Clears the user-scoped planning payloads on logout/account switch (the GET
    *  cache itself is per-user keyed — see offline/cache.ts). */
   function resetUserData(): void {
+    taskContext++
+    taskReads.invalidate()
     projectPlanning.value = null
     processPlanning.value = null
     taskPlanning.value = null
