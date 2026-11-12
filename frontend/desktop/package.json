@@ -31,6 +31,13 @@
     },
     "files": [
       "main.js",
+      "application.cjs",
+      "renderer-recovery.cjs",
+      "profile.cjs",
+      "protocol.cjs",
+      "protocol-operations.json",
+      "service.cjs",
+      "ipc.cjs",
       "preload.js",
       "security.cjs",
       "static-server.cjs",

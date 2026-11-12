@@ -2,7 +2,7 @@ import { expect, it } from 'vitest'
 import { forbiddenRendererImport } from '../../scripts/platform-boundaries.mjs'
 const files = import.meta.glob(['../main.ts', './web.ts', './select.ts', './cacheStore.ts', '../offline/outbox.ts', '../views/SystemQueuePage.vue', '../../vite.config.ts'], { eager: true, query: '?raw', import: 'default' })
 const source = (file: string) => files[file] as string
-it.each(['electron', 'electron/main', 'node:fs', 'fs/promises', '../desktop/preload.cjs', '/app/desktop/main.js'])('blocks native renderer dependency %s', id => { expect(forbiddenRendererImport(id)).toBe(true) })
+it.each(['electron', 'electron/main', 'node:fs', 'fs/promises', '../desktop/preload.cjs', '/app/desktop/main.js', '../desktop/service.cjs', '../desktop/application.cjs', '../desktop/ipc.cjs'])('blocks native renderer dependency %s', id => { expect(forbiddenRendererImport(id)).toBe(true) })
 it.each(['vue', '../offline/cache', './desktop', './context', '@/store'])('permits renderer module %s', id => { expect(forbiddenRendererImport(id)).toBe(false) })
 it('keeps bootstrap selection separate from the common entrypoint', () => {
   const main = source('../main.ts')

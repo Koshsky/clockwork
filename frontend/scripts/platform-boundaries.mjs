@@ -4,7 +4,7 @@ const nativeModules = new Set(builtinModules.map(name => name.replace(/^node:/, 
 export function forbiddenRendererImport(source) {
   return source === 'electron' || source.startsWith('electron/') ||
     nativeModules.has(source.replace(/^node:/, '')) ||
-    /(?:^|\/)desktop\/(?:main|preload)\.[cm]?[jt]s(?:$|\?)/.test(source)
+    /(?:^|\/)desktop\/(?:main|preload|application|profile|protocol|service|ipc)\.[cm]?[jt]s(?:$|\?)/.test(source)
 }
 
 // Legacy cache/queue imports remain until the read/write adapters are migrated.

@@ -10,6 +10,8 @@ The web app and the desktop wrapper are versioned together.
 
 ### Fixed
 
+- Electron adds a shared IPC service with request validation and renderer recovery.
+
 - Web edits require API confirmation without an offline queue; lost replies support safe retries and rejected changes roll back.
 
 - Web pages load from the API without IndexedDB reads, with scoped request caching and protection against stale replies.

@@ -29,5 +29,5 @@ jobs:
       - run: npm run check
       - run: npm run lint
       - run: npm run test:stories -- --project unit
-      - run: node --test tests/security.test.cjs
+      - run: node --test tests/security.test.cjs tests/desktop-service.test.cjs
       - run: npm run build
