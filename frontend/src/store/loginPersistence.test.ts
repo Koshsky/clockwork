@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
-const fake = vi.hoisted(() => ({ login: vi.fn(), loggedOut: true }))
+const fake = vi.hoisted(() => ({ login: vi.fn(), loggedOut: true, optionalStorage: false }))
 vi.mock('@/api', async original => ({
   ...await original<typeof import('@/api')>(),
   AuthApi: class { authLoginPost(...args: unknown[]) { return fake.login(...args) } },
 }))
+vi.mock('@/platform/context', () => ({ platformCapabilities: { get optionalStorage() { return fake.optionalStorage } } }))
 vi.mock('@/sessionSync', () => ({ withRefreshLock: vi.fn(), publishSession: vi.fn(), subscribeSession: () => () => {}, subscribeToken: () => () => {} }))
 vi.mock('@/loggedOut', () => ({ isLoggedOut: () => fake.loggedOut, clearLoggedOut: () => { fake.loggedOut = false }, setLoggedOut: vi.fn() }))
 vi.mock('@/offline/warmup', () => ({ scheduleWarmup: vi.fn() }))
@@ -20,6 +21,7 @@ beforeEach(() => {
   vi.useFakeTimers()
   vi.clearAllMocks()
   fake.loggedOut = true
+  fake.optionalStorage = false
   vi.stubGlobal('localStorage', { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() })
   vi.stubGlobal('window', { setInterval: vi.fn(() => 1), addEventListener: vi.fn(), removeEventListener: vi.fn() })
   vi.stubGlobal('document', { addEventListener: vi.fn(), removeEventListener: vi.fn() })
@@ -54,4 +56,17 @@ it('shows an invalid-credentials response without opening local storage or leavi
   expect(auth.loading).toBe(false)
   expect(auth.error).toBe('Invalid credentials')
   expect(open).not.toHaveBeenCalled()
+})
+
+it('allows web login through the existing cookie when IndexedDB never opens', async () => {
+  fake.optionalStorage = true
+  vi.stubGlobal('indexedDB', { open: vi.fn(() => ({})) })
+  fake.login.mockResolvedValue({ data: { data: { access_token: 'test-access', refresh_token: 'test-refresh' } } })
+  const auth = useAuthStore()
+  const login = auth.login('admin', 'test-password')
+  await vi.advanceTimersByTimeAsync(4001)
+  expect(await login).toBe(true)
+  expect(auth.loading).toBe(false)
+  expect(auth.isAuthenticated).toBe(true)
+  expect(localStorage.setItem).toHaveBeenCalledWith('mvs_erp_web_cookie_session', '1')
 })

@@ -4,8 +4,9 @@ import router from './router'
 import { apiErrorMessage } from './utils'
 import { currentLocale, t } from './i18n'
 import { notifyError } from './notify/state'
+import { prepareCacheOverlay } from './platform/legacyRead'
 import { cacheGet, cacheGetByPath, cachePut, userCachePrefix } from './offline/cache'
-import { replayOutboxToCache, scheduleReplayOutboxToCache, createMutationKey } from './offline/outbox'
+import { scheduleReplayOutboxToCache, createMutationKey } from './offline/outbox'
 import { isOffline } from './offline/state'
 import { getAccessToken, accessTokenExpired } from './token'
 import { ensureAutoSession } from './offline/sync'
@@ -117,7 +118,7 @@ export function setupHttp() {
       if (!error.response && config.headers?.get('X-View-User-ID')) return Promise.reject(error)
       if (!error.response) {
         if ((config.method ?? 'get').toLowerCase() === 'get') {
-          await replayOutboxToCache()
+          await prepareCacheOverlay()
           if (read?.prefix !== userCachePrefix()) return Promise.reject(error)
           const key = read.key
           let cached = await cacheGet<unknown>(key)

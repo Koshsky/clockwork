@@ -3,7 +3,7 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { t } from '@/i18n'
 import { getServerBase, getApiUrl, setServerBase, httpSchemeWarning } from '../config'
-import { isElectron } from '../electron'
+import { platformCapabilities } from '@/platform/context'
 
 /**
  * Server address settings screen (before login).
@@ -116,7 +116,7 @@ function onSave() {
       <h2 class="lp-title">{{ t('adminSystem.server.title') }}</h2>
 
       <!-- Electron: the address can be set (the exe connects to an external backend) -->
-      <template v-if="isElectron">
+      <template v-if="platformCapabilities.serverSelection">
         <p class="lp-subtitle">{{ t('adminSystem.server.subtitle') }}</p>
 
         <form class="lp-form" @submit.prevent="onSave">

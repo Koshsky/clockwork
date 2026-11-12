@@ -4,11 +4,13 @@ import { t } from '@/i18n'
 import { fmtDateTime } from '@/i18n/date'
 import { queueItems, refreshPendingCount, getFailedEntries } from '../offline/outbox'
 import { retryFailed, discardFailed, syncNotice, dismissSyncNotice } from '../offline/sync'
+import { legacyQueueAvailability } from '@/platform/state'
 import { isOffline } from '../offline/state'
 import { notifyError, notifySuccess } from '../notify/state'
 
 const failedEntries = ref<Array<{ method: string; url: string; message: string }>>([])
 const busy = ref(false)
+const queueKnown = computed(() => legacyQueueAvailability.value === 'empty' || legacyQueueAvailability.value === 'pending')
 
 let refreshTimer: number | null = null
 
@@ -55,7 +57,7 @@ async function refreshStatus() {
 }
 
 async function onRetry() {
-  if (busy.value) return
+  if (busy.value || !queueKnown.value) return
   busy.value = true
   try {
     await retryFailed()
@@ -70,7 +72,7 @@ async function onRetry() {
 }
 
 async function onDiscard() {
-  if (busy.value) return
+  if (busy.value || !queueKnown.value) return
   busy.value = true
   try {
     await discardFailed()
@@ -95,6 +97,11 @@ onBeforeUnmount(() => {
 <template>
   <section class="sq">
     <h2 class="sq-title">{{ t('adminSystem.queue.title') }}</h2>
+
+    <div v-if="!queueKnown" class="sq-card" role="status">
+      <h3 class="sq-card-title">{{ t('adminSystem.queue.storage.title') }}</h3>
+      <p class="sq-hint">{{ t('adminSystem.queue.storage.hint') }}</p>
+    </div>
 
     <div v-if="queueItems.length > 0" class="sq-card">
       <h3 class="sq-card-title">
@@ -167,12 +174,12 @@ onBeforeUnmount(() => {
       </ul>
     </div>
 
-    <div v-else class="sq-card">
+    <div v-else-if="queueKnown" class="sq-card">
       <h3 class="sq-card-title">{{ t('adminSystem.queue.empty.title') }}</h3>
       <p class="sq-hint">{{ t('adminSystem.queue.empty.hint') }}</p>
     </div>
 
-    <div class="sq-card">
+    <div v-if="queueKnown" class="sq-card">
       <h3 class="sq-card-title">{{ t('adminSystem.queue.errors.title') }}</h3>
       <div v-if="!canRetry" class="sq-hint no-errors">{{ t('adminSystem.queue.errors.none') }}</div>
       <div v-else class="sp-errors">

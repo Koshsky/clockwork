@@ -307,13 +307,14 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  let backgroundSessionAllowed = true
   let proactiveTimer: number | null = null
   let onVisibilityChange: (() => void) | null = null
   let refreshInFlight: Promise<boolean> | null = null
 
   /** Proactive refresh: timer + tab visibility return, so the access token never expires prematurely */
   function scheduleProactiveRefresh() {
-    if (proactiveTimer != null) return
+    if (!backgroundSessionAllowed || proactiveTimer != null) return
     // Refresh is unified across environments: the refresh token lives in the
     // IndexedDB 'session' store (body of /auth/refresh), so the timer works the
     // same on web and desktop.
@@ -452,6 +453,18 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  function startBackgroundSession(): void {
+    backgroundSessionAllowed = true
+    if (isAuthenticated.value && sessionMode.value === 'online') scheduleProactiveRefresh()
+  }
+
+  function stopBackgroundSession(): void {
+    backgroundSessionAllowed = false
+    stopProactiveRefresh()
+  }
+
+  onScopeDispose(stopBackgroundSession)
+
   function logout() {
     stopProactiveRefresh()
     // The mutation queue is NOT wiped here: it is shared by every tab/window of
@@ -574,6 +587,8 @@ export const useAuthStore = defineStore('auth', () => {
     changePassword,
     refreshSession,
     waitForSessionRefresh,
+    startBackgroundSession,
+    stopBackgroundSession,
     fetchProfile,
     loadProfile,
     logout,

@@ -15,7 +15,7 @@ vi.mock('@/store', () => ({
   useTimesheetStore: () => ({}),
   useRbacStore: () => ({ permsLoaded: false, myPermissions: [] }),
 }))
-import { pullStaleCycle } from './warmup'
+import { pullStaleCycle, stopWarmup, resumeWarmup, scheduleWarmup }  from './warmup'
 
 beforeEach(() => {
   vi.useFakeTimers()
@@ -25,7 +25,8 @@ beforeEach(() => {
   mocks.refs.value = new Set()
   mocks.fresh.mockResolvedValue(null)
   mocks.refresh.mockResolvedValue(undefined)
-  vi.stubGlobal('window', { setTimeout })
+  vi.stubGlobal('window', { setTimeout, clearTimeout })
+  resumeWarmup()
 })
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals() })
 async function pull() {
@@ -54,6 +55,28 @@ describe('minute cache warmup safety', () => {
       expect(await pull()).toBe(0)
       expect(mocks.refresh).not.toHaveBeenCalled()
     } finally { finish() }
+    expect(await pull()).toBe(1)
+  })
+})
+
+describe('runtime warmup cleanup', () => {
+  it('cancels a scheduled idle warmup without starting requests', async () => {
+    scheduleWarmup()
+    stopWarmup()
+    await vi.runAllTimersAsync()
+    expect(mocks.refresh).not.toHaveBeenCalled()
+    expect(await pullStaleCycle()).toBe(0)
+  })
+  it('does not continue a stopped pull after its active request completes', async () => {
+    let finish!: () => void
+    mocks.refresh.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve }))
+    const pending = pullStaleCycle()
+    await vi.advanceTimersByTimeAsync(0)
+    stopWarmup()
+    finish()
+    expect(await pending).toBe(0)
+    expect(vi.getTimerCount()).toBe(0)
+    resumeWarmup()
     expect(await pull()).toBe(1)
   })
 })

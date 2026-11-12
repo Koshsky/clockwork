@@ -160,6 +160,8 @@ const DOMAIN_REFRESH_DEBOUNCE_MS = 400
 /** Pending domain names (reloader names) waiting for the coalesced flush */
 const pendingDomains = new Set<string>()
 let domainRefreshTimer: number | null = null
+let refreshGeneration = 0
+let refreshSuspended = false
 
 function armDomainRefresh(): void {
   if (domainRefreshTimer != null) return
@@ -198,12 +200,14 @@ function collectReloaders(): Map<string, () => Promise<unknown>> {
  * the outbox flush owns reconciliation there (reconcile).
  */
 async function flushDomainRefresh(): Promise<void> {
+  const own = refreshGeneration
   domainRefreshTimer = null
   const names = [...pendingDomains]
   pendingDomains.clear()
   if (names.length === 0 || isOffline.value) return
   const runs = collectReloaders()
   for (const name of names) {
+    if (refreshSuspended || own !== refreshGeneration) break
     const run = runs.get(name)
     if (!run) continue
     try {
@@ -220,7 +224,7 @@ async function flushDomainRefresh(): Promise<void> {
  * offline: queued mutations are reconciled by the outbox flush (reconcile).
  */
 export function scheduleDomainRefresh(entities: MutationEntity[]): void {
-  if (isOffline.value) return
+  if (refreshSuspended || isOffline.value) return
   for (const e of entities) {
     for (const r of reloadDomainsFor(e)) pendingDomains.add(r.name)
   }
@@ -233,7 +237,7 @@ export function scheduleDomainRefresh(entities: MutationEntity[]): void {
  * re-read the domains they display while online.
  */
 export function scheduleNamedRefresh(names: string[]): void {
-  if (isOffline.value) return
+  if (refreshSuspended || isOffline.value) return
   for (const n of names) pendingDomains.add(n)
   armDomainRefresh()
 }
@@ -335,14 +339,15 @@ export { discardFailed } from './outbox'
 /** Queue flushing & PULL are driven by the minute monitor (offline/connection.ts). */
 
 /** Reconcile a saved startup queue; connection.ts owns recovery ordering */
-export async function initOfflineSync(): Promise<void> {
+export async function initOfflineSync(active = () => true): Promise<void> {
   // Write-through into the cache BEFORE the first data load (main.ts awaits this function):
   // an offline reload shows the unsynced queue changes.
   await replayOutboxToCache()
+  if (!active()) return
   void refreshPendingCount()
   if (!isOffline.value) {
     void refreshPendingCount().then(() => {
-      if (shouldAutoSync() && !isLoggedOut() && pendingCount.value > 0) void runSync()
+      if (active() && shouldAutoSync() && !isLoggedOut() && pendingCount.value > 0) void runSync()
     })
   }
   // Periodic flushing & PULL are owned by offline/connection.ts (60 s loop).
@@ -370,10 +375,28 @@ let maintenanceTimer: number | null = null
  * picks the right source — the stored refresh token in all environments.
  * A fresh session and an unauthenticated visitor are left alone.
  */
-export function startSessionMaintenance(): void {
-  if (maintenanceTimer != null) return
+export function startSessionMaintenance(): () => void {
+  if (maintenanceTimer != null) return stopSessionMaintenance
+  const auth = useAuthStore()
+  auth.startBackgroundSession()
   maintenanceTimer = window.setInterval(() => {
-    const auth = useAuthStore()
     if (auth.isAuthenticated && auth.accessExpired()) void ensureAutoSession()
   }, SESSION_MAINTENANCE_MS)
+  return stopSessionMaintenance
 }
+
+export function stopSessionMaintenance(): void {
+  if (maintenanceTimer != null) window.clearInterval(maintenanceTimer)
+  maintenanceTimer = null
+  useAuthStore().stopBackgroundSession()
+}
+
+export function stopDomainRefresh(): void {
+  refreshSuspended = true
+  refreshGeneration++
+  if (domainRefreshTimer != null) window.clearTimeout(domainRefreshTimer)
+  domainRefreshTimer = null
+  pendingDomains.clear()
+}
+
+export function resumeDomainRefresh(): void { refreshSuspended = false }

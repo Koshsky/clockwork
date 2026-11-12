@@ -7,6 +7,7 @@ import { getApiUrl } from '@/config'
 import { getAccessToken } from '../token'
 import { isLoggedOut } from '../loggedOut'
 import { appLocale, t } from '../i18n'
+import { legacyQueueAvailability } from '@/platform/state'
 
 /**
  * Mutation queue (outbox pattern): create/update/delete requests made
@@ -305,7 +306,7 @@ watch(appLocale, () => {
  *  entries (!quarantined), in send order (FIFO). Quarantined ones are visible in the errors block. */
 export async function refreshQueue(): Promise<void> {
   const entries = await idbAll<OutboxEntry>(OUTBOX_STORE).catch(() => null)
-  if (!entries) return
+  if (!entries) { legacyQueueAvailability.value = 'unavailable'; return }
   queueItems.value = entries
     .filter((e) => !e.quarantined)
     .sort((a, b) => a.ts - b.ts)
@@ -314,7 +315,7 @@ export async function refreshQueue(): Promise<void> {
 
 export async function refreshPendingCount(): Promise<void> {
   const entries = await idbAll<OutboxEntry>(OUTBOX_STORE).catch(() => null)
-  if (!entries) return
+  if (!entries) { legacyQueueAvailability.value = 'unavailable'; return }
   pendingCount.value = entries.filter((e) => !e.quarantined).length
   // Rebuild the "awaiting sync" mark set from all queued entries (quarantined
   // included — they still wait for a manual retry). Entries without a resolvable
@@ -325,6 +326,7 @@ export async function refreshPendingCount(): Promise<void> {
     if (id != null) refs.add(`${e.entity}:${id}`)
   }
   pendingRefs.value = refs
+  legacyQueueAvailability.value = entries.length > 0 ? 'pending' : 'empty'
   await refreshQueue()
 }
 
@@ -839,7 +841,7 @@ export async function replayOutboxToCache(): Promise<void> {
   if (replayInFlight) return replayInFlight
   replayInFlight = (async () => {
     try {
-      const entries = await idbAll<OutboxEntry>(OUTBOX_STORE).catch(() => [] as OutboxEntry[])
+      const entries = await idbAll<OutboxEntry>(OUTBOX_STORE)
       for (const entry of entries.sort((a, b) => a.ts - b.ts)) {
         await applyToCache(entry)
       }
@@ -870,5 +872,9 @@ export function scheduleReplayOutboxToCache(): void {
   void Promise.resolve().then(async () => {
     replayScheduled = false
     await replayOutboxToCache()
+  }).catch(() => {
+    // A background overlay cannot reject into the UI or acknowledge a lost
+    // queue. Keep its entries and references for an explicit recovery attempt.
+    legacyQueueAvailability.value = 'unavailable'
   })
 }

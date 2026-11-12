@@ -10,6 +10,8 @@ The web app and the desktop wrapper are versioned together.
 
 ### Fixed
 
+- Web startup and online sessions tolerate unavailable IndexedDB; platform runtimes release background work on teardown.
+
 - Task planning ignores stale replies across refreshes, cache hydration and account changes.
 - Session restoration avoids duplicate refreshes and restores authorization before manually sending offline changes.
 

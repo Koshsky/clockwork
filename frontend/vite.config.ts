@@ -1,4 +1,5 @@
 import { defineConfig, loadEnv, type Plugin } from 'vite'
+import { rendererPlatformBoundary } from './scripts/platform-boundaries.mjs'
 import vue from '@vitejs/plugin-vue'
 import checker from 'vite-plugin-checker'
 import { fileURLToPath, URL } from 'node:url'
@@ -80,6 +81,7 @@ export default defineConfig(({ mode }) => {
     __APP_VERSION__: JSON.stringify(appVersion),
   },
   plugins: [
+    rendererPlatformBoundary(),
     vue(),
     checker({
       vueTsc: true,

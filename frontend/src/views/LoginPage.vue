@@ -4,7 +4,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../store'
 import { PasswordField } from '../components/common'
 import { isOffline, probeBackend } from '../offline/state'
-import { isElectron } from '../electron'
+import { platformCapabilities } from '@/platform/context'
 import { getServerBase } from '../config'
 import { t } from '../i18n'
 
@@ -168,7 +168,7 @@ function goToRedirect() {
         </button>
       </div>
 
-      <RouterLink v-if="isElectron" to="/login/settings" class="lp-settings-link">{{ t('auth.settingsLink') }}</RouterLink>
+      <RouterLink v-if="platformCapabilities.serverSelection" to="/login/settings" class="lp-settings-link">{{ t('auth.settingsLink') }}</RouterLink>
     </div>
   </div>
 </template>

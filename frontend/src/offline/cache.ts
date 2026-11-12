@@ -1,4 +1,4 @@
-import { idbClear, idbGet, idbKeys, idbPut } from './db'
+import { optionalCacheClear as idbClear, optionalCacheGet as idbGet, optionalCacheKeys as idbKeys, optionalCachePut as idbPut } from '@/platform/cacheStore'
 
 const CACHE_STORE = 'cache'
 /** Marker entry storing the app version the current cache was written with */

@@ -40,7 +40,7 @@ async function runtime(page) {
       auth: store.useAuthStore(), planning: store.usePlanningStore(), rbac: store.useRbacStore(),
       token: await import('/src/token.ts'), outbox: await import('/src/offline/outbox.ts'),
       db: await import('/src/offline/db.ts'), state: await import('/src/offline/state.ts'),
-      connection: await import('/src/offline/connection.ts'), sync: await import('/src/offline/sync.ts'),
+      connection: await import('/src/platform/current.ts'), sync: await import('/src/offline/sync.ts'),
       settings: await import('/src/settings.ts'),
     }
     await window.mt.rbac.loadMyPermissions()
@@ -179,7 +179,7 @@ try {
   await new Promise(r => setTimeout(r, 1000))
   const recover = page => page.evaluate(async () => {
     window.mt.settings.autoSync.value = true
-    await window.mt.connection.retryConnectionNow()
+    await window.mt.connection.retryPlatformConnection()
   })
   await Promise.all([recover(first), recover(second)])
   await expect.poll(async () => (await queue(first)).length, { timeout: 20_000 }).toBe(0)

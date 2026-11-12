@@ -166,6 +166,10 @@ export default {
   },
 
   queue: {
+    storage: {
+      title: 'Queue is not available yet',
+      hint: 'The local queue could not be read. Saved changes have not been deleted; an empty queue cannot be confirmed yet.',
+    },
     title: 'Change queue',
     sending: {
       title: 'Uploading changes',

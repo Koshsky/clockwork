@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import ReconnectToast from './offline/ReconnectToast.vue'
 import SyncToast from './offline/SyncToast.vue'
@@ -16,12 +16,16 @@ const router = useRouter()
 // it got (login page, offline view, …).
 const SPLASH_BOUND_MS = 6000
 const ready = ref(false)
+let disposed = false
+let splashTimer: ReturnType<typeof setTimeout> | undefined
 void Promise.race([
   router.isReady().then(() => true),
-  new Promise((resolve) => setTimeout(resolve, SPLASH_BOUND_MS)),
+  new Promise((resolve) => { splashTimer = setTimeout(resolve, SPLASH_BOUND_MS) }),
 ]).then(() => {
-  ready.value = true
+  clearTimeout(splashTimer)
+  if (!disposed) ready.value = true
 })
+onBeforeUnmount(() => { disposed = true; clearTimeout(splashTimer) })
 </script>
 
 <template>

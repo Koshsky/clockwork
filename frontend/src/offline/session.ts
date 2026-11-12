@@ -6,7 +6,8 @@
  * desktop auto-sync password (safeStorage) that was removed. The token
  * returned by /auth/login and /auth/refresh is saved here in all
  * environments and sent in the body of /auth/refresh for silent session
- * renewal; the HttpOnly cookie stays only as a legacy web fallback.
+ * renewal. Web falls back to the same-origin HttpOnly cookie when IndexedDB
+ * is unavailable; desktop requires durable storage.
  *
  * The token is kept indefinitely — no TTL (see the no-TTL invariant in
  * db.ts): the refresh session itself expires server-side (168 h). The store is
@@ -18,6 +19,20 @@
  */
 
 import { idbPut, idbGet, idbDel } from './db'
+import { platformCapabilities } from '@/platform/context'
+import { localDataAvailability } from '@/platform/state'
+
+const COOKIE_FALLBACK_KEY = 'mvs_erp_web_cookie_session'
+function cookieFallback(): boolean {
+  return platformCapabilities.optionalStorage && localStorage.getItem(COOKIE_FALLBACK_KEY) === '1'
+}
+
+function enableCookieFallback(error: unknown): void {
+  if (!platformCapabilities.optionalStorage) throw error
+  // Share the decision before releasing the refresh lock: another tab must not
+  // replay the now-revoked token left in a failed IndexedDB rotation.
+  localStorage.setItem(COOKIE_FALLBACK_KEY, '1')
+}
 
 /** IndexedDB object store holding the session row(s). */
 export const SESSION_STORE = 'session'
@@ -26,7 +41,8 @@ export const REFRESH_KEY = 'refresh'
 
 /** Persist the refresh token (called on login and after each rotation). */
 export async function saveRefreshToken(token: string): Promise<void> {
-  await idbPut(SESSION_STORE, REFRESH_KEY, token)
+  if (cookieFallback()) return
+  try { await idbPut(SESSION_STORE, REFRESH_KEY, token) } catch (error) { enableCookieFallback(error) }
 }
 
 /**
@@ -35,11 +51,18 @@ export async function saveRefreshToken(token: string): Promise<void> {
  * HttpOnly refresh cookie (legacy web path).
  */
 export async function loadRefreshToken(): Promise<string | null> {
-  const value = await idbGet<string>(SESSION_STORE, REFRESH_KEY)
-  return typeof value === 'string' && value.length > 0 ? value : null
+  if (cookieFallback()) return null
+  try {
+    const value = await idbGet<string>(SESSION_STORE, REFRESH_KEY)
+    return typeof value === 'string' && value.length > 0 ? value : null
+  } catch (error) {
+    enableCookieFallback(error)
+    return null
+  }
 }
 
 /** Remove the stored refresh token (called on logout). */
 export async function clearRefreshToken(): Promise<void> {
-  await idbDel(SESSION_STORE, REFRESH_KEY)
+  if (platformCapabilities.optionalStorage && localDataAvailability.value === 'unavailable') return
+  try { await idbDel(SESSION_STORE, REFRESH_KEY) } catch (error) { if (!platformCapabilities.optionalStorage) throw error }
 }

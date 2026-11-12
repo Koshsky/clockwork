@@ -180,3 +180,30 @@ describe('minute autosync and connection recovery', () => {
   })
 
 })
+
+it('does not schedule reconnect or warmup after a late probe finishes on a stopped monitor', async () => {
+  let finish!: (reachable: boolean) => void
+  calls.probe.mockImplementation(() => new Promise<boolean>(resolve => { finish = resolve }))
+  const monitor = await start()
+  await vi.advanceTimersByTimeAsync(10000)
+  monitor.stopConnectionMonitor()
+  finish(false)
+  await vi.advanceTimersByTimeAsync(120000)
+  const { isOffline, reconnectDeadline } = await import('./state')
+  expect(isOffline.value).toBe(false)
+  expect(reconnectDeadline.value).toBeNull()
+  expect(calls.probe).toHaveBeenCalledOnce()
+  expect(vi.getTimerCount()).toBe(0)
+})
+it('does not start a queue flush after teardown during reconnect metadata loading', async () => {
+  const { pendingCount } = await import('./outbox')
+  pendingCount.value = 1
+  let finish!: () => void
+  calls.count.mockImplementation(() => new Promise<void>(resolve => { finish = resolve }))
+  const monitor = await start()
+  surface.dispatchEvent(new Event('offline')); await nextTick()
+  const retry = monitor.retryConnectionNow(); await vi.advanceTimersByTimeAsync(0)
+  monitor.stopConnectionMonitor(); finish(); await retry
+  expect(calls.sync).not.toHaveBeenCalled()
+  expect(calls.warm).not.toHaveBeenCalled()
+})

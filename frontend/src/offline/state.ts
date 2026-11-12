@@ -1,6 +1,7 @@
 import { ref } from 'vue'
 import type { Ref } from 'vue'
 import { getApiUrl } from '@/config'
+import { backendReachability } from '@/platform/state'
 
 /**
  * Reactive backend-connection state, active in EVERY environment (web and
@@ -34,11 +35,13 @@ export async function probeBackend(): Promise<boolean> {
     const timer = window.setTimeout(() => ctrl.abort(), PROBE_TIMEOUT_MS)
     try {
       const res = await fetch(url, { cache: 'no-store', signal: ctrl.signal })
+      backendReachability.value = res.status < 500 ? 'reachable' : 'unreachable'
       return res.status < 500
     } finally {
       window.clearTimeout(timer)
     }
   } catch {
+    backendReachability.value = 'unreachable'
     return false
   }
 }

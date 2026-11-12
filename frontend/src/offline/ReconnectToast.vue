@@ -2,7 +2,7 @@
 import { t } from '../i18n'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { isOffline, reconnectDeadline } from './state'
-import { retryConnectionNow } from './connection'
+import { retryPlatformConnection } from '@/platform/current'
 
 const busy = ref(false)
 
@@ -35,7 +35,7 @@ async function onRetry() {
   if (busy.value) return
   busy.value = true
   try {
-    await retryConnectionNow()
+    await retryPlatformConnection()
   } finally {
     busy.value = false
     updateSecondsLeft()

@@ -1,5 +1,5 @@
 import { cacheGetFresh } from './cache'
-import { replayOutboxToCache } from './outbox'
+import { prepareCacheOverlay } from '@/platform/legacyRead'
 import { API_PREFIX } from '@/config'
 
 /**
@@ -34,7 +34,7 @@ export function apiPath(endpoint: string): string {
 }
 
 export async function hydrateFromCache(targets: HydrateTarget[]): Promise<void> {
-  await replayOutboxToCache()
+  await prepareCacheOverlay()
   for (const t of targets) {
     if (t.filled()) continue
     const entry = await cacheGetFresh<unknown>(t.path, t.keyPredicate)
