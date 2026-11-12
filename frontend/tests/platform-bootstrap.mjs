@@ -71,13 +71,15 @@ try {
     })
     expect(fetched.error).toBeNull()
     expect(Array.isArray(fetched.projects)).toBe(true)
-    for (const path of ['/processes', '/timesheet', '/planner', '/system/queue']) {
+    for (const path of ['/processes', '/timesheet', '/planner', ...(desktop ? ['/system/queue'] : ['/system/settings'])]) {
       await navigate(page, path)
       await expect(page).toHaveURL(new RegExp(path + '$'))
     }
-    if (storageBlocked) {
-      await expect(page.locator('.sq [role=status]')).toContainText(/очеред|queue/i)
-      await expect(page.locator('.sq')).not.toContainText(/Очередь пуста|Queue is empty/)
+    if (!desktop) {
+      await expect(page.locator('.nd a[href="/system/queue"]')).toHaveCount(0)
+      await page.goto(base + '/system/queue')
+      await expect(page).toHaveURL(/\/system\/settings$/)
+      await expect(page.locator('.sq')).toHaveCount(0)
       expect(await page.evaluate(() => localStorage.getItem('mvs_erp_session_state'))).toBeNull()
     }
     await page.reload()

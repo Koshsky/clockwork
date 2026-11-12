@@ -12,6 +12,7 @@
  *  - quarantine/backoff gate retries without deleting entries.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+vi.mock('@/platform/context', () => ({ platformCapabilities: { kind: 'desktop', optionalStorage: false } }))
 
 /** In-memory fake replacing the IndexedDB layer (offline/db.ts). */
 const fake = vi.hoisted(() => {

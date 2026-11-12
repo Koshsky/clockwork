@@ -9,6 +9,7 @@ import { getAccessToken } from '../token'
 import { isLoggedOut } from '../loggedOut'
 import { appLocale, t } from '../i18n'
 import { legacyQueueAvailability } from '@/platform/state'
+import { platformCapabilities } from '@/platform/context'
 
 /**
  * Mutation queue (outbox pattern): create/update/delete requests made
@@ -306,6 +307,7 @@ watch(appLocale, () => {
 /** Re-reads the queue into queueItems. Only unsent and non-synced
  *  entries (!quarantined), in send order (FIFO). Quarantined ones are visible in the errors block. */
 export async function refreshQueue(): Promise<void> {
+  if (platformCapabilities.kind === 'web') return
   const entries = await idbAll<OutboxEntry>(OUTBOX_STORE).catch(() => null)
   if (!entries) { legacyQueueAvailability.value = 'unavailable'; return }
   queueItems.value = entries
@@ -315,6 +317,7 @@ export async function refreshQueue(): Promise<void> {
 }
 
 export async function refreshPendingCount(): Promise<void> {
+  if (platformCapabilities.kind === 'web') return
   const entries = await idbAll<OutboxEntry>(OUTBOX_STORE).catch(() => null)
   if (!entries) { legacyQueueAvailability.value = 'unavailable'; return }
   pendingCount.value = entries.filter((e) => !e.quarantined).length
@@ -352,6 +355,7 @@ function normalizeBody(body: unknown): unknown {
 export async function enqueueMutation(
   entry: Omit<OutboxEntry, 'id' | 'ts' | 'failed'>,
 ): Promise<void> {
+  if (platformCapabilities.kind === 'web') throw new Error('WEB_OFFLINE_QUEUE_UNAVAILABLE')
   const rec: OutboxEntry = { ...entry, body: normalizeBody(entry.body), id: createMutationKey(), ts: Date.now(), creator: currentUsername() ?? undefined }
   // Deduplication: a repeated click on the same mutation (method+url+body) does not
   // spawn identical entries — the queue stays clean and flush does not send duplicate batches.
@@ -566,6 +570,7 @@ function emptyFlush(): FlushResult {
 }
 
 export async function flushOutbox(): Promise<FlushResult> {
+  if (platformCapabilities.kind === 'web') return emptyFlush()
   if (typeof navigator !== 'undefined' && navigator.locks) {
     // Never queue behind a suspended tab: the next minute cycle retries ownership.
     return navigator.locks.request('mvs_erp_outbox', { ifAvailable: true }, lock => lock ? flushOwnedOutbox() : emptyFlush())
@@ -744,6 +749,7 @@ async function flushOwnedOutbox(): Promise<FlushResult> {
 
 /** Clears the queue (the explicit "clear all" action in the sync UI / reset) */
 export async function clearOutbox(): Promise<void> {
+  if (platformCapabilities.kind === 'web') return
   const entries = await idbAll<OutboxEntry>(OUTBOX_STORE)
   await Promise.all(entries.map((e) => idbDel(OUTBOX_STORE, e.id)))
   // Along with the queue, reset the mappings: negative ids of a new session must
@@ -763,6 +769,7 @@ export async function clearOutbox(): Promise<void> {
  * is no longer referenced by any remaining entry.
  */
 export async function pruneForeignOutbox(keepCreator: string): Promise<void> {
+  if (platformCapabilities.kind === 'web') return
   const entries = await idbAll<OutboxEntry>(OUTBOX_STORE).catch(() => [] as OutboxEntry[])
   const kept: OutboxEntry[] = []
   const removed: OutboxEntry[] = []
@@ -786,6 +793,7 @@ export async function pruneForeignOutbox(keepCreator: string): Promise<void> {
 export async function getFailedEntries(): Promise<
   Array<OutboxEntry & { message: string }>
 > {
+  if (platformCapabilities.kind === 'web') return []
   const entries = await idbAll<OutboxEntry>(OUTBOX_STORE).catch(() => [] as OutboxEntry[])
   return entries
     .filter((e) => e.quarantined || e.failed)
@@ -794,6 +802,7 @@ export async function getFailedEntries(): Promise<
 
 /** Lifts quarantine/failed flag so entries are sent again (the "Retry" button) */
 export async function resetFailedRetries(): Promise<void> {
+  if (platformCapabilities.kind === 'web') return
   const entries = await idbAll<OutboxEntry>(OUTBOX_STORE).catch(() => [] as OutboxEntry[])
   await Promise.all(
     entries
@@ -807,12 +816,14 @@ export async function resetFailedRetries(): Promise<void> {
 
 /** Removes one rejected entry from the queue */
 export async function discardEntry(id: string): Promise<void> {
+  if (platformCapabilities.kind === 'web') return
   await idbDel(OUTBOX_STORE, id)
   await refreshPendingCount()
 }
 
 /** Removes all rejected entries (the "Skip" button — the user accepted the loss) */
 export async function discardFailed(): Promise<void> {
+  if (platformCapabilities.kind === 'web') return
   const entries = await idbAll<OutboxEntry>(OUTBOX_STORE).catch(() => [] as OutboxEntry[])
   await Promise.all(
     entries.filter((e) => e.quarantined || e.failed).map((e) => idbDel(OUTBOX_STORE, e.id)),
@@ -843,6 +854,7 @@ let replayInFlight: Promise<void> | null = null
 let replayAccount: string | null = null
 
 export async function replayOutboxToCache(): Promise<void> {
+  if (platformCapabilities.kind === 'web') return
   const account = currentUsername()
   if ((await idbCount(OUTBOX_STORE)) === 0) return
   if (account !== currentUsername()) return
@@ -883,6 +895,7 @@ export async function replayOutboxToCache(): Promise<void> {
 let replayScheduled = false
 
 export function scheduleReplayOutboxToCache(): void {
+  if (platformCapabilities.kind === 'web') return
   if (replayScheduled) return
   replayScheduled = true
   void Promise.resolve().then(async () => {

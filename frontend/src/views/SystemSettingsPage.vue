@@ -22,6 +22,7 @@ import { BarBadgesPreview } from '@/components/planner/BarBadgesPreview'
 import { DependencyStylePreview } from '@/components/planner/DependencyStylePreview'
 import { linkStyleOptions } from '@/components/planner/linkStyleLabels'
 import { notifyError, notifyInfo, notifySuccess } from '../notify/state'
+import { platformCapabilities } from '@/platform/context'
 
 type SettingsSection = 'interface' | 'tables' | 'diagrams' | 'server'
 
@@ -32,7 +33,7 @@ const sections = computed<{ id: SettingsSection; label: string }[]>(() => [
   { id: 'interface', label: t('adminSystem.settings.sections.interface') },
   { id: 'diagrams', label: t('adminSystem.settings.sections.diagrams') },
   { id: 'tables', label: t('adminSystem.settings.sections.tables') },
-  { id: 'server', label: t('adminSystem.settings.sections.server') },
+  { id: 'server', label: t(platformCapabilities.serverSelection ? 'adminSystem.settings.sections.server' : 'adminSystem.settings.sync.refreshTitle') },
 ])
 
 /** Connector style options; rebuilt on a language switch. */
@@ -336,14 +337,15 @@ onMounted(() => {
     <!-- Server: sync and connection in a single card -->
     <template v-if="activeSection === 'server'">
       <div class="st-card">
-        <h3 class="st-card-title">{{ t('adminSystem.settings.server.title') }}</h3>
+        <h3 class="st-card-title">{{ t(platformCapabilities.serverSelection ? 'adminSystem.settings.server.title' : 'adminSystem.settings.sync.refreshTitle') }}</h3>
 
-        <h4 class="st-group-title">{{ t('adminSystem.settings.sync.title') }}</h4>
+        <h4 v-if="platformCapabilities.offlineBootstrap" class="st-group-title">{{ t('adminSystem.settings.sync.title') }}</h4>
         <label class="st-option">
           <input v-model="autoSync" type="checkbox" />
-          <span>{{ t('adminSystem.settings.sync.auto') }}</span>
+          <span>{{ t(platformCapabilities.offlineBootstrap ? 'adminSystem.settings.sync.auto' : 'adminSystem.settings.sync.autoRefresh') }}</span>
         </label>
 
+        <template v-if="platformCapabilities.serverSelection">
         <h4 class="st-group-title">{{ t('adminSystem.settings.connection.title') }}</h4>
         <label class="st-field">
           <span>{{ t('adminSystem.settings.connection.apiUrl') }}</span>
@@ -359,6 +361,7 @@ onMounted(() => {
             {{ t('common.save') }}
           </button>
         </div>
+        </template>
       </div>
     </template>
 

@@ -91,6 +91,8 @@ export default {
     sync: {
       title: 'Sync',
       auto: 'Auto-sync on startup and when the network returns',
+      refreshTitle: 'Data updates',
+      autoRefresh: 'Automatically refresh data every minute',
     },
     connection: {
       title: 'Connection',

@@ -18,3 +18,7 @@ export function detectCapabilities(bridge: { isElectron?: unknown } | null | und
     sessionRestoreBoundMs: 2500,
   })
 }
+
+export function platformPageAvailable(name: unknown, capabilities: Readonly<RuntimeCapabilities>): boolean {
+  return capabilities.offlineBootstrap || !['system-console', 'system-queue', 'system-status'].includes(String(name))
+}

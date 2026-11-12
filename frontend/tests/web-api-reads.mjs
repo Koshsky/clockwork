@@ -43,9 +43,9 @@ async function navigate(page, path) {
   const nav = page.locator('.nd')
   if (!/nd--open/.test(await nav.getAttribute('class'))) await page.locator('.ah-burger').click()
   const link = nav.locator(`a[href="${path}"]`)
-  if (['/system/status', '/system/console'].includes(path)) {
+  if (['/system/status', '/system/console', '/system/queue'].includes(path)) {
     await expect(link).toHaveCount(0)
-    await page.goto(web + path); await expect(page).toHaveURL(new RegExp(path + '$'))
+    await page.goto(web + path); await expect(page).toHaveURL(/\/system\/settings$/)
     await expect(page.locator('.ah-burger')).toBeVisible()
     return
   }

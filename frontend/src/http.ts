@@ -1,5 +1,5 @@
 import { beginMutation, readStamp, mayApplyRead } from './offline/mutationGuard'
-import axios, { type AxiosError, type AxiosResponse, type InternalAxiosRequestConfig } from 'axios'
+import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios'
 import { offlineFailFastAdapter } from './offline/failFast'
 import { desktopSession, desktopSessionAdapter } from './session/desktop'
 import router from './router'
@@ -10,7 +10,7 @@ import { prepareCacheOverlay } from './platform/legacyRead'
 import { cacheGet, cacheGetByPath, cachePut, userCachePrefix } from './offline/cache'
 import { scheduleReplayOutboxToCache, createMutationKey } from './offline/outbox'
 import { platformCapabilities } from './platform/context'
-import { backendReachability, legacyQueueAvailability } from './platform/state'
+import { backendReachability } from './platform/state'
 import { isOffline } from './offline/state'
 import { getAccessToken, accessTokenExpired } from './token'
 import { ensureAutoSession } from './offline/sync'
@@ -94,8 +94,7 @@ export function setupHttp() {
     return config
   })
 
-  // Successful GETs are written to the offline cache (network is up — data is fresh).
-  // The cache and write-through overlay work in every environment (web and desktop).
+  // Desktop retains durable snapshots; web reads use the scoped HTTP request cache.
   axios.interceptors.response.use(
     async (response) => {
       const { config, status } = response
@@ -107,6 +106,7 @@ export function setupHttp() {
       }
       const read = reads.get(config)
       if (
+        platformCapabilities.kind !== 'web' &&
         status >= 200 &&
         status < 300 &&
         config.method === 'get' &&
@@ -116,25 +116,8 @@ export function setupHttp() {
         read != null && read.prefix === userCachePrefix() && mayApplyRead(read.stamp)
       ) {
         // A delayed reply must never be written under a newly logged-in account.
-        const saving = cachePut(read.key, response.data)
-        const durableOverlay = platformCapabilities.kind !== 'web' || legacyQueueAvailability.value === 'pending'
-        // The web response never waits for optional legacy persistence. Explicit
-        // queue/cache writes remain awaited by the compatibility adapter.
-        if (durableOverlay) await saving
-        else void saving
-        // Invariant "cache = server + queue": after a fresh write we re-apply
-        // unsynchronized mutations — warmup/reconcile must not erase them with
-        // server truth (otherwise offline edits are lost after a reload).
-        // Coalesced: a burst of parallel GETs schedules a single replay for the
-        // whole tick instead of one full outbox+cache scan per response.
-        if (platformCapabilities.kind === 'web' && legacyQueueAvailability.value === 'pending') {
-          await prepareCacheOverlay()
-          const overlaid = await cacheGet<unknown>(read.key)
-          if (overlaid != null) {
-            response.data = overlaid
-            ;(response as AxiosResponse & { __erpLocalSnapshot?: boolean }).__erpLocalSnapshot = true
-          }
-        } else if (durableOverlay) scheduleReplayOutboxToCache()
+        await cachePut(read.key, response.data)
+        scheduleReplayOutboxToCache()
       }
       return response
     },
@@ -152,17 +135,17 @@ export function setupHttp() {
       // Server unreachable (network, timeout, abort — any request without an HTTP response):
       // serve the last saved response from the cache (same { data, error } format). Read-time
       // overlay: before reading we apply unsynchronized mutations on top of the warmed cache.
-      // This runs in every environment — web and desktop share the same offline read path.
+      // The web never hydrates an old browser profile after a failed HTTP request.
       if (!error.response && config.headers?.get('X-View-User-ID')) return Promise.reject(error)
       if (!error.response) {
-        if ((config.method ?? 'get').toLowerCase() === 'get') {
-          if (platformCapabilities.kind !== 'web' || legacyQueueAvailability.value === 'pending') await prepareCacheOverlay()
+        if ((config.method ?? 'get').toLowerCase() === 'get' && platformCapabilities.kind !== 'web') {
+          await prepareCacheOverlay()
           if (read?.prefix !== userCachePrefix()) return Promise.reject(error)
           const key = read.key
           let cached = await cacheGet<unknown>(key)
           // The exact key may not match (a GET with a date window depends on "today"
           // and differs after warmup) — look up the fresh response by endpoint.
-          if (cached == null && (platformCapabilities.kind !== 'web' || legacyQueueAvailability.value === 'pending')) {
+          if (cached == null) {
             const pathname = (() => {
               try {
                 return new URL(key).pathname
@@ -186,10 +169,10 @@ export function setupHttp() {
               request: error.request,
             }
           }
-          if (platformCapabilities.kind === 'web') isOffline.value = true
-          else (error as AxiosError & { message: string }).message = t('offline.noCachedData')
+          ;(error as AxiosError & { message: string }).message = t('offline.noCachedData')
           console.log(`[offline] cache miss: ${key}`)
         }
+        if (platformCapabilities.kind === 'web') { isOffline.value = true; backendReachability.value = 'unreachable' }
         // Network error diagnostics (timeout/drop/CORS/abort) — detailed output to the console.
         const ax = error as AxiosError & { code?: string; timeout?: number }
         console.error(

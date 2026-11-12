@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+vi.mock('@/platform/context', () => ({ platformCapabilities: { kind: 'desktop', optionalStorage: false } }))
 import { createPinia, setActivePinia } from 'pinia'
 
 const fake = vi.hoisted(() => ({ read: vi.fn(), hydrate: vi.fn() }))

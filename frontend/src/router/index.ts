@@ -3,6 +3,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore, useRbacStore } from '../store'
 import { isOffline } from '../offline/state'
 import { platformCapabilities } from '@/platform/context'
+import { platformPageAvailable } from '@/platform/capabilities'
 import { isLoggedOut } from '../loggedOut'
 import MainLayout from '../layouts/MainLayout.vue'
 import AuthLayout from '../layouts/AuthLayout.vue'
@@ -219,6 +220,7 @@ async function pageAccessible(
 // works on both platforms; same-origin web can also use the HttpOnly cookie.
 // Offline navigation never waits for a network attempt.
 router.beforeEach(async (to) => {
+  if (!platformPageAvailable(to.name, platformCapabilities)) return { name: 'system-settings', replace: true }
   const auth = useAuthStore()
 
   if (

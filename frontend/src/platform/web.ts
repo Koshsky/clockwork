@@ -7,57 +7,41 @@ import { refreshActiveReads, stopActiveReads, resumeActiveReads } from '@/data/a
 import { cancelApiReads } from '@/store/data/apiReads'
 import { notePull } from '@/offline/freshness'
 import { hasActiveMutations } from '@/offline/mutationGuard'
-import { refreshPendingCount } from '@/offline/outbox'
 import { startSessionMaintenance, stopDomainRefresh, resumeDomainRefresh } from '@/offline/sync'
 import { pullStaleCycle, scheduleWarmup, stopWarmup, resumeWarmup } from '@/offline/warmup'
-import { backendReachability, legacyQueueAvailability } from './state'
+import { backendReachability } from './state'
 import { createRuntime } from './lifecycle'
-import type { legacyQueueRecovery } from './legacyQueue'
 
 export function createWebRuntime() {
   let alive = () => false
   let checking = false
+  let checkAgain = false
+  let connectionRevision = 0
   let cycling = false
-  let legacy: ReturnType<typeof legacyQueueRecovery> | null = null
-  let preparing: Promise<void> | null = null
-  let prepared = false
-  let recovering: Promise<void> | null = null
   const canWork = () => alive() && !document.hidden && shouldAutoSync() && !isLoggedOut()
-  async function prepareLegacyQueue() {
-    if (prepared || legacyQueueAvailability.value !== 'pending' || !alive() || hasActiveMutations()) return
-    preparing ??= import('./legacyQueue').then(async module => {
-      if (!alive()) return
-      legacy = module.legacyQueueRecovery()
-      await legacy.prepare()
-      prepared = true
-    }).finally(() => { preparing = null })
-    await preparing
-  }
-  async function recoverLegacyQueue() {
-    if (recovering) return recovering
-    if (!canWork() || isOffline.value || hasActiveMutations()) return
-    if (legacyQueueAvailability.value !== 'pending') return
-    recovering = (async () => {
-      await prepareLegacyQueue()
-      if (canWork() && !isOffline.value && !hasActiveMutations() && legacyQueueAvailability.value === 'pending') await legacy?.push()
-    })().finally(() => { recovering = null })
-    return recovering
-  }
   async function checkConnection() {
-    if (!alive() || checking) return
+    if (!alive()) return
+    if (checking) { checkAgain = true; return }
     checking = true
+    const revision = connectionRevision
     const wasOffline = isOffline.value
     try {
-      const reachable = await probeBackend()
-      if (!alive()) return
+      // A superseded probe must not publish state before the revision check.
+      const reachable = await probeBackend({ publish: false })
+      if (!alive() || revision !== connectionRevision) return
       backendReachability.value = reachable ? 'reachable' : 'unreachable'
       isOffline.value = !reachable
       reconnectDeadline.value = reachable ? null : Date.now() + 60000
       if (reachable && wasOffline && canWork()) {
-        await recoverLegacyQueue()
         if (alive() && !isOffline.value) scheduleWarmup()
       }
-    } finally { checking = false }
+    } finally {
+      checking = false
+      if (checkAgain && alive()) {
+        checkAgain = false
+        void checkConnection().catch(() => {})
+      }
+    }
   }
   async function minute() {
     if (cycling || !canWork() || hasActiveMutations()) return
@@ -65,16 +49,13 @@ export function createWebRuntime() {
     try {
       if (isOffline.value) await checkConnection()
       if (!canWork() || isOffline.value) return
-      await refreshPendingCount()
-      if (!canWork() || isOffline.value || hasActiveMutations()) return
-      await recoverLegacyQueue()
       if (canWork() && !isOffline.value) {
         const refreshed = await pullStaleCycle()
         if (canWork() && !isOffline.value && !hasActiveMutations()) await refreshActiveReads()
         if (alive() && refreshed > 0) notePull()
       }
     } catch {
-      // A failed legacy recovery must not pull stale server data over pending work.
+      // A failed refresh is retried by the next minute cycle.
     } finally { cycling = false }
   }
   return createRuntime('web', async scope => {
@@ -88,11 +69,13 @@ export function createWebRuntime() {
     scope.onStop(stopDomainRefresh)
     scope.onStop(startSessionMaintenance())
     const offline = () => {
+      connectionRevision++
+      checkAgain = false
       isOffline.value = true
       backendReachability.value = 'unreachable'
       reconnectDeadline.value = Date.now() + 60000
     }
-    const online = () => { if (canWork()) void checkConnection().catch(() => {}) }
+    const online = () => { connectionRevision++; void checkConnection().catch(() => {}) }
     window.addEventListener('offline', offline)
     window.addEventListener('online', online)
     scope.onStop(() => {
@@ -100,25 +83,18 @@ export function createWebRuntime() {
       window.removeEventListener('online', online)
       reconnectDeadline.value = null
     })
+    const auth = useAuthStore()
+    const canProbe = () => alive() && auth.isAuthenticated && !isLoggedOut()
     const heartbeat = window.setInterval(() => {
-      if (canWork() && (!isOffline.value || Date.now() >= (reconnectDeadline.value ?? 0))) void checkConnection().catch(() => {})
+      if (canProbe() && (!isOffline.value || Date.now() >= (reconnectDeadline.value ?? 0))) void checkConnection().catch(() => {})
     }, 10000)
     const refresh = window.setInterval(() => void minute(), 60000)
     scope.onStop(() => { window.clearInterval(heartbeat); window.clearInterval(refresh) })
-    scope.onStop(watch(legacyQueueAvailability, state => {
-      if (state === 'pending') void prepareLegacyQueue().then(recoverLegacyQueue).catch(() => {})
-    }))
-    const auth = useAuthStore()
     scope.onStop(watch(() => [auth.isAuthenticated, auth.sessionMode] as const, () => {
       if (auth.isAuthenticated && auth.sessionMode === 'online' && canWork()) {
-        void checkConnection().then(recoverLegacyQueue).catch(() => {})
+        void checkConnection().catch(() => {})
       }
     }))
-    // Discovery is optional and never delays first paint or login. Failure stays
-    // unknown/unavailable; it is not proof of an empty legacy queue.
-    void refreshPendingCount().then(() => {
-      if (scope.active()) return prepareLegacyQueue().then(recoverLegacyQueue)
-    }).catch(() => {})
     if (canWork()) void checkConnection().catch(() => {})
   }, checkConnection)
 }

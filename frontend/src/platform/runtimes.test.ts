@@ -29,6 +29,7 @@ import { createWebRuntime } from './web'
 import { createDesktopRuntime } from './desktop'
 import { backendReachability, legacyQueueAvailability } from './state'
 import { isOffline, reconnectDeadline } from '@/offline/state'
+import { useAuthStore } from '@/store'
 import type { ApplicationRuntime } from './lifecycle'
 let runtime: ApplicationRuntime | undefined
 let surface: EventTarget
@@ -36,6 +37,7 @@ let visibility: { hidden: boolean }
 const gate = () => { let resolve!: () => void; const promise = new Promise<void>(r => { resolve = r }); return { promise, resolve } }
 beforeEach(() => {
   vi.useFakeTimers(); vi.resetAllMocks()
+  useAuthStore().isAuthenticated = false
   fake.enabled = true; fake.loggedOut = false; fake.mutation = false
   fake.probe.mockResolvedValue(true); fake.count.mockResolvedValue(undefined); fake.pull.mockResolvedValue(1)
   fake.prepare.mockResolvedValue(undefined); fake.push.mockResolvedValue(undefined)
@@ -73,18 +75,15 @@ it.each(['unknown', 'empty', 'unavailable'] as const)('does not adopt or clear a
   expect(fake.push).not.toHaveBeenCalled()
   expect(legacyQueueAvailability.value).toBe(status)
 })
-it('recovers a known pending queue before minute reads', async () => {
+it('ignores a known pending legacy queue and keeps minute reads independent', async () => {
   legacyQueueAvailability.value = 'pending'
   const wait = gate(); fake.push.mockReturnValue(wait.promise)
-  await web()
-  expect(fake.prepare).toHaveBeenCalledOnce()
-  expect(fake.push).toHaveBeenCalledOnce()
-  await vi.advanceTimersByTimeAsync(60000)
-  expect(fake.pull).not.toHaveBeenCalled()
-  expect(fake.push).toHaveBeenCalledOnce()
-  expect(fake.prepare).toHaveBeenCalledOnce()
-  wait.resolve(); await vi.advanceTimersByTimeAsync(0)
+  await web(); await vi.advanceTimersByTimeAsync(60000)
+  expect(fake.prepare).not.toHaveBeenCalled()
+  expect(fake.push).not.toHaveBeenCalled()
+  expect(fake.count).not.toHaveBeenCalled()
   expect(fake.pull).toHaveBeenCalledOnce()
+  expect(legacyQueueAvailability.value).toBe('pending')
 })
 it.each(['hidden', 'disabled', 'loggedOut', 'mutation'])('defers web background work when %s', async mode => {
   if (mode === 'hidden') visibility.hidden = true
@@ -100,10 +99,11 @@ it('does not overlap web minute pulls', async () => {
   await web(); await vi.advanceTimersByTimeAsync(180000)
   expect(fake.pull).toHaveBeenCalledOnce()
 })
-it('keeps pending work after recovery failure and does not pull over it', async () => {
+it('legacy recovery failure cannot block web refresh or alter the old queue', async () => {
   legacyQueueAvailability.value = 'pending'; fake.push.mockRejectedValue(new Error('lost response'))
   await web(); await vi.advanceTimersByTimeAsync(60000)
-  expect(fake.pull).not.toHaveBeenCalled()
+  expect(fake.pull).toHaveBeenCalledOnce()
+  expect(fake.push).not.toHaveBeenCalled()
   expect(legacyQueueAvailability.value).toBe('pending')
 })
 it('handles offline and reconnect independently of queue availability', async () => {
@@ -115,6 +115,81 @@ it('handles offline and reconnect independently of queue availability', async ()
   expect(isOffline.value).toBe(false)
   expect(backendReachability.value).toBe('reachable')
   expect(fake.warm).toHaveBeenCalledOnce()
+})
+it.each(['disabled', 'hidden'])('updates web reachability on reconnect when data refresh is %s', async mode => {
+  fake.enabled = mode !== 'disabled'; visibility.hidden = mode === 'hidden'; isOffline.value = true
+  await web(); surface.dispatchEvent(new Event('online')); await vi.advanceTimersByTimeAsync(0)
+  expect(isOffline.value).toBe(false)
+  expect(backendReachability.value).toBe('reachable')
+  expect(fake.warm).not.toHaveBeenCalled(); expect(fake.push).not.toHaveBeenCalled()
+})
+it.each([false, true])('recovers a backend-only outage at its deadline with auto-refresh off and hidden=%s', async hidden => {
+  fake.enabled = false; visibility.hidden = hidden; useAuthStore().isAuthenticated = true
+  fake.probe.mockResolvedValue(false)
+  await web()
+  // An HTTP failure does not emit a browser offline/online event or set a retry deadline.
+  isOffline.value = true; backendReachability.value = 'unreachable'
+  await vi.advanceTimersByTimeAsync(10000)
+  expect(fake.probe).toHaveBeenCalledOnce()
+  expect(isOffline.value).toBe(true)
+  const deadline = reconnectDeadline.value
+  expect(deadline).toBe(Date.now() + 60000)
+  fake.probe.mockResolvedValue(true)
+  await vi.advanceTimersByTimeAsync(59999)
+  expect(fake.probe).toHaveBeenCalledOnce()
+  expect(isOffline.value).toBe(true)
+  await vi.advanceTimersByTimeAsync(1)
+  expect(fake.probe).toHaveBeenCalledTimes(2)
+  expect(isOffline.value).toBe(false)
+  expect(backendReachability.value).toBe('reachable')
+  expect(reconnectDeadline.value).toBeNull()
+  await vi.advanceTimersByTimeAsync(60000)
+  expect(fake.pull).not.toHaveBeenCalled(); expect(fake.warm).not.toHaveBeenCalled(); expect(fake.push).not.toHaveBeenCalled()
+})
+it('a hidden authenticated tab monitors backend recovery without starting data refresh', async () => {
+  visibility.hidden = true; useAuthStore().isAuthenticated = true
+  fake.probe.mockResolvedValue(false)
+  await web(); await vi.advanceTimersByTimeAsync(10000)
+  expect(isOffline.value).toBe(true)
+  fake.probe.mockResolvedValue(true)
+  await vi.advanceTimersByTimeAsync(60000)
+  expect(fake.probe).toHaveBeenCalledTimes(2)
+  expect(isOffline.value).toBe(false)
+  expect(fake.pull).not.toHaveBeenCalled(); expect(fake.warm).not.toHaveBeenCalled()
+})
+it.each(['anonymous', 'logged out'])('heartbeat never probes when session=%s', async session => {
+  fake.enabled = false
+  useAuthStore().isAuthenticated = session !== 'anonymous'
+  fake.loggedOut = session === 'logged out'
+  isOffline.value = true; reconnectDeadline.value = Date.now() + 60000
+  await web(); await vi.advanceTimersByTimeAsync(120000)
+  expect(fake.probe).not.toHaveBeenCalled(); expect(fake.pull).not.toHaveBeenCalled()
+})
+it('logout cancels scheduled liveness retries without a late data pull', async () => {
+  fake.enabled = false; useAuthStore().isAuthenticated = true
+  fake.probe.mockResolvedValue(false)
+  await web(); await vi.advanceTimersByTimeAsync(10000)
+  expect(fake.probe).toHaveBeenCalledOnce()
+  fake.loggedOut = true; useAuthStore().isAuthenticated = false
+  await vi.advanceTimersByTimeAsync(120000)
+  expect(fake.probe).toHaveBeenCalledOnce()
+  expect(fake.pull).not.toHaveBeenCalled(); expect(fake.warm).not.toHaveBeenCalled()
+})
+it('does not lose a reconnect event behind an older in-flight health probe', async () => {
+  const wait = gate()
+  fake.probe.mockImplementationOnce(async () => { await wait.promise; return false })
+  await web(); surface.dispatchEvent(new Event('offline')); surface.dispatchEvent(new Event('online'))
+  wait.resolve(); await vi.advanceTimersByTimeAsync(0)
+  expect(fake.probe).toHaveBeenCalledTimes(2)
+  expect(isOffline.value).toBe(false)
+  expect(backendReachability.value).toBe('reachable')
+})
+it('a health response from before a network loss cannot mark the tab online', async () => {
+  const wait = gate()
+  fake.probe.mockImplementationOnce(async () => { await wait.promise; return true })
+  await web(); surface.dispatchEvent(new Event('offline')); wait.resolve(); await vi.advanceTimersByTimeAsync(0)
+  expect(isOffline.value).toBe(true)
+  expect(backendReachability.value).toBe('unreachable')
 })
 it('stops timers, listeners, watchers and session maintenance on web teardown', async () => {
   await web(); runtime!.stop()
@@ -167,22 +242,22 @@ it('desktop startup failure is visible and releases acquired services', async ()
   expect(fake.monitor).not.toHaveBeenCalled()
 })
 
-it('discovers edits queued by another tab before the next minute pull', async () => {
+it('does not discover or replay legacy work created by another tab', async () => {
   await web()
   fake.count.mockImplementation(async () => { legacyQueueAvailability.value = 'pending' })
-  fake.push.mockImplementation(async () => { legacyQueueAvailability.value = 'empty' })
   await vi.advanceTimersByTimeAsync(60000)
-  expect(fake.prepare).toHaveBeenCalledOnce()
-  expect(fake.push).toHaveBeenCalledOnce()
+  expect(fake.count).not.toHaveBeenCalled()
+  expect(fake.prepare).not.toHaveBeenCalled()
+  expect(fake.push).not.toHaveBeenCalled()
   expect(fake.pull).toHaveBeenCalledOnce()
-  expect(fake.push.mock.invocationCallOrder[0]).toBeLessThan(fake.pull.mock.invocationCallOrder[0])
 })
-it('uses the selected web retry action to recover pending legacy work immediately', async () => {
+it('web retry restores connectivity without sending a legacy queue', async () => {
   legacyQueueAvailability.value = 'pending'; fake.enabled = false; isOffline.value = true
   await web()
   fake.enabled = true
   await runtime!.retryConnection()
   expect(isOffline.value).toBe(false)
-  expect(fake.push).toHaveBeenCalledOnce()
+  expect(fake.push).not.toHaveBeenCalled()
+  expect(fake.warm).toHaveBeenCalledOnce()
   expect(fake.monitor).not.toHaveBeenCalled()
 })

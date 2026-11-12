@@ -74,7 +74,10 @@ renderer acknowledgement must follow durable commit. Never reset an incompatible
 or damaged database automatically. Back up before schema upgrades and restore
 only into an empty profile. Keep credentials in the OS-protected session vault.
 The owner treats the future SQLite desktop as its first release: no legacy
-IndexedDB importer is required. Business adapters are later separation stages;
+IndexedDB importer is required. Web must not read, replay, prune or clear legacy
+IndexedDB; its GET cache is in memory and its session uses the HttpOnly cookie.
+Queue/cache diagnostics and server selection are desktop-only, including direct
+URLs. Business adapters are later separation stages;
 future SQLite updates must preserve snapshots and unsynchronized commands.
 
 Run `node --test tests/desktop-storage.test.cjs` and

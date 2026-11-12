@@ -4,7 +4,6 @@ import { isOffline } from '@/offline/state'
 import { pendingRefs } from '@/offline/outbox'
 import { mayApplyRead, readStamp } from '@/offline/mutationGuard'
 import { platformCapabilities } from '@/platform/context'
-import { legacyQueueAvailability } from '@/platform/state'
 import { resourceHeaderRows } from '@/utils/resourceAccess'
 import { readApi, isReadCancelled, isReadForbidden, apiReadScope } from './apiReads'
 import { ReadCancelled } from '@/data/requestCache'
@@ -12,7 +11,7 @@ import { readConfiguration } from './readConfiguration'
 
 export async function loadResourceHeader(configuration: () => Configuration, owner: number | undefined, signal: AbortSignal, force = false): Promise<DtoResourceResponse[] | null> {
   const web = platformCapabilities.kind === 'web'
-  const legacy = !web || legacyQueueAvailability.value === 'pending'
+  const legacy = !web
   const scope = web ? apiReadScope() : ''
   const stamp = readStamp()
   const key = userCachePrefix() + '/local/resource-header?owner_id=' + (owner ?? 'all') + (web && !legacy ? '&scope=' + encodeURIComponent(scope) : '')

@@ -3,6 +3,7 @@ import { ref, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import ReconnectToast from './offline/ReconnectToast.vue'
 import SyncToast from './offline/SyncToast.vue'
+import { platformCapabilities } from './platform/context'
 import NotificationHost from './notify/NotificationHost.vue'
 import { HintPanel } from './components/common'
 
@@ -34,7 +35,7 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(splashTimer) })
     <div class="boot-spinner" aria-hidden="true"></div>
   </div>
   <ReconnectToast />
-  <SyncToast />
+  <SyncToast v-if="platformCapabilities.offlineBootstrap" />
   <!-- Global error/success notifications (failed mutations, …) -->
   <NotificationHost />
   <!-- Global right-side hint panel: any "?" button opens its page here -->

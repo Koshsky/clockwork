@@ -296,7 +296,7 @@ export const useAuthStore = defineStore('auth', () => {
         })
         if (!accepted) return false
       }
-      void pruneForeignOutbox(user.value?.username ?? username.trim()).catch(() => {})
+      if (platformCapabilities.kind !== 'web') void pruneForeignOutbox(user.value?.username ?? username.trim()).catch(() => {})
       return true
     } catch (e: unknown) {
       error.value = desktopSession && e instanceof Error && /^(SESSION_|DESKTOP_)/.test(e.message)

@@ -32,10 +32,11 @@ it('does not fallback to a different filter or page after an exact cache miss', 
   expect(fake.byPath).not.toHaveBeenCalled(); expect(fake.replay).not.toHaveBeenCalled()
   expect(fake.offline.value).toBe(true)
 })
-it('returns an exact in-memory snapshot on a real network failure', async () => {
+it('does not convert a failed web GET into a legacy cached success', async () => {
   fake.get.mockResolvedValue({ data: [1] })
   axios.defaults.adapter = async config => { throw new AxiosError('Network Error', 'ERR_NETWORK', config) }
-  expect((await axios.get('/api/v1/project')).data).toEqual({ data: [1] })
+  await expect(axios.get('/api/v1/project')).rejects.toThrow('Network Error')
+  expect(fake.get).not.toHaveBeenCalled()
   expect(fake.offline.value).toBe(true)
 })
 it('does not turn a cancelled GET into cached success or an offline transition', async () => {
