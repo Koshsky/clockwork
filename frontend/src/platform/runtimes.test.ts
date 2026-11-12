@@ -6,6 +6,7 @@ const fake = vi.hoisted(() => ({
   resumeWarm: vi.fn(), stopWarm: vi.fn(), resumeRefresh: vi.fn(), stopRefresh: vi.fn(),
   enabled: true, loggedOut: false, mutation: false,
 }))
+vi.mock('@/store/data/apiReads', () => ({ cancelApiReads: vi.fn() }))
 vi.mock('@/offline/state', async () => {
   const { ref } = await import('vue')
   return { isOffline: ref(false), reconnectDeadline: ref<number | null>(null), probeBackend: fake.probe }

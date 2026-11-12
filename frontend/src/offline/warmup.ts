@@ -6,6 +6,7 @@ import { apiConfig, useAppStore, useAuthStore, usePlanningStore, useRbacStore, u
 import { isOffline } from './state'
 import { cacheGetFresh } from './cache'
 import { apiPath } from './hydrate'
+import { platformCapabilities } from '@/platform/context'
 import { warmupEnabled } from '@/settings'
 
 /**
@@ -146,7 +147,7 @@ export function buildPullSteps(): PullStep[] {
     // `/project`, singular); the cache key must match store hydration
     // (loadProjects) so offline reads and the PULL freshness gate find the
     // same keys. Re-check both after regenerating src/api.
-    steps.push({ name: 'projects', path: apiPath('/project'), refresh: () => app.refreshProjects() })
+    steps.push({ name: 'projects', path: apiPath('/project'), refresh: () => app.refreshProjects(true) })
   }
   if (resourceList || planningData) {
     steps.push({ name: 'users', path: apiPath('/user/all'), refresh: () => app.refreshUsers() })
@@ -248,6 +249,9 @@ export function buildPullSteps(): PullStep[] {
 
 /** Whether the cached copy of `step` is still fresh (younger than its TTL). */
 async function isStepFresh(step: PullStep): Promise<boolean> {
+  // A pathname can belong to several owners, windows and pagination queries.
+  // Web entry reads have exact query caching; the minute refresh is explicit.
+  if (platformCapabilities.kind === 'web') return false
   const ttl = step.ttl ?? PULL_TTL_MS
   if (!step.path) return false
   const entry = await cacheGetFresh<unknown>(step.path, step.keyPredicate)

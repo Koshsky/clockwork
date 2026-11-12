@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { usePageReadRefresh } from '@/composables/usePageReadRefresh'
+usePageReadRefresh(async () => { if (planning.taskPlanning == null) await planning.loadTaskPlanning(); else await planning.refreshTaskPlanning(true, true) })
 import { ref, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { storeToRefs } from 'pinia'

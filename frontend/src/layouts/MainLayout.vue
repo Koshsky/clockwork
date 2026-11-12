@@ -108,6 +108,7 @@ onBeforeUnmount(() => {
       <AppHeader />
       <div class="ml-body">
         <main class="ml-main">
+          <p v-if="rbac.permissionsError" role="alert" class="ml-read-error">{{ rbac.permissionsError }}</p>
           <RouterView />
         </main>
       </div>
@@ -117,6 +118,8 @@ onBeforeUnmount(() => {
 
 <style scoped>
 @import '../styles/tokens.css';
+
+.ml-read-error { color: var(--ui-danger); margin-bottom: 12px; }
 
 .ml {
   height: 100vh;

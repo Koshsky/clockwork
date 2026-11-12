@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+vi.mock('@/platform/context', () => ({ platformCapabilities: { kind: 'desktop', optionalStorage: false } }))
 import { effectScope, ref } from 'vue'
 import type { DtoResourceResponse } from '@/api'
 import { isOffline } from '@/offline/state'

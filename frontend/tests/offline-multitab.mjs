@@ -264,11 +264,15 @@ try {
   await expect.poll(() => second.evaluate(() => window.holdsSessionLock)).toBe(true)
   await first.reload()
   await expect(first.locator('.ah-burger'), 'cached account startup cannot wait forever for a suspended sibling').toBeVisible({ timeout: 4000 })
-  await expect(first.locator('body')).toContainText(nameD)
+  await expect(first).toHaveURL(/\/planner$/)
+  expect(await queue(second)).toHaveLength(0)
   await second.evaluate(() => window.releaseSessionLock())
   await runtime(first)
   await expect.poll(() => first.evaluate(() => window.mt.auth.accessExpired())).toBe(false)
-  report.push('PASS cold reload with a suspended refresh owner: cached interface opens before the lock is released')
+  // Web read models are disposable: a cold reload obtains rows from the API
+  // after session restoration instead of hydrating the previous disk snapshot.
+  await expect(first.locator('body')).toContainText(nameD)
+  report.push('PASS cold reload with a suspended refresh owner: requested interface opens before release, API rows arrive after restoration')
   await first.evaluate(async () => {
     await window.mt.outbox.enqueueMutation({
       entity: 'task', method: 'PUT', url: location.origin + '/api/v1/task/2147483647',

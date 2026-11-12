@@ -8,6 +8,7 @@ const http = await request.newContext({ baseURL: `${apiURL}/` })
 const browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL ?? 'chrome', headless: true })
 const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } })
 await page.addInitScript(() => localStorage.setItem('mvs_erp_auto_sync', '0'))
+if (process.env.ERP_TEST_BLOCK_IDB === '1') await page.addInitScript(() => Object.defineProperty(window, 'indexedDB', { value: undefined }))
 const prefix = `ar${Date.now()}`
 const cleanup = [], errors = []
 let admin, token, uid, checks = 0

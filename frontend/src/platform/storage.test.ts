@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 const fake = vi.hoisted(() => ({ optional: true, put: vi.fn(), get: vi.fn(), keys: vi.fn(), clear: vi.fn(), del: vi.fn() }))
 vi.mock('./context', () => ({ platformCapabilities: { get optionalStorage() { return fake.optional } } }))
 vi.mock('@/offline/db', () => ({ idbPut: fake.put, idbGet: fake.get, idbKeys: fake.keys, idbClear: fake.clear, idbDel: fake.del }))
-import { localDataAvailability } from './state'
+import { localDataAvailability, legacyQueueAvailability } from './state'
 import { optionalCachePut, optionalCacheGet, optionalCacheKeys, optionalCacheClear } from './cacheStore'
 import { saveRefreshToken, loadRefreshToken, clearRefreshToken } from '@/offline/session'
 let values: Map<string, string>
@@ -13,6 +13,7 @@ beforeEach(async () => {
   localDataAvailability.value = 'unavailable'
   await optionalCacheClear('cache')
   localDataAvailability.value = 'unknown'
+  legacyQueueAvailability.value = 'empty'
   fake.keys.mockResolvedValue([])
 })
 afterEach(() => vi.unstubAllGlobals())
@@ -34,7 +35,8 @@ it('does not lose an online web response when cache persistence fails', async ()
   expect(await optionalCacheGet('cache', 'test')).toEqual([1, 2])
   expect(fake.put).toHaveBeenCalledExactlyOnceWith('cache', 'test', [1, 2])
 })
-it('combines cache keys without duplicates and clears the memory copy', async () => {
+it('combines legacy cache keys without duplicates and clears the memory copy', async () => {
+  legacyQueueAvailability.value = 'pending'
   await optionalCachePut('cache', 'memory', 1)
   fake.keys.mockResolvedValue(['memory', 'disk'])
   expect(await optionalCacheKeys('cache')).toEqual(['memory', 'disk'])
@@ -43,6 +45,7 @@ it('combines cache keys without duplicates and clears the memory copy', async ()
   expect(await optionalCacheGet('cache', 'memory')).toBeUndefined()
 })
 it('reads disk cache first while legacy queue overlays still own it', async () => {
+  legacyQueueAvailability.value = 'pending'
   fake.get.mockResolvedValue({ title: 'queued edit' })
   expect(await optionalCacheGet('cache', 'key')).toEqual({ title: 'queued edit' })
 })
@@ -107,5 +110,16 @@ it('does not replace a volatile online response with stale disk cache after stor
   await optionalCachePut('cache', 'recovered', { title: 'persisted' })
   fake.get.mockResolvedValue({ title: 'persisted' })
   expect(await optionalCacheGet('cache', 'recovered')).toEqual({ title: 'persisted' })
-  expect(fake.get).toHaveBeenCalledOnce()
+  expect(fake.get).not.toHaveBeenCalled()
+})
+
+it.each(['empty', 'unknown', 'unavailable'] as const)('never reads disk GET snapshots in the ordinary web path when the queue is %s', async state => {
+  legacyQueueAvailability.value = state
+  localDataAvailability.value = 'available'
+  fake.get.mockResolvedValue({ title: 'old profile snapshot' })
+  fake.keys.mockResolvedValue(['disk-only'])
+  expect(await optionalCacheGet('cache', 'disk-only')).toBeUndefined()
+  expect(await optionalCacheKeys('cache')).toEqual([])
+  expect(fake.get).not.toHaveBeenCalled()
+  expect(fake.keys).not.toHaveBeenCalled()
 })

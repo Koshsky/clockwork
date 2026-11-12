@@ -3,6 +3,8 @@ import { useAuthStore } from '@/store'
 import { isLoggedOut } from '@/loggedOut'
 import { shouldAutoSync } from '@/settings'
 import { isOffline, probeBackend, reconnectDeadline } from '@/offline/state'
+import { refreshActiveReads, stopActiveReads, resumeActiveReads } from '@/data/activeReads'
+import { cancelApiReads } from '@/store/data/apiReads'
 import { notePull } from '@/offline/freshness'
 import { hasActiveMutations } from '@/offline/mutationGuard'
 import { refreshPendingCount } from '@/offline/outbox'
@@ -68,6 +70,7 @@ export function createWebRuntime() {
       await recoverLegacyQueue()
       if (canWork() && !isOffline.value) {
         const refreshed = await pullStaleCycle()
+        if (canWork() && !isOffline.value && !hasActiveMutations()) await refreshActiveReads()
         if (alive() && refreshed > 0) notePull()
       }
     } catch {
@@ -76,6 +79,9 @@ export function createWebRuntime() {
   }
   return createRuntime('web', async scope => {
     alive = scope.active
+    resumeActiveReads()
+    scope.onStop(stopActiveReads)
+    scope.onStop(cancelApiReads)
     resumeWarmup()
     resumeDomainRefresh()
     scope.onStop(stopWarmup)

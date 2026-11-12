@@ -161,9 +161,10 @@ onMounted(async () => {
     return
   }
   loadingEdit.value = adminUsers.value.length === 0
-  await app.loadAdminUsers()
+  const id = editingUserId.value
+  const u = id == null ? null : await app.loadAdminUser(id)
   loadingEdit.value = false
-  const u = adminUsers.value.find((x) => x.id === editingUserId.value)
+  error.value = app.adminUsersError
   if (u) fillForm(u)
   else missing.value = true
 })

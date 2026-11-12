@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { usePageReadRefresh } from '@/composables/usePageReadRefresh'
+usePageReadRefresh(async () => { if (!ts.employees.length) await ts.loadEmployees(); else await ts.refreshEmployees(undefined, true, true) })
 import { computed, onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { ContextMenu, ModalForm, PendingMark, DataTable } from '../components/common'

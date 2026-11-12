@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore, useRbacStore } from '../store'
 import { isOffline } from '../offline/state'
+import { loadAppManifest } from '@/store/data/pageReads'
 import { t } from '../i18n'
 import { fullName } from '../utils/fullName'
 import { presetLabelFromCatalog } from '../utils/presets'
@@ -36,9 +37,8 @@ const appVersion = ref('—')
 
 async function refreshAppInfo() {
   try {
-    const res = await fetch('/precache-manifest.json')
-    if (res.ok) {
-      const data = (await res.json()) as { version?: string }
+    const data = await loadAppManifest()
+    if (data) {
       appVersion.value = data.version ?? '—'
     }
   } catch {

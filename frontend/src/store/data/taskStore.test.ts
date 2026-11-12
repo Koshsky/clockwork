@@ -69,13 +69,22 @@ describe('task planning through an injected data port', () => {
     expect(planning.taskPlanning).toEqual({ processes: [] })
   })
 
-  it('surfaces read refusal without replacing the existing data with an empty result', async () => {
+  it('conceals previously loaded planning when the server forbids the read', async () => {
     planning.taskPlanning = oldPlanning()
     port.readPlanning.mockResolvedValueOnce({ status: 'failed', error: failure })
     await planning.refreshTaskPlanning()
     expect(planning.error).toBe(failure.message)
     expect(planning.loading).toBe(false)
+    expect(planning.taskPlanning).toBeNull()
+  })
+
+  it('keeps the previous snapshot after a temporary network failure', async () => {
+    planning.taskPlanning = oldPlanning()
+    port.readPlanning.mockResolvedValueOnce({ status: 'failed', error: { kind: 'unavailable', message: 'Network failed' } })
+    await planning.refreshTaskPlanning()
     expect(planning.taskPlanning).toEqual(oldPlanning())
+    expect(planning.error).toBe('Network failed')
+    expect(planning.loading).toBe(false)
   })
 
   it('leaves visible errors untouched during a silent refresh', async () => {

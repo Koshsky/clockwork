@@ -835,14 +835,25 @@ export async function discardFailed(): Promise<void> {
  *    running — they wait for the same completion.
  */
 let replayInFlight: Promise<void> | null = null
+let replayAccount: string | null = null
 
 export async function replayOutboxToCache(): Promise<void> {
+  const account = currentUsername()
   if ((await idbCount(OUTBOX_STORE)) === 0) return
-  if (replayInFlight) return replayInFlight
+  if (account !== currentUsername()) return
+  if (replayInFlight) {
+    if (replayAccount === account) return replayInFlight
+    await replayInFlight
+    if (account === currentUsername()) return replayOutboxToCache()
+    return
+  }
+  replayAccount = account
   replayInFlight = (async () => {
     try {
       const entries = await idbAll<OutboxEntry>(OUTBOX_STORE)
       for (const entry of entries.sort((a, b) => a.ts - b.ts)) {
+        if (account !== currentUsername()) break
+        if (entry.creator && entry.creator !== account) continue
         await applyToCache(entry)
       }
     } finally {

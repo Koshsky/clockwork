@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { usePageReadRefresh } from '@/composables/usePageReadRefresh'
+usePageReadRefresh(async () => { if (managerEditing.value != null || saving.value) return false; await loadStructure() })
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { DataTable, HintButton } from '../components/common'
@@ -6,7 +8,8 @@ import type { DataTableColumn } from '../components/common'
 import { useAppStore, useAuthStore, useRbacStore, apiConfig } from '../store'
 import { OrgChart } from '../components/common/OrgChart'
 import { buildOrgForest } from '../components/common/OrgChart/layout'
-import { UsersApi } from '@/api'
+import { isReadCancelled } from '@/store/data/apiReads'
+import { loadStructure as readStructure } from '@/store/data/pageReads'
 import { apiErrorMessage } from '../utils'
 import { useColumnWidths } from '../composables/useColumnWidths'
 import { presetDescriptionByTag, presetLabelFromCatalog } from '../utils/presets'
@@ -32,12 +35,11 @@ async function loadStructure() {
   adminUsersLoading.value = true
   adminUsersError.value = ''
   try {
-    const api = new UsersApi(apiConfig())
-    const response = await api.userStructureGet({ signal: abort.signal })
+    const response = await readStructure(apiConfig, abort.signal)
     const all = response.data?.data ?? []
     if (!abort.signal.aborted) adminUsers.value = all
   } catch (error: unknown) {
-    if (!abort.signal.aborted) {
+    if (!abort.signal.aborted && !isReadCancelled(error)) {
       const payload = (error as { response?: { data?: { error?: { message?: string; code?: unknown } } } } | null)?.response?.data?.error
       adminUsersError.value = apiErrorMessage(payload, error instanceof Error ? error.message : t('adminUsers.structure.loadIncomplete'))
     }

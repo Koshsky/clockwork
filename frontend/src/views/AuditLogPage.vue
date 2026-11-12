@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { usePageReadRefresh } from '@/composables/usePageReadRefresh'
+usePageReadRefresh(async () => { await applyFilters(offset.value) })
 /**
  * Журнал действий (audit log) — админ-страница: все CRUD-мутации и события
  * авторизации, зафиксированные на сервере в Grafana Loki. Данные читаются

@@ -33,6 +33,10 @@ import { cacheGetAllByPath } from '@/offline/cache'
 import { createReadGuard } from '@/data/readGuard'
 import { taskDataKey } from '@/data/taskData'
 import { createLegacyTaskData } from './data/legacyTasks'
+import { createWebTaskData } from './data/webTasks'
+import { readApi, isReadCancelled, isReadForbidden, invalidateApiReads, readPending } from './data/apiReads'
+import { readConfiguration } from './data/readConfiguration'
+import { platformCapabilities } from '@/platform/context'
 import { runMutation } from './data/legacyMutation'
 import { evalScope, type ScopeProbe } from '@/rbacScope'
 import { parentScope } from '@/utils/presetDefaults'
@@ -114,6 +118,9 @@ function authApiConfig(): Configuration {
   })
 }
 
+const apiReadsEnabled = platformCapabilities.kind === 'web'
+const readConfig = () => readConfiguration(apiConfig)
+
 export { apiConfig }
 
 function readStoredUser(): DtoUserInfo | null {
@@ -151,6 +158,13 @@ function waitForExternalToken(previous: string): Promise<boolean> {
       resolve(renewed())
     })
   })
+}
+
+function resetReadModels(): void {
+  useAppStore().resetUserData()
+  useTimesheetStore().resetUserData()
+  usePlanningStore().resetUserData()
+  useAuditStore().resetUserData()
 }
 
 // === Auth ===
@@ -197,12 +211,13 @@ export const useAuthStore = defineStore('auth', () => {
     // previous account's matrix. A token rotation keeps the same user, so
     // nothing to do (the TTL pull cycle owns refreshes).
     if (prevUid !== user.value?.id) {
+      resetReadModels()
       const rbac = useRbacStore()
       rbac.resetPermissions()
       if (!isOffline.value) void rbac.refreshPermissions()
     }
     // Background warm-up of the offline cache with data for the user's role
-    if (warm) scheduleWarmup()
+    if (warm && platformCapabilities.kind !== 'web') scheduleWarmup()
   }
 
   /**
@@ -224,7 +239,7 @@ export const useAuthStore = defineStore('auth', () => {
     isAuthenticated.value = true
     sessionMode.value = 'offline'
     // Offline account switch — never keep another profile's permissions.
-    if (prevUid !== user.value?.id) useRbacStore().resetPermissions()
+    if (prevUid !== user.value?.id) { resetReadModels(); useRbacStore().resetPermissions() }
     return true
   }
 
@@ -348,9 +363,7 @@ export const useAuthStore = defineStore('auth', () => {
     setAccessToken(null)
     isAuthenticated.value = false
     useRbacStore().resetPermissions()
-    useTimesheetStore().resetUserData()
-    useAppStore().resetUserData()
-    usePlanningStore().resetUserData()
+    resetReadModels()
   }
 
   /** Renews the access token via the refresh token; on failure logs out.
@@ -509,18 +522,16 @@ export const useAuthStore = defineStore('auth', () => {
     // (the same or another account) starts from its own server-scoped data —
     // never from the previous session's rows (the GET cache itself is per-user
     // keyed — see offline/cache.ts — so no cache wipe is needed).
-    useTimesheetStore().resetUserData()
-    useAppStore().resetUserData()
-    usePlanningStore().resetUserData()
+    resetReadModels()
   }
 
   /** Fetches fresh user data by id via UsersApi.usersIdGet */
-  async function fetchProfile(userId: number): Promise<boolean> {
-    if (isOffline.value && user.value) return true
+  async function fetchProfile(userId: number, preferCache = false): Promise<boolean> {
+    if (!apiReadsEnabled && isOffline.value && user.value) return true
     error.value = null
     try {
-      const api = new UsersApi(apiConfig())
-      const resp = await api.userIdGet(userId)
+      const api = new UsersApi(readConfig())
+      const resp = await readApi('profile', userId, request => api.userIdGet(userId, request), preferCache)
       const body = resp.data
       const errBody = body?.error as { code?: unknown; message?: string } | undefined
       if (errBody && errBody.code != null) throw new Error(apiErrorMessage(errBody))
@@ -530,6 +541,7 @@ export const useAuthStore = defineStore('auth', () => {
       }
       return true
     } catch (e: unknown) {
+      if (isReadCancelled(e)) return false
       error.value = e instanceof Error ? e.message || String(e) : String(e)
       return false
     }
@@ -537,6 +549,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   /** Local-first profile: hydrate from the cache; network refresh via fetchProfile */
   async function loadProfile(userId: number): Promise<boolean> {
+    if (apiReadsEnabled) return fetchProfile(userId, true)
     if (user.value) return true
     await hydrateFromCache([
       {
@@ -557,7 +570,7 @@ export const useAuthStore = defineStore('auth', () => {
   // After a page reload with saved tokens, continue proactive refresh
   if (isAuthenticated.value) {
     scheduleProactiveRefresh()
-    scheduleWarmup()
+    if (platformCapabilities.kind !== 'web') scheduleWarmup()
   }
 
   // Adopt fresher sessions (access token + rotated refresh token) published by
@@ -606,6 +619,7 @@ export const useAppStore = defineStore('app', () => {
    * happens only through the background PULL cycle (refreshProjects).
    */
   async function loadProjects(): Promise<void> {
+    if (apiReadsEnabled) return refreshProjects(false, true)
     if (projects.value.length) return
     await hydrateFromCache([
       {
@@ -623,7 +637,7 @@ export const useAppStore = defineStore('app', () => {
     ])
   }
 
-  async function refreshProjects(): Promise<void> {
+  async function refreshProjects(silent = false, preferCache = false): Promise<void> {
     // Only users with project.view (backend-enforced) may list projects; for
     // the others the listing is forbidden (403) — we do not send the request
     // at all. The RBAC matrix is authoritative once loaded; the preset is only
@@ -638,17 +652,18 @@ export const useAppStore = defineStore('app', () => {
       projects.value = []
       return
     }
-    projectsLoading.value = true
-    projectsError.value = null
+    if (!silent) { projectsLoading.value = true; projectsError.value = null }
     try {
-      const api = new ProjectsApi(apiConfig())
-      const resp = await api.projectGet(tablePageSize.value, undefined, 0)
+      const api = new ProjectsApi(readConfig())
+      const resp = await readApi('projects', [tablePageSize.value, 0], request => api.projectGet(tablePageSize.value, undefined, 0, request), preferCache)
       const data = resp.data?.data
       projects.value = data?.items ?? []
     } catch (e: unknown) {
-      projectsError.value = e instanceof Error ? e.message || String(e) : String(e)
+      if (isReadForbidden(e)) { projects.value = [] }
+      if (isReadCancelled(e)) return
+      if (!silent) projectsError.value = e instanceof Error ? e.message || String(e) : String(e)
     } finally {
-      projectsLoading.value = false
+      if (!silent) projectsLoading.value = readPending('projects')
     }
   }
 
@@ -694,6 +709,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   async function loadResources(): Promise<void> {
+    if (apiReadsEnabled) return refreshResources(false, true)
     if (resources.value.length) return
     await hydrateFromCache([
       {
@@ -718,14 +734,22 @@ export const useAppStore = defineStore('app', () => {
    * purpose: while the list is empty they are the only progress indicator the
    * page has (mirrors `refreshEmployees(managerId, silent)`).
    */
-  async function refreshResources(silent = false): Promise<void> {
+  async function refreshResources(silent = false, preferCache = false): Promise<void> {
+    const rbac = useRbacStore()
+    if (rbac.permsLoaded && !rbac.can('resource', 'view')) {
+      resources.value = []
+      resourcesTotal.value = 0
+      resourcesError.value = null
+      resourcesLoading.value = false
+      return
+    }
     if (!silent) {
       resourcesLoading.value = true
       resourcesError.value = null
     }
     try {
-      const api = new TimesheetResourcesApi(apiConfig())
-      const resp = await api.resourcesGet(tablePageSize.value, undefined, 0)
+      const api = new TimesheetResourcesApi(readConfig())
+      const resp = await readApi('resources', [tablePageSize.value, 0], request => api.resourcesGet(tablePageSize.value, undefined, 0, request), preferCache)
       const data = resp.data?.data
       const items = data?.items ?? []
       // The background PULL must not truncate pages already loaded via
@@ -738,9 +762,11 @@ export const useAppStore = defineStore('app', () => {
       if (!sameResources(merged, resources.value)) resources.value = merged
       resourcesTotal.value = data?.total ?? 0
     } catch (e: unknown) {
+      if (isReadForbidden(e)) { resources.value = []; resourcesTotal.value = 0 }
+      if (isReadCancelled(e)) return
       if (!silent) resourcesError.value = e instanceof Error ? e.message || String(e) : String(e)
     } finally {
-      if (!silent) resourcesLoading.value = false
+      if (!silent) resourcesLoading.value = readPending('resources')
     }
   }
 
@@ -755,7 +781,7 @@ export const useAppStore = defineStore('app', () => {
     resourcesLoadingMore.value = true
     resourcesError.value = null
     try {
-      if (isOffline.value) {
+      if (!apiReadsEnabled && isOffline.value) {
         const pages = await cacheGetAllByPath<{ data?: { items?: DtoResourceResponse[]; offset?: number; total?: number } }>(
           apiPath('/resources'),
         )
@@ -770,17 +796,18 @@ export const useAppStore = defineStore('app', () => {
         if (!merged) resourcesError.value = t('offline.noCachedData')
         return merged
       }
-      const api = new TimesheetResourcesApi(apiConfig())
-      const resp = await api.resourcesGet(tablePageSize.value, undefined, resources.value.length)
+      const api = new TimesheetResourcesApi(readConfig())
+      const resp = await readApi('resources.more', [tablePageSize.value, resources.value.length], request => api.resourcesGet(tablePageSize.value, undefined, resources.value.length, request))
       const data = resp.data?.data
       mergeResources(data?.items ?? [])
       resourcesTotal.value = data?.total ?? resourcesTotal.value
       return true
     } catch (e: unknown) {
+      if (isReadCancelled(e)) return false
       resourcesError.value = e instanceof Error ? e.message || String(e) : String(e)
       return false
     } finally {
-      resourcesLoadingMore.value = false
+      resourcesLoadingMore.value = readPending('resources.more')
     }
   }
 
@@ -865,6 +892,7 @@ export const useAppStore = defineStore('app', () => {
 
   /** Loads the member (user) list of a resource — local-first (cache) */
   async function loadResourceMembers(resourceId: number): Promise<void> {
+    if (apiReadsEnabled) return refreshResourceMembers(resourceId, true)
     if (resourceMembers.value[resourceId] != null) return
     await hydrateFromCache([
       {
@@ -878,12 +906,13 @@ export const useAppStore = defineStore('app', () => {
     ])
   }
 
-  async function refreshResourceMembers(resourceId: number): Promise<void> {
+  async function refreshResourceMembers(resourceId: number, preferCache = false): Promise<void> {
     try {
-      const api = new TimesheetResourcesApi(apiConfig())
-      const resp = await api.resourcesIdMembersGet(resourceId)
+      const api = new TimesheetResourcesApi(readConfig())
+      const resp = await readApi('resource.members:' + resourceId, resourceId, request => api.resourcesIdMembersGet(resourceId, request), preferCache)
       resourceMembers.value[resourceId] = resp.data?.data ?? []
     } catch (e: unknown) {
+      if (isReadCancelled(e)) return
       resourcesError.value = e instanceof Error ? e.message || String(e) : String(e)
     }
   }
@@ -1015,6 +1044,7 @@ export const useAppStore = defineStore('app', () => {
 
   /** Loads resource availability for the "180 days back / 360 days forward" window (within the backend limit) */
   async function loadCalendar(): Promise<void> {
+    if (apiReadsEnabled) return refreshCalendar(true)
     if (calendar.value.length) return
     await hydrateFromCache([
       {
@@ -1028,7 +1058,7 @@ export const useAppStore = defineStore('app', () => {
     ])
   }
 
-  async function refreshCalendar(): Promise<void> {
+  async function refreshCalendar(preferCache = false): Promise<void> {
     const timesheet = useTimesheetStore()
     if (timesheet.busy) return
     const revision = timesheet.periodRevision
@@ -1036,16 +1066,17 @@ export const useAppStore = defineStore('app', () => {
     calendarError.value = null
     try {
       const today = new Date()
-      const api = new TimesheetCalendarApi(apiConfig())
-      const resp = await api.timesheetCalendarGet(
-        calendarDay(today, -CALENDAR_BACK_DAYS),
-        calendarDay(today, CALENDAR_FORWARD_DAYS),
-      )
+      const api = new TimesheetCalendarApi(readConfig())
+      const from = calendarDay(today, -CALENDAR_BACK_DAYS)
+      const to = calendarDay(today, CALENDAR_FORWARD_DAYS)
+      const resp = await readApi('resource.calendar', [from, to], request => api.timesheetCalendarGet(from, to, request), preferCache)
       if (!timesheet.busy && revision === timesheet.periodRevision) calendar.value = resp.data?.data?.resources ?? []
     } catch (e: unknown) {
+      if (isReadForbidden(e)) { calendar.value = [] }
+      if (isReadCancelled(e)) return
       calendarError.value = e instanceof Error ? e.message || String(e) : String(e)
     } finally {
-      calendarLoading.value = false
+      calendarLoading.value = readPending('resource.calendar')
     }
   }
 
@@ -1058,8 +1089,8 @@ export const useAppStore = defineStore('app', () => {
     if (timesheet.busy) return
     const revision = timesheet.periodRevision
     try {
-      const api = new TimesheetResourcesApi(apiConfig())
-      const resp = await api.resourcesIdAbsenceGet(resourceId, from, to)
+      const api = new TimesheetResourcesApi(readConfig())
+      const resp = await readApi('resource.absences:' + resourceId, [resourceId, from, to], request => api.resourcesIdAbsenceGet(resourceId, from, to, request), true)
       if (timesheet.busy || revision !== timesheet.periodRevision) return
       absenceByResource.value = { ...absenceByResource.value, [resourceId]: resp.data?.data ?? [] }
     } catch {
@@ -1078,6 +1109,7 @@ export const useAppStore = defineStore('app', () => {
   const myStaffLoading = ref(false)
 
   async function loadUsers(): Promise<void> {
+    if (apiReadsEnabled) return refreshUsers(true)
     if (users.value.length) return
     await hydrateFromCache([
       {
@@ -1093,22 +1125,25 @@ export const useAppStore = defineStore('app', () => {
     if (!users.value.length) scheduleWarmup()
   }
 
-  async function refreshUsers(): Promise<void> {
+  async function refreshUsers(preferCache = false): Promise<void> {
     usersLoading.value = true
     usersError.value = null
     try {
-      const api = new UsersApi(apiConfig())
-      const resp = await api.userAllGet()
+      const api = new UsersApi(readConfig())
+      const resp = await readApi('users.directory', undefined, request => api.userAllGet(request), preferCache)
       users.value = resp.data?.data ?? []
     } catch (e: unknown) {
+      if (isReadForbidden(e)) { users.value = [] }
+      if (isReadCancelled(e)) return
       usersError.value = e instanceof Error ? e.message || String(e) : String(e)
     } finally {
-      usersLoading.value = false
+      usersLoading.value = readPending('users.directory')
     }
   }
 
   /** Loads "own staff" (scoped /users without a role filter). */
   async function loadMyStaff(): Promise<void> {
+    if (apiReadsEnabled) return refreshMyStaff(true)
     if (myStaff.value.length) return
     await hydrateFromCache([
       {
@@ -1123,16 +1158,16 @@ export const useAppStore = defineStore('app', () => {
     ])
   }
 
-  async function refreshMyStaff(): Promise<void> {
+  async function refreshMyStaff(preferCache = false): Promise<void> {
     myStaffLoading.value = true
     try {
-      const api = new UsersApi(apiConfig())
-      const resp = await api.userGet(500, undefined, undefined, undefined, undefined, 0)
+      const api = new UsersApi(readConfig())
+      const resp = await readApi('users.staff', [500, 0], request => api.userGet(500, undefined, undefined, undefined, undefined, 0, request), preferCache)
       myStaff.value = resp.data?.data?.items ?? []
     } catch {
       // Not critical: the candidate pool stays as is.
     } finally {
-      myStaffLoading.value = false
+      myStaffLoading.value = readPending('users.staff')
     }
   }
 
@@ -1156,13 +1191,26 @@ export const useAppStore = defineStore('app', () => {
     adminUsersLoading.value = true
     adminUsersError.value = null
     try {
-      const api = new UsersApi(apiConfig())
-      const resp = await api.userAccountsGet(500, undefined, undefined, false, search || undefined, 0)
+      const api = new UsersApi(readConfig())
+      const resp = await readApi('users.accounts', search, request => api.userAccountsGet(500, undefined, undefined, false, search || undefined, 0, request))
       adminUsers.value = resp.data?.data?.items ?? []
     } catch (e: unknown) {
+      if (isReadForbidden(e)) { adminUsers.value = [] }
+      if (isReadCancelled(e)) return
       adminUsersError.value = apiErrorMessage(e as { message?: string; code?: unknown })
     } finally {
-      adminUsersLoading.value = false
+      adminUsersLoading.value = readPending('users.accounts')
+    }
+  }
+
+  async function loadAdminUser(id: number): Promise<DtoAdminUserResponse | null> {
+    adminUsersError.value = null
+    try {
+      const response = await readApi('account.detail', id, request => new UsersApi(readConfig()).userAccountsIdGet(id, request))
+      return response.data?.data ?? null
+    } catch (e) {
+      if (!isReadCancelled(e)) adminUsersError.value = apiErrorMessage(e as { message?: string; code?: unknown })
+      return null
     }
   }
 
@@ -1250,13 +1298,15 @@ export const useAppStore = defineStore('app', () => {
     autoCreateLoading.value = true
     autoCreateError.value = null
     try {
-      const api = new AutoCreateApi(apiConfig())
-      const resp = await api.autoCreateConfigGet()
+      const api = new AutoCreateApi(readConfig())
+      const resp = await readApi('template.configuration', undefined, request => api.autoCreateConfigGet(request))
       autoCreateConfig.value = resp.data?.data ?? null
     } catch (e: unknown) {
+      if (isReadForbidden(e)) { autoCreateConfig.value = null }
+      if (isReadCancelled(e)) return
       autoCreateError.value = apiErrorMessage(e as { message?: string; code?: unknown })
     } finally {
-      autoCreateLoading.value = false
+      autoCreateLoading.value = readPending('template.configuration')
     }
   }
 
@@ -1276,6 +1326,21 @@ export const useAppStore = defineStore('app', () => {
   /** Clears the user-scoped payloads on logout/account switch (the GET cache
    *  itself is per-user keyed — see offline/cache.ts). */
   function resetUserData(): void {
+    invalidateApiReads()
+    projects.value = []
+    projectsError.value = null
+    calendar.value = []
+    calendarError.value = null
+    myStaff.value = []
+    adminUsers.value = []
+    adminUsersError.value = null
+    autoCreateConfig.value = null
+    autoCreateError.value = null
+    resourcesTotal.value = 0
+    resourcesError.value = null
+    resourcesLoading.value = false
+    resourcesLoadingMore.value = false
+    usersError.value = null
     users.value = []
     resources.value = []
     resourceMembers.value = {}
@@ -1317,6 +1382,7 @@ export const useAppStore = defineStore('app', () => {
     adminUsersLoading,
     adminUsersError,
     loadAdminUsers,
+    loadAdminUser,
     refreshAdminUsers,
     createUser,
     resetPassword,
@@ -1360,6 +1426,7 @@ export const useTimesheetStore = defineStore('timesheet', () => {
   const states = ref<DtoStateResponse[]>([])
   const periodsByEmployee = ref<Record<number, DtoUserStateResponse[]>>({})
   const periodRevision = ref(0)
+  let periodRead = 0
   const windowStart = ref('')
   const windowEnd = ref('')
   const loading = ref(false)
@@ -1390,6 +1457,7 @@ export const useTimesheetStore = defineStore('timesheet', () => {
   }
 
   function setError(e: unknown) {
+    if (isReadCancelled(e)) return
     error.value = e instanceof Error ? e.message || String(e) : String(e)
   }
 
@@ -1423,14 +1491,13 @@ export const useTimesheetStore = defineStore('timesheet', () => {
    * case — the batch is only an optimization. Lenient: a failed row keeps its
    * previous cached data; returns false only when at least one row failed.
    */
-  async function refreshPeriodsOneByOne(start: string, end: string): Promise<boolean> {
+  async function refreshPeriodsOneByOne(start: string, end: string, read: number): Promise<boolean> {
     const revision = periodRevision.value
-    const api = new UsersApi(apiConfig())
+    const api = new UsersApi(readConfig())
     let failed: unknown = null
     const results = await Promise.all(
       timesheetRows.value.map((emp) =>
-        api
-          .userIdDaysGet(emp.id ?? 0, start, end)
+        readApi('timesheet.periods:' + emp.id, [emp.id, start, end], request => api.userIdDaysGet(emp.id ?? 0, start, end, request))
           .then((r) => ({ id: emp.id, list: r.data?.data ?? [] }))
           .catch((e: unknown) => {
             failed = failed ?? e
@@ -1438,7 +1505,7 @@ export const useTimesheetStore = defineStore('timesheet', () => {
           }),
       ),
     )
-    if (revision !== periodRevision.value) return false
+    if (read !== periodRead || revision !== periodRevision.value) return false
     for (const { id, list } of results) {
       if (id == null || list == null) continue
       mergeWindowPeriods(id, list, start, end)
@@ -1457,21 +1524,21 @@ export const useTimesheetStore = defineStore('timesheet', () => {
    * (unexpected payload shape or a request error), falls back to the
    * per-employee path so the timesheet renders even against an older backend.
    */
-  async function refreshPeriodsBatch(start: string, end: string): Promise<boolean> {
+  async function refreshPeriodsBatch(start: string, end: string, read: number): Promise<boolean> {
     if (busy.value) return false
     const revision = periodRevision.value
     const ids = timesheetRows.value
       .map((e) => e.id)
       .filter((id): id is number => id != null)
     if (ids.length === 0) return true
-    const api = new UsersApi(apiConfig())
+    const api = new UsersApi(readConfig())
     try {
       const chunks: number[][] = []
       for (let i = 0; i < ids.length; i += BATCH_IDS_MAX) chunks.push(ids.slice(i, i + BATCH_IDS_MAX))
       const responses = await Promise.all(
-        chunks.map((chunk) => api.userDaysGet(chunk.join(','), start, end)),
+        chunks.map((chunk) => readApi('timesheet.batch:' + chunk.join(','), [chunk, start, end], request => api.userDaysGet(chunk.join(','), start, end, request))),
       )
-      if (revision !== periodRevision.value) return false
+      if (read !== periodRead || revision !== periodRevision.value) return false
       for (const resp of responses) {
         const entries = resp.data?.data
         // Shape guard: an older backend (or a proxy) answering the URL with a
@@ -1488,8 +1555,10 @@ export const useTimesheetStore = defineStore('timesheet', () => {
     } catch (e: unknown) {
       // The batch endpoint may be missing on an older backend — fall back to
       // the per-employee path; surface an error only when the fallback fails too.
-      if (revision !== periodRevision.value || busy.value) return false
-      const ok = await refreshPeriodsOneByOne(start, end)
+      if (read !== periodRead || isReadCancelled(e) || revision !== periodRevision.value || busy.value) return false
+      const status = (e as AxiosError).response?.status
+      if (status === 401 || status === 403) { setError(e); return false }
+      const ok = await refreshPeriodsOneByOne(start, end, read)
       if (!ok) setError(e)
       else console.warn('[timesheet] batch days unavailable, fell back to per-employee:', e instanceof Error ? e.message : e)
       return ok
@@ -1498,7 +1567,7 @@ export const useTimesheetStore = defineStore('timesheet', () => {
 
   /** Network refresh (PULL) entry point: keeps the (start, end) signature used by warmup/sync/ensureRange */
   async function refreshPeriods(start: string, end: string): Promise<boolean> {
-    return refreshPeriodsBatch(start, end)
+    return refreshPeriodsBatch(start, end, ++periodRead)
   }
 
   /** An employee's period covering a day (binary search over the sorted periods) */
@@ -1558,6 +1627,7 @@ export const useTimesheetStore = defineStore('timesheet', () => {
 
   /** Local-first: hydrate the employee list (scoped by the backend) from the cache */
   async function loadEmployeesList(): Promise<void> {
+    if (apiReadsEnabled) return refreshEmployees(undefined, false, true)
     // The roster is scoped to the authenticated user: reuse it only for the
     // same account (an account switch must never surface another user's rows).
     const uid = useAuthStore().user?.id ?? null
@@ -1579,14 +1649,14 @@ export const useTimesheetStore = defineStore('timesheet', () => {
     ])
   }
 
-  async function refreshEmployees(managerId?: number, silent = false): Promise<void> {
+  async function refreshEmployees(managerId?: number, silent = false, preferCache = false): Promise<void> {
     if (!silent) {
       loading.value = true
       error.value = null
     }
     try {
-      const api = new UsersApi(apiConfig())
-      const resp = await api.userGet(tablePageSize.value, undefined, managerId ?? undefined, undefined, undefined, 0)
+      const api = new UsersApi(readConfig())
+      const resp = await readApi('employees', [tablePageSize.value, managerId, 0], request => api.userGet(tablePageSize.value, undefined, managerId ?? undefined, undefined, undefined, 0, request), preferCache)
       const data = resp.data?.data
       // Sorting is added by the computed employeesWithTitles.
       //
@@ -1603,9 +1673,11 @@ export const useTimesheetStore = defineStore('timesheet', () => {
       if (!sameEmployees(merged, employees.value)) employees.value = merged
       employeesTotal.value = data?.total ?? 0
     } catch (e: unknown) {
+      if (isReadForbidden(e)) { employees.value = []; employeesTotal.value = 0 }
+      if (isReadCancelled(e)) return
       if (!silent) setError(e)
     } finally {
-      if (!silent) loading.value = false
+      if (!silent) loading.value = readPending('employees')
     }
   }
 
@@ -1625,7 +1697,7 @@ export const useTimesheetStore = defineStore('timesheet', () => {
     employeesLoadingMore.value = true
     error.value = null
     try {
-      if (isOffline.value) {
+      if (!apiReadsEnabled && isOffline.value) {
         const pages = await cacheGetAllByPath<EmployeePage>(
           apiPath('/user'),
           (key) => /\blimit=50\b/.test(key),
@@ -1641,17 +1713,18 @@ export const useTimesheetStore = defineStore('timesheet', () => {
         if (!merged) error.value = t('offline.noCachedData')
         return merged
       }
-      const api = new UsersApi(apiConfig())
-      const resp = await api.userGet(tablePageSize.value, undefined, undefined, undefined, undefined, employees.value.length)
+      const api = new UsersApi(readConfig())
+      const resp = await readApi('employees.more', [tablePageSize.value, employees.value.length], request => api.userGet(tablePageSize.value, undefined, undefined, undefined, undefined, employees.value.length, request))
       const data = resp.data?.data
       mergeEmployees(data?.items ?? [])
       employeesTotal.value = data?.total ?? employeesTotal.value
       return true
     } catch (e: unknown) {
+      if (isReadCancelled(e)) return false
       setError(e)
       return false
     } finally {
-      employeesLoadingMore.value = false
+      employeesLoadingMore.value = readPending('employees.more')
     }
   }
 
@@ -1664,6 +1737,7 @@ export const useTimesheetStore = defineStore('timesheet', () => {
 
   /** Loads the states reference — local-first (cache) */
   async function loadStates(): Promise<void> {
+    if (apiReadsEnabled) return refreshStates(true)
     if (states.value.length) return
     await hydrateFromCache([
       {
@@ -1676,12 +1750,16 @@ export const useTimesheetStore = defineStore('timesheet', () => {
     ])
   }
 
-  async function refreshStates(): Promise<void> {
+  async function refreshStates(preferCache = false): Promise<void> {
+    const rbac = useRbacStore()
+    if (rbac.permsLoaded && !rbac.can('state', 'view')) { states.value = []; return }
     try {
-      const api = new TimesheetStatesApi(apiConfig())
-      const resp = await api.timesheetStatesGet()
+      const api = new TimesheetStatesApi(readConfig())
+      const resp = await readApi('timesheet.states', undefined, request => api.timesheetStatesGet(request), preferCache)
       states.value = resp.data?.data ?? []
     } catch (e: unknown) {
+      if (isReadForbidden(e)) { states.value = [] }
+      if (isReadCancelled(e)) return
       setError(e)
     }
   }
@@ -1773,7 +1851,8 @@ export const useTimesheetStore = defineStore('timesheet', () => {
   async function loadInitialWindow(): Promise<void> {
     windowStart.value = shiftDate(todayISO(), -WINDOW_BACK_DAYS)
     windowEnd.value = shiftDate(todayISO(), WINDOW_FORWARD_DAYS)
-    await fetchPeriodsLocal()
+    if (apiReadsEnabled) await refreshPeriods(windowStart.value, windowEnd.value)
+    else await fetchPeriodsLocal()
   }
 
   /** Extends the loaded window to cover [start, end] and loads only the new ranges (user-initiated PULL) */
@@ -1870,6 +1949,8 @@ export const useTimesheetStore = defineStore('timesheet', () => {
    *  only the in-memory state must not leak across accounts. */
   function resetUserData(): void {
     periodRevision.value++
+    error.value = null
+    states.value = []
     employees.value = []
     employeesTotal.value = 0
     employeesLoadedFor.value = null
@@ -1912,7 +1993,7 @@ export const useTimesheetStore = defineStore('timesheet', () => {
 
 // === Planning (data from /planning/* for the three charts) ===
 export const usePlanningStore = defineStore('planning', () => {
-  const taskData = (hasInjectionContext() ? inject(taskDataKey, null) : null) ?? createLegacyTaskData(apiConfig)
+  const taskData = (hasInjectionContext() ? inject(taskDataKey, null) : null) ?? (apiReadsEnabled ? createWebTaskData(apiConfig) : createLegacyTaskData(apiConfig))
   const taskReads = createReadGuard()
   let taskContext = 0
   const projectPlanning = ref<DtoProjectPlanning | null>(null)
@@ -1939,7 +2020,8 @@ export const usePlanningStore = defineStore('planning', () => {
     try {
       await load()
     } catch (e: unknown) {
-      if (!silent) error.value = e instanceof Error ? e.message || String(e) : String(e)
+      if (isReadForbidden(e)) { projectPlanning.value = null; processPlanning.value = null; taskPlanning.value = null }
+      if (!silent && !isReadCancelled(e)) error.value = e instanceof Error ? e.message || String(e) : String(e)
     } finally {
       if (!silent) loading.value = --foregroundLoads > 0
     }
@@ -1963,6 +2045,7 @@ export const usePlanningStore = defineStore('planning', () => {
   }
 
   async function loadProjectPlanning(): Promise<void> {
+    if (apiReadsEnabled) return refreshProjectPlanning(false, true)
     await hydratePlanning(
       () => projectPlanning.value,
       (v) => {
@@ -1973,6 +2056,7 @@ export const usePlanningStore = defineStore('planning', () => {
   }
 
   async function loadProcessPlanning(): Promise<void> {
+    if (apiReadsEnabled) return refreshProcessPlanning(false, true)
     await hydratePlanning(
       () => processPlanning.value,
       (v) => {
@@ -1985,41 +2069,46 @@ export const usePlanningStore = defineStore('planning', () => {
   async function loadTaskPlanning(): Promise<void> {
     if (taskPlanning.value != null) return
     const context = taskContext
+    if (apiReadsEnabled) { loading.value = true; error.value = null }
     const result = await taskData.readPlanning({ source: 'snapshot' })
+    if (context === taskContext && apiReadsEnabled) loading.value = readPending('planning.tasks')
     if (context !== taskContext || taskPlanning.value != null) return
     if (result.status === 'ok') taskPlanning.value = result.data
-    else if (result.status === 'failed') throw new Error(result.error.message)
+    else if (result.status === 'failed') error.value = result.error.message
   }
 
-  async function refreshProjectPlanning(silent = false): Promise<void> {
+  async function refreshProjectPlanning(silent = false, preferCache = false): Promise<void> {
     await runLoad(silent, async () => {
       const stamp = readStamp()
-      const resp = await new PlanningApi(apiConfig()).planningProjectsGet()
+      const resp = await readApi('planning.projects', undefined, request => new PlanningApi(readConfig()).planningProjectsGet(request), preferCache)
       if (!mayApplyRead(stamp)) return
       if (pendingRefs.value.size === 0) projectPlanning.value = resp.data?.data ?? null
       // A durable queue must preserve edits without blocking the first snapshot.
-      else if (projectPlanning.value == null) await loadProjectPlanning()
+      else if (projectPlanning.value == null) await hydratePlanning(() => projectPlanning.value, value => { projectPlanning.value = value }, apiPath('/planning/projects'))
     })
   }
 
-  async function refreshProcessPlanning(silent = false): Promise<void> {
+  async function refreshProcessPlanning(silent = false, preferCache = false): Promise<void> {
     await runLoad(silent, async () => {
       const stamp = readStamp()
-      const resp = await new PlanningApi(apiConfig()).planningProcessesGet()
+      const resp = await readApi('planning.processes', undefined, request => new PlanningApi(readConfig()).planningProcessesGet(request), preferCache)
       if (!mayApplyRead(stamp)) return
       if (pendingRefs.value.size === 0) processPlanning.value = resp.data?.data ?? null
       // A durable queue must preserve edits without blocking the first snapshot.
-      else if (processPlanning.value == null) await loadProcessPlanning()
+      else if (processPlanning.value == null) await hydratePlanning(() => processPlanning.value, value => { processPlanning.value = value }, apiPath('/planning/processes'))
     })
   }
 
-  async function refreshTaskPlanning(silent = false): Promise<void> {
+  async function refreshTaskPlanning(silent = false, preferCache = false): Promise<void> {
     await runLoad(silent, async () => {
       const request = taskReads.begin()
       const stamp = readStamp()
-      const result = await taskData.readPlanning({ source: 'refresh' })
+      const result = await taskData.readPlanning({ source: preferCache ? 'snapshot' : 'refresh' })
       if (!request.isCurrent() || !mayApplyRead(stamp)) return
-      if (result.status === 'failed') throw new Error(result.error.message)
+      if (result.status === 'failed') {
+        if (result.error.kind === 'forbidden') taskPlanning.value = null
+        throw new Error(result.error.message)
+      }
       if (result.status === 'cancelled') return
       if (pendingRefs.value.size === 0) taskPlanning.value = result.status === 'ok' ? result.data : null
       // A durable queue must preserve edits without blocking the first snapshot.
@@ -3162,13 +3251,14 @@ export const usePlanningStore = defineStore('planning', () => {
    *  - offline — cache only (online-only). */
   async function loadTaskComments(taskId: number, opts?: { fresh?: boolean }): Promise<void> {
     if (commentsByTask.value[taskId] != null && !opts?.fresh) return
-    if (isOffline.value && commentsByTask.value[taskId] != null) return
+    if (!apiReadsEnabled && isOffline.value && commentsByTask.value[taskId] != null) return
     commentsLoading.value = true
     commentsError.value = null
     try {
-      const resp = await new TasksApi(apiConfig()).taskIdCommentsGet(taskId)
+      const resp = await readApi('task.comments:' + taskId, taskId, request => new TasksApi(readConfig()).taskIdCommentsGet(taskId, request), !opts?.fresh)
       commentsByTask.value[taskId] = (resp.data?.data as DtoCommentResponse[] | undefined) ?? []
     } catch (e: unknown) {
+      if (isReadCancelled(e)) return
       commentsError.value = e instanceof Error ? e.message || String(e) : String(e)
     } finally {
       commentsLoading.value = false
@@ -3309,6 +3399,7 @@ export const useRbacStore = defineStore('rbac', () => {
   const userPermissionsError = ref<string | null>(null)
 
   function setError(e: unknown) {
+    if (isReadCancelled(e)) return
     error.value = e instanceof Error ? e.message : String(e)
   }
 
@@ -3318,13 +3409,13 @@ export const useRbacStore = defineStore('rbac', () => {
     loading.value = true
     error.value = null
     try {
-      const api = new RBACApi(apiConfig())
+      const api = new RBACApi(readConfig())
       const [presetsR, rulesR, matrixR, routesR, kindsR] = await Promise.all([
-        api.rbacPresetsGet(),
-        api.rbacPresetRulesGet(),
-        api.rbacMatrixGet(),
-        api.rbacPoliciesGet(),
-        api.rbacKindsGet(),
+        readApi('rbac.presets', undefined, request => api.rbacPresetsGet(request)),
+        readApi('rbac.rules', undefined, request => api.rbacPresetRulesGet(request)),
+        readApi('rbac.matrix', undefined, request => api.rbacMatrixGet(request)),
+        readApi('rbac.routes', undefined, request => api.rbacPoliciesGet(request)),
+        readApi('rbac.kinds', undefined, request => api.rbacKindsGet(request)),
       ])
       presets.value = presetsR.data?.data ?? []
       presetRules.value = rulesR.data?.data ?? []
@@ -3343,6 +3434,8 @@ export const useRbacStore = defineStore('rbac', () => {
   /** My permissions (by the matrix) — the source of UI capabilities instead of roles. */
   const myPermissions = ref<DtoPermission[]>([])
   const permsLoaded = ref(false)
+  const permissionsError = ref<string | null>(null)
+  const viewRevision = ref(0)
 
   /**
    * Ownership (ABAC) satisfaction by scope — the client-side mirror of the
@@ -3386,6 +3479,7 @@ export const useRbacStore = defineStore('rbac', () => {
    */
   async function loadMyPermissions(): Promise<boolean> {
     if (permsLoaded.value) return true
+    if (apiReadsEnabled) return refreshPermissions(true)
     try {
       const cached = localStorage.getItem(permsKey(useAuthStore().user?.id))
       if (cached) {
@@ -3405,12 +3499,22 @@ export const useRbacStore = defineStore('rbac', () => {
   }
 
   /** Network refresh of my permissions (PULL). Falls back to cache when offline. */
-  async function refreshPermissions(): Promise<boolean> {
-    if (isOffline.value) return loadMyPermissions()
+  async function refreshPermissions(preferCache = false): Promise<boolean> {
+    if (!apiReadsEnabled && isOffline.value) return loadMyPermissions()
     try {
-      const resp = await new PermissionsApi(apiConfig()).permissionsMeGet()
-      myPermissions.value = resp.data?.data ?? []
+      const resp = await readApi('permissions.current', undefined, request => new PermissionsApi(readConfig()).permissionsMeGet(request), preferCache)
+      const next = resp.data?.data ?? []
+      const signature = (rules: DtoPermission[]) => JSON.stringify(rules.map(rule => JSON.stringify([rule.resource, rule.action, rule.scope, !!rule.inherited])).sort())
+      if (permsLoaded.value && signature(next) !== signature(myPermissions.value)) {
+        invalidateApiReads()
+        if (signature(next.filter(rule => rule.action === 'view')) !== signature(myPermissions.value.filter(rule => rule.action === 'view'))) {
+          resetReadModels()
+          viewRevision.value++
+        }
+      }
+      myPermissions.value = next
       permsLoaded.value = true
+      permissionsError.value = null
       try {
         localStorage.setItem(
           permsKey(useAuthStore().user?.id),
@@ -3420,7 +3524,8 @@ export const useRbacStore = defineStore('rbac', () => {
         /* localStorage may be unavailable */
       }
       return true
-    } catch {
+    } catch (e) {
+      if (!isReadCancelled(e)) permissionsError.value = e instanceof Error ? e.message : String(e)
       return false
     }
   }
@@ -3431,12 +3536,21 @@ export const useRbacStore = defineStore('rbac', () => {
    * /permissions/me (login refresh / router-guard load / TTL pull) fills it.
    */
   function resetPermissions() {
+    invalidateApiReads()
     myPermissions.value = []
     permsLoaded.value = false
+    permissionsError.value = null
+    userPermissions.value = null
+    userPermissionRead++
+    presets.value = []
+    presetRules.value = []
+    matrix.value = []
+    routePolicies.value = []
+    kinds.value = []
   }
 
   /** Periodic permissions sync (TTL polling following the backend). */
-  function startPermissionSync(ms = 30000): () => void {
+  function startPermissionSync(ms = 60000): () => void {
     let timer: number | undefined
     const stopVisibility = () => document.removeEventListener('visibilitychange', onVisibility)
     const tick = () => {
@@ -3463,7 +3577,7 @@ export const useRbacStore = defineStore('rbac', () => {
   async function ensurePresets(): Promise<void> {
     if (presets.value.length) return
     try {
-      const presetsR = await new RBACApi(apiConfig()).rbacPresetsGet()
+      const presetsR = await readApi('rbac.presets', undefined, request => new RBACApi(readConfig()).rbacPresetsGet(request), true)
       presets.value = presetsR.data?.data ?? []
     } catch {
       // catalog unavailable — the UI works off a static preset list
@@ -3474,7 +3588,7 @@ export const useRbacStore = defineStore('rbac', () => {
   async function reloadRules(): Promise<boolean> {
     try {
       const api = new RBACApi(apiConfig())
-      const [rulesR, matrixR] = await Promise.all([api.rbacPresetRulesGet(), api.rbacMatrixGet()])
+      const [rulesR, matrixR] = await Promise.all([readApi('rbac.rules', undefined, request => api.rbacPresetRulesGet(request)), readApi('rbac.matrix', undefined, request => api.rbacMatrixGet(request))])
       presetRules.value = rulesR.data?.data ?? []
       matrix.value = matrixR.data?.data ?? []
       return true
@@ -3569,15 +3683,16 @@ export const useRbacStore = defineStore('rbac', () => {
     // Keep same-user refreshes usable while concealing another user's snapshot.
     if (userPermissions.value?.user_id !== id) userPermissions.value = null
     try {
-      const resp = await new RBACApi(apiConfig()).rbacUsersIdPermissionsGet(id)
+      const resp = await readApi('permissions.user', id, request => new RBACApi(readConfig()).rbacUsersIdPermissionsGet(id, request))
       if (read !== userPermissionRead) return false
       userPermissions.value = resp.data?.data ?? null
       return true
     } catch (e: unknown) {
+      if (isReadCancelled(e)) return false
       if (read === userPermissionRead) userPermissionsError.value = apiErrorMessage(e as { message?: string; code?: unknown })
       return false
     } finally {
-      if (read === userPermissionRead) userPermissionsLoading.value = false
+      if (read === userPermissionRead) userPermissionsLoading.value = readPending('permissions.user')
     }
   }
 
@@ -3631,6 +3746,8 @@ export const useRbacStore = defineStore('rbac', () => {
     deletePreset,
     myPermissions,
     permsLoaded,
+    permissionsError,
+    viewRevision,
     resetPermissions,
     can,
     perm,
@@ -3688,7 +3805,7 @@ export const useAuditStore = defineStore('audit', () => {
     loading.value = true
     error.value = null
     try {
-      const resp = await new AuditApi(apiConfig()).auditEventsGet(
+      const resp = await readApi('audit.events', filters, request => new AuditApi(readConfig()).auditEventsGet(
         filters.limit,
         filters.offset,
         filters.userId,
@@ -3701,7 +3818,8 @@ export const useAuditStore = defineStore('audit', () => {
         filters.search,
         filters.id,
         filters.ip,
-      )
+        request,
+      ))
       const data = resp.data?.data
       items.value = data?.items ?? []
       total.value = data?.total ?? 0
@@ -3710,6 +3828,8 @@ export const useAuditStore = defineStore('audit', () => {
       disabled.value = false
       return true
     } catch (e: unknown) {
+      if (isReadCancelled(e)) return false
+      if (isReadForbidden(e)) { items.value = []; total.value = 0 }
       if ((e as AxiosError | undefined)?.response?.status === 404) {
         // The backend does not register the audit route: treat it as "the
         // journal is disabled" rather than a real load error (raw "404" text).
@@ -3721,9 +3841,17 @@ export const useAuditStore = defineStore('audit', () => {
       }
       return false
     } finally {
-      loading.value = false
+      loading.value = readPending('audit.events')
     }
   }
 
-  return { items, total, loading, error, disabled, load }
+  function resetUserData(): void {
+    invalidateApiReads()
+    items.value = []
+    total.value = 0
+    loading.value = false
+    error.value = null
+    disabled.value = false
+  }
+  return { items, total, loading, error, disabled, load, resetUserData }
 })

@@ -203,13 +203,13 @@ async function pageAccessible(
   role: string | undefined,
   resource: string,
   action: string,
-): Promise<boolean> {
+): Promise<boolean | null> {
   if (!rbac.permsLoaded) {
     const ok = await Promise.race([
       rbac.loadMyPermissions(),
       new Promise<false>((resolve) => setTimeout(() => resolve(false), PERMS_BOUND_MS)),
     ])
-    if (!ok && !rbac.permsLoaded) return PLANNER_ROLES.includes(role ?? '')
+    if (!ok && !rbac.permsLoaded) return platformCapabilities.kind === 'web' ? null : PLANNER_ROLES.includes(role ?? '')
   }
   return rbac.can(resource, action)
 }
@@ -261,6 +261,9 @@ router.beforeEach(async (to) => {
     // start (F5 / Ctrl+Shift+R) rbac.can() evaluated before the permissions
     // arrive sees an empty list and wrongly redirects the page to the profile.
     const viewAllowed = await pageAccessible(rbac, auth.user?.preset, needed[0], needed[1])
+    // An unavailable matrix is not a denial. Keep the requested shell; API reads
+    // and actions remain protected, and MainLayout rechecks verified permissions.
+    if (viewAllowed === null) return true
     const allowed = rbac.permsLoaded ? pageAllowed(String(to.name), rbac.can) : viewAllowed
     if (!allowed) {
       return { name: 'profile' }

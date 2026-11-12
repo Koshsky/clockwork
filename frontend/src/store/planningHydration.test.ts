@@ -13,6 +13,7 @@ vi.mock('@/api', async original => ({
 vi.mock('@/offline/hydrate', () => ({ apiPath: (path: string) => path, hydrateFromCache: fake.hydrate }))
 import { usePlanningStore } from './index'
 import { pendingRefs } from '@/offline/outbox'
+import { legacyQueueAvailability } from '@/platform/state'
 
 const cases = [
   ['projectPlanning', 'refreshProjectPlanning', '/planning/projects'],
@@ -24,9 +25,10 @@ beforeEach(() => {
   vi.clearAllMocks()
   setActivePinia(createPinia())
   pendingRefs.value = new Set(['task:7'])
+  legacyQueueAvailability.value = 'pending'
   fake.read.mockResolvedValue({ data: { data: { server: 'raw snapshot' } } })
 })
-afterEach(() => { pendingRefs.value = new Set() })
+afterEach(() => { pendingRefs.value = new Set(); legacyQueueAvailability.value = 'empty' })
 
 describe('planning with a durable queue and an empty in-memory snapshot', () => {
   it.each(cases)('hydrates %s through the cache overlay after its GET succeeds', async (field, method, path) => {

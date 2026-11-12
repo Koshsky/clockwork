@@ -10,6 +10,8 @@ The web app and the desktop wrapper are versioned together.
 
 ### Fixed
 
+- Web pages load from the API without IndexedDB reads, with scoped request caching and protection against stale replies.
+
 - Web startup and online sessions tolerate unavailable IndexedDB; platform runtimes release background work on teardown.
 
 - Task planning ignores stale replies across refreshes, cache hydration and account changes.

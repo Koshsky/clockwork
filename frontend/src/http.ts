@@ -1,5 +1,5 @@
-import { readStamp, mayApplyRead } from './offline/mutationGuard'
-import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios'
+import { beginMutation, readStamp, mayApplyRead } from './offline/mutationGuard'
+import axios, { type AxiosError, type AxiosResponse, type InternalAxiosRequestConfig } from 'axios'
 import router from './router'
 import { apiErrorMessage } from './utils'
 import { currentLocale, t } from './i18n'
@@ -7,6 +7,8 @@ import { notifyError } from './notify/state'
 import { prepareCacheOverlay } from './platform/legacyRead'
 import { cacheGet, cacheGetByPath, cachePut, userCachePrefix } from './offline/cache'
 import { scheduleReplayOutboxToCache, createMutationKey } from './offline/outbox'
+import { platformCapabilities } from './platform/context'
+import { backendReachability, legacyQueueAvailability } from './platform/state'
 import { isOffline } from './offline/state'
 import { getAccessToken, accessTokenExpired } from './token'
 import { ensureAutoSession } from './offline/sync'
@@ -50,6 +52,12 @@ function redirectToLogin() {
  */
 export function setupHttp() {
   const reads = new WeakMap<object, { stamp: number | null; prefix: string; key: string }>()
+  const writes = new WeakMap<object, () => void>()
+  const finishWrite = (config: object | undefined) => {
+    if (!config) return
+    writes.get(config)?.()
+    writes.delete(config)
+  }
   // Never attach an EMPTY Authorization header ("Bearer ") — the backend
   // answers such requests with INVALID_TOKEN (invalid authorization format),
   // which the UI misreads as «Сессия истекла». Without a token the header is
@@ -72,6 +80,7 @@ export function setupHttp() {
     config.headers['Accept-Language'] = currentLocale()
     const method = (config.method ?? 'get').toLowerCase()
     if (!['get', 'head', 'options'].includes(method) && !config.url?.includes('/auth/')) {
+      writes.set(config, beginMutation())
       if (!config.headers.get('Idempotency-Key')) config.headers.set('Idempotency-Key', createMutationKey())
     }
     return config
@@ -82,6 +91,11 @@ export function setupHttp() {
   axios.interceptors.response.use(
     async (response) => {
       const { config, status } = response
+      finishWrite(config)
+      if (platformCapabilities.kind === 'web' && !AUTH_PATHS.some(path => config.url?.includes(path))) {
+        isOffline.value = false
+        backendReachability.value = 'reachable'
+      }
       const read = reads.get(config)
       if (
         status >= 200 &&
@@ -93,17 +107,31 @@ export function setupHttp() {
         read != null && read.prefix === userCachePrefix() && mayApplyRead(read.stamp)
       ) {
         // A delayed reply must never be written under a newly logged-in account.
-        await cachePut(read.key, response.data)
+        const saving = cachePut(read.key, response.data)
+        const durableOverlay = platformCapabilities.kind !== 'web' || legacyQueueAvailability.value === 'pending'
+        // The web response never waits for optional legacy persistence. Explicit
+        // queue/cache writes remain awaited by the compatibility adapter.
+        if (durableOverlay) await saving
+        else void saving
         // Invariant "cache = server + queue": after a fresh write we re-apply
         // unsynchronized mutations — warmup/reconcile must not erase them with
         // server truth (otherwise offline edits are lost after a reload).
         // Coalesced: a burst of parallel GETs schedules a single replay for the
         // whole tick instead of one full outbox+cache scan per response.
-        scheduleReplayOutboxToCache()
+        if (platformCapabilities.kind === 'web' && legacyQueueAvailability.value === 'pending') {
+          await prepareCacheOverlay()
+          const overlaid = await cacheGet<unknown>(read.key)
+          if (overlaid != null) {
+            response.data = overlaid
+            ;(response as AxiosResponse & { __erpLocalSnapshot?: boolean }).__erpLocalSnapshot = true
+          }
+        } else if (durableOverlay) scheduleReplayOutboxToCache()
       }
       return response
     },
     async (error: AxiosError) => {
+      finishWrite(error.config)
+      if (axios.isCancel(error)) return Promise.reject(error)
       const { config } = error
       if (!config) {
         return Promise.reject(error)
@@ -118,13 +146,13 @@ export function setupHttp() {
       if (!error.response && config.headers?.get('X-View-User-ID')) return Promise.reject(error)
       if (!error.response) {
         if ((config.method ?? 'get').toLowerCase() === 'get') {
-          await prepareCacheOverlay()
+          if (platformCapabilities.kind !== 'web' || legacyQueueAvailability.value === 'pending') await prepareCacheOverlay()
           if (read?.prefix !== userCachePrefix()) return Promise.reject(error)
           const key = read.key
           let cached = await cacheGet<unknown>(key)
           // The exact key may not match (a GET with a date window depends on "today"
           // and differs after warmup) — look up the fresh response by endpoint.
-          if (cached == null) {
+          if (cached == null && (platformCapabilities.kind !== 'web' || legacyQueueAvailability.value === 'pending')) {
             const pathname = (() => {
               try {
                 return new URL(key).pathname
@@ -148,7 +176,8 @@ export function setupHttp() {
               request: error.request,
             }
           }
-          ;(error as AxiosError & { message: string }).message = t('offline.noCachedData')
+          if (platformCapabilities.kind === 'web') isOffline.value = true
+          else (error as AxiosError & { message: string }).message = t('offline.noCachedData')
           console.log(`[offline] cache miss: ${key}`)
         }
         // Network error diagnostics (timeout/drop/CORS/abort) — detailed output to the console.
@@ -168,6 +197,10 @@ export function setupHttp() {
       }
 
       const { response } = error
+      if (response && response.status < 500 && platformCapabilities.kind === 'web' && !AUTH_PATHS.some(path => config.url?.includes(path))) {
+        isOffline.value = false
+        backendReachability.value = 'reachable'
+      }
       if (!response) {
         return Promise.reject(error)
       }

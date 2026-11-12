@@ -430,3 +430,47 @@ it('stops a sibling flush after shared logout without changing its queued work',
     expect(fake.store('outbox').size).toBe(1)
   } finally { vi.unstubAllGlobals() }
 })
+
+it("does not overlay another account's queued work onto current API data", async () => {
+  vi.stubGlobal('localStorage', { getItem: () => JSON.stringify({ username: 'current' }) })
+  try {
+    const { applyToCache } = await import('./cacheApply')
+    seed({ id: 'foreign', ts: 1, method: 'PUT', url: '/task/7', entity: 'task', creator: 'previous' })
+    seed({ id: 'own', ts: 2, method: 'PUT', url: '/task/8', entity: 'task', creator: 'current' })
+    await replayOutboxToCache()
+    expect(vi.mocked(applyToCache).mock.calls.map(([entry]) => entry.id)).toEqual(['own'])
+    expect(fake.store('outbox').size).toBe(2)
+  } finally { vi.unstubAllGlobals() }
+})
+it('stops legacy replay between entries after an account switch without deleting commands', async () => {
+  let account = 'current'
+  vi.stubGlobal('localStorage', { getItem: () => JSON.stringify({ username: account }) })
+  try {
+    const { applyToCache } = await import('./cacheApply')
+    vi.mocked(applyToCache).mockImplementationOnce(async () => { account = 'next' })
+    seed({ id: 'first', ts: 1, method: 'PUT', url: '/task/7', entity: 'task', creator: 'current' })
+    seed({ id: 'second', ts: 2, method: 'PUT', url: '/task/8', entity: 'task', creator: 'current' })
+    await replayOutboxToCache()
+    expect(vi.mocked(applyToCache).mock.calls.map(([entry]) => entry.id)).toEqual(['first'])
+    expect(fake.store('outbox').size).toBe(2)
+  } finally { vi.unstubAllGlobals() }
+})
+
+it('replays the new account after waiting for an old account overlay to finish', async () => {
+  let account = 'first'
+  vi.stubGlobal('localStorage', { getItem: () => JSON.stringify({ username: account }) })
+  try {
+    const { applyToCache } = await import('./cacheApply')
+    let finish!: () => void
+    vi.mocked(applyToCache).mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve }))
+    seed({ id: 'first', ts: 1, method: 'PUT', url: '/task/7', entity: 'task', creator: 'first' })
+    seed({ id: 'next', ts: 2, method: 'PUT', url: '/task/8', entity: 'task', creator: 'next' })
+    const old = replayOutboxToCache()
+    await vi.waitFor(() => expect(applyToCache).toHaveBeenCalledOnce())
+    account = 'next'
+    const recent = replayOutboxToCache(); finish()
+    await Promise.all([old, recent])
+    expect(vi.mocked(applyToCache).mock.calls.map(([entry]) => entry.id)).toEqual(['first', 'next'])
+    expect(fake.store('outbox').size).toBe(2)
+  } finally { vi.unstubAllGlobals() }
+})

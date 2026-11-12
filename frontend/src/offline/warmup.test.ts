@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { beginMutation } from './mutationGuard'
+vi.mock('@/platform/context', () => ({ platformCapabilities: { kind: 'desktop' } }))
 
 const mocks = vi.hoisted(() => ({ refresh: vi.fn(), fresh: vi.fn(), offline: { value: false }, count: { value: 0 }, refs: { value: new Set<string>() } }))
 vi.mock('./state', () => ({ isOffline: mocks.offline }))

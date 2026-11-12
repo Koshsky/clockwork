@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { usePageReadRefresh } from '@/composables/usePageReadRefresh'
+usePageReadRefresh(async () => { await store.refreshResources(store.resources.length > 0, true) })
 import { ref, onMounted, computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import { t } from '@/i18n'

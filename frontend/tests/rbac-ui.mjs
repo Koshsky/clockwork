@@ -9,6 +9,7 @@ if (!process.env.RBAC_TEST_ADMIN_PASSWORD) throw new Error('Set RBAC_TEST_ADMIN_
 const http = await request.newContext({ baseURL: apiURL.replace(/\/?$/, '/') })
 const browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL ?? 'chrome', headless: true })
 const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
+if (process.env.ERP_TEST_BLOCK_IDB === '1') await context.addInitScript(() => Object.defineProperty(window, 'indexedDB', { value: undefined }))
 const page = await context.newPage()
 const cleanup = [], errors = []
 page.on('pageerror', error => errors.push(error.message))

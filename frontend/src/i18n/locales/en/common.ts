@@ -11,6 +11,7 @@ export default {
   confirmTitle: 'Confirmation',
   dragHeaderTitle: 'Drag the header to reorder sections',
   loading: 'Loading…',
+  networkError: 'Could not load data. Check your connection and try again.',
   noData: 'No data',
   yes: 'Yes',
   no: 'No',
