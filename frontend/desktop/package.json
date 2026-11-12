@@ -1,6 +1,5 @@
 {
   "name": "mvs-erp-desktop",
-  "version": "1.6.3",
   "description": "Настольная обвязка MVS ERP (Electron) вокруг собранного vite-фронтенда",
   "main": "main.js",
   "author": {
@@ -13,10 +12,10 @@
   "scripts": {
     "build:web": "npm run build",
     "start": "electron .",
-    "dist": "electron-builder",
-    "dist:win": "electron-builder --win",
-    "dist:mac": "electron-builder --mac",
-    "dist:linux": "electron-builder --linux"
+    "dist": "node build.cjs",
+    "dist:win": "node build.cjs --win",
+    "dist:mac": "node build.cjs --mac",
+    "dist:linux": "node build.cjs --linux"
   },
   "devDependencies": {
     "electron": "43.4.1",

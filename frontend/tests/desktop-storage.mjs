@@ -1,5 +1,5 @@
 import { _electron, expect } from 'playwright/test'
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -15,6 +15,7 @@ async function edit(page){return page.evaluate(async()=>{const bridge=window.erp
 try{
   app=await launch();const first=await app.firstWindow(),initial=await state(first),origin=new URL(first.url()).origin
   expect(initial.storage).toMatchObject({phase:'ready',driver:'node:sqlite',schemaVersion:2,journalMode:'wal',synchronous:2})
+  expect(initial.version).toBe(JSON.parse(await readFile(new URL('../package.json',import.meta.url),'utf8')).version)
   expect(await first.evaluate(()=>({require:typeof window.require,storage:'storage' in window.erpDesktop,sql:'sql' in window.erpDesktop}))).toEqual({require:'undefined',storage:false,sql:false})
   expect(JSON.stringify(initial.storage)).not.toContain(profile)
   report.push('PASS production startup owns one isolated SQLite worker; renderer gets metadata without SQL, handles or paths')

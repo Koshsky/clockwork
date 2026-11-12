@@ -93,34 +93,23 @@ default:
 
 Shorthands: `--win` = `--win-portable --win-exe`; `--linux` = both Linux flags.
 
-The **version is shared by the web frontend and the desktop wrapper**: the
-single source of truth is `services/frontend/package.json` (semver).
-`desktop/package.json` is synced to the same version automatically on every
-build, so the wrapper package and the artifacts can never drift from the web
-version. The build always uses the **current version as is** — the script
-never bumps it (there is no `--bump`); change `package.json` yourself when
-releasing:
+The **version is shared by the web frontend and the desktop wrapper**. Set it
+only in `frontend/package.json`; `npm version patch --no-git-tag-version` also
+updates npm's generated lockfile metadata. Finalize both changelogs before a
+release. Published versions remain immutable.
+
+The desktop source manifest has no independent version. `desktop/build.cjs`
+injects the canonical version into electron-builder's packaged metadata. Builds
+do not rewrite tracked manifests, and there is no `--version` override. Vite
+reads the same source for `__APP_VERSION__` and `precache-manifest.json`; a supplied
+`APP_VERSION` must match it.
 
 ```bash
-./build-portable.sh                 # Linux (both parts), version = current from package.json
-./build-portable.sh --win           # Linux + both Windows parts
-./build-portable.sh --win-portable  # Linux + Windows portable (zip + folder)
-./build-portable.sh --win-exe       # Linux + single-file Windows .exe
-./build-portable.sh --version 2.1.0 # build exactly 2.1.0 (no source change)
-./build-portable.sh --clean         # clean release/ before building
-./build-portable.sh --build-web     # deprecated no-op: web is always rebuilt
+./build-portable.sh --linux         # Linux folder and AppImage
+./build-portable.sh --win-portable  # Windows portable archive and folder
+./build-portable.sh --win-exe       # Windows single executable
+./build-portable.sh --linux --win   # Linux and Windows targets
 ```
-
-`--version` builds an exact version without writing it into the source
-(`services/frontend/package.json` stays untouched; `desktop/package.json` is
-still synced so the wrapper matches the artifacts). The next default build
-continues from the source version.
-
-The version is passed into the web build (`APP_VERSION` → `__APP_VERSION__` and
-`precache-manifest.json`) and into electron-builder
-(`-c.extraMetadata.version`), so "App/build version" on the "Synchronization"
-screen matches the artifact version. The script does not commit the version —
-commit the increment separately (e.g. `chore: release vX.Y.Z`).
 
 Portable targets do not need wine: `zip`/`dir`/portable/AppImage are built on
 a Linux host. The single-file Windows `.exe` (the `portable` target) is built

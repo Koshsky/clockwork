@@ -47,8 +47,12 @@ Frontend service of the MVS ERP monorepo (repo root is `..`, sibling `backend` i
   `desktop/package.json`).
 - Versioning: web and desktop share ONE version — the single source of truth
   is this service's `package.json`; `build-portable.sh` always builds that
-  version as is (it never bumps) and syncs `desktop/package.json` (+ its
-  lockfile) to the same value automatically.
+  version as is (it never bumps or accepts a version override). Desktop source
+  package metadata has no version; `desktop/build.cjs` injects the canonical
+  version into the packaged app without rewriting tracked manifests. Vite reads
+  the same source; `APP_VERSION`, when supplied, must match it. Use
+  `npm version patch --no-git-tag-version` (or minor/major) to update the source
+  and npm lockfile.
 - **Never** run `electron-builder` / `npm run dist*` by hand against a
   pre-existing `dist/`: a stale `dist/` gets embedded into a newly versioned
   release, so the app shows old UI (removed pages still visible) while its
@@ -69,7 +73,9 @@ port. Projection changes, queued intents and receipts share a transaction; a
 renderer acknowledgement must follow durable commit. Never reset an incompatible
 or damaged database automatically. Back up before schema upgrades and restore
 only into an empty profile. Keep credentials in the OS-protected session vault.
-Legacy IndexedDB migration and business adapters are later separation stages.
+The owner treats the future SQLite desktop as its first release: no legacy
+IndexedDB importer is required. Business adapters are later separation stages;
+future SQLite updates must preserve snapshots and unsynchronized commands.
 
 Run `node --test tests/desktop-storage.test.cjs` and
 `node scripts/test-desktop-storage.cjs` from `frontend/`; the latter uses native

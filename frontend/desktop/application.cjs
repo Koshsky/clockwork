@@ -130,7 +130,8 @@ function startDesktop({ app, BrowserWindow, ipcMain, dialog, session, safeStorag
       const profileId = await loadProfile(app.getPath('userData'))
       storage = await createStorage({ directory: app.getPath('userData') })
       const adapters = createPorts ? await createPorts({ storage }) : ports
-      service = createDesktopService({ profileId, version: app.getVersion(), electron: process.versions.electron, ...adapters, storage })
+      const version = app.isPackaged ? app.getVersion() : require('../package.json').version
+      service = createDesktopService({ profileId, version, electron: process.versions.electron, ...adapters, storage })
       server = await startServer()
       origin = `http://127.0.0.1:${server.address().port}`
       if (safeStorage && net) {

@@ -8,6 +8,8 @@ The web app and the desktop wrapper are versioned together.
 
 ## [Unreleased]
 
+- Web and Electron builds use the version from frontend/package.json.
+
 - Electron initializes transactional SQLite storage independently of windows and local ports.
 
 - Separate web cookie sessions from OS-protected Electron sessions.
