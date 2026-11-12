@@ -124,6 +124,22 @@
     "query": []
   },
   {
+    "operation": "GET /operations",
+    "method": "GET",
+    "path": "/operations",
+    "pathTypes": {},
+    "query": []
+  },
+  {
+    "operation": "GET /operations/{operation_id}",
+    "method": "GET",
+    "path": "/operations/{operation_id}",
+    "pathTypes": {
+      "operation_id": "string"
+    },
+    "query": []
+  },
+  {
     "operation": "GET /permissions/me",
     "method": "GET",
     "path": "/permissions/me",

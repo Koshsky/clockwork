@@ -80,6 +80,7 @@ func (a *App) registerRoutes(router *gin.Engine) {
 	protected.Use(a.idemMw.Handler())
 	protected.Use(a.tracer.GinSpan("middleware.ratelimit.user"))
 	protected.Use(a.rateLimiter.FromConfigKeyed(a.cfg.UserRateLimit, a.userKey))
+	a.idemMw.RegisterRoutes(protected)
 	for _, m := range a.modules {
 		m.RegisterProtectedRoutes(protected)
 	}

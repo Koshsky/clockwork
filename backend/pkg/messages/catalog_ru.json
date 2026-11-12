@@ -101,5 +101,13 @@
   "auto_create.task_resource_invalid_id": "задача «%s», ресурс %d: некорректный resource_id",
   "auto_create.task_resource_quantity_positive": "задача «%s», ресурс %d: количество должно быть больше 0",
   "auto_create.task_resource_quantity_max": "задача «%s», ресурс %d: количество не должно превышать %d",
-  "auto_create.task_resource_duplicate": "задача «%s»: ресурс %d указан дважды"
+  "auto_create.task_resource_duplicate": "задача «%s»: ресурс %d указан дважды",
+  "invalid durable operation request": "Некорректный запрос долговечной операции",
+  "operation is in progress": "Операция ещё выполняется",
+  "operation id was already used for another request": "Идентификатор операции уже использован для другого запроса",
+  "durable operation lookup failed": "Не удалось проверить результат операции",
+  "durable operation outcome unknown": "Результат операции пока неизвестен",
+  "durable operation claim failed": "Не удалось начать операцию",
+  "operation request is too large": "Слишком большой запрос операции",
+  "durable operations unavailable": "Долговечное подтверждение операций недоступно"
 }

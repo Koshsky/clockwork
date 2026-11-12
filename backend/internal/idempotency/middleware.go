@@ -72,9 +72,10 @@ type Repo interface {
 
 // Middleware implements the Idempotency-Key mechanism for a route.
 type Middleware struct {
-	repo   Repo
-	logger *slog.Logger
-	tracer *tracingpkg.Tracer
+	repo       Repo
+	logger     *slog.Logger
+	tracer     *tracingpkg.Tracer
+	operations OperationRepo
 
 	cleanupOnce sync.Once
 }
@@ -91,13 +92,18 @@ func New(
 	if tracer == nil {
 		tracer = tracingpkg.New(nil)
 	}
-	return &Middleware{repo: repo, logger: logger, tracer: tracer}
+	operations, _ := repo.(OperationRepo)
+	return &Middleware{repo: repo, logger: logger, tracer: tracer, operations: operations}
 }
 
 // Handler wraps the route handler with the idempotency logic.
 func (m *Middleware) Handler() gin.HandlerFunc {
 	m.startCleanup()
 	return func(c *gin.Context) {
+		if len(c.Request.Header.Values(headerOperationID)) != 0 {
+			m.handleOperation(c)
+			return
+		}
 		key := c.GetHeader(headerIdempotencyKey)
 		if key == "" || len(key) > maxKeyLen {
 			// No key (or an unreasonably long one) — a plain non-idempotent request.

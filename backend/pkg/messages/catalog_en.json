@@ -85,5 +85,13 @@
   "auto_create.task_resource_invalid_id": "task \"%s\", resource %d: invalid resource_id",
   "auto_create.task_resource_quantity_positive": "task \"%s\", resource %d: quantity must be greater than 0",
   "auto_create.task_resource_quantity_max": "task \"%s\", resource %d: quantity must not exceed %d",
-  "auto_create.task_resource_duplicate": "task \"%s\": resource %d is listed twice"
+  "auto_create.task_resource_duplicate": "task \"%s\": resource %d is listed twice",
+  "invalid durable operation request": "Invalid durable operation request",
+  "operation is in progress": "The operation is still in progress",
+  "operation id was already used for another request": "The operation ID was already used for another request",
+  "durable operation lookup failed": "Could not inspect the operation result",
+  "durable operation outcome unknown": "The operation outcome is not yet known",
+  "durable operation claim failed": "Could not start the operation",
+  "operation request is too large": "The operation request is too large",
+  "durable operations unavailable": "Durable operation acknowledgements are unavailable"
 }

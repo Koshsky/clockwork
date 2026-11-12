@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Durable operation receipts prevent duplicate writes after long offline periods.
+
 - Support cookie-only sessions with browser origin checks.
 
 ## [1.4.3] - 2026-11-11

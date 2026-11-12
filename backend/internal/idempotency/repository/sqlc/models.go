@@ -19,3 +19,14 @@ type IdempotencyKey struct {
 	CreatedAt      time.Time       `json:"created_at"`
 	ExpiresAt      time.Time       `json:"expires_at"`
 }
+
+type OperationReceipt struct {
+	UserID         int64           `json:"user_id"`
+	OperationID    string          `json:"operation_id"`
+	Method         string          `json:"method"`
+	Path           string          `json:"path"`
+	RequestHash    string          `json:"request_hash"`
+	ResponseStatus int32           `json:"response_status"`
+	ResponseBody   json.RawMessage `json:"response_body"`
+	CompletedAt    time.Time       `json:"completed_at"`
+}
