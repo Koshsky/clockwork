@@ -55,7 +55,7 @@ try {
       await expect(page).toHaveURL(/\/login$/)
       expect(await page.evaluate(async () => (await import('/src/store/index.ts')).useAuthStore().isAuthenticated)).toBe(false)
       expect(errors).toEqual([])
-      report.push({ platform: 'desktop', mode, result: 'durable-storage failure remains explicit' })
+      report.push({ platform: 'desktop', mode, result: 'durable business storage failure remains explicit; session secrets are not stored in IndexedDB' })
       await native.close(); native = null
       continue
     }
@@ -78,7 +78,7 @@ try {
     if (storageBlocked) {
       await expect(page.locator('.sq [role=status]')).toContainText(/очеред|queue/i)
       await expect(page.locator('.sq')).not.toContainText(/Очередь пуста|Queue is empty/)
-      expect(await page.evaluate(() => localStorage.getItem('mvs_erp_web_cookie_session'))).toBe('1')
+      expect(await page.evaluate(() => localStorage.getItem('mvs_erp_session_state'))).toBeNull()
     }
     await page.reload()
     await expect(page.locator('.ah-burger')).toBeVisible()
@@ -95,7 +95,7 @@ try {
       if (mode === 'rotation-failure') {
         await page.evaluate(() => Object.defineProperty(window, 'indexedDB', { value: { open() { throw new DOMException('Rotation storage failed', 'SecurityError') } } }))
         expect(await page.evaluate(async () => (await import('/src/store/index.ts')).useAuthStore().refreshSession())).toBe(true)
-        expect(await sibling.evaluate(() => localStorage.getItem('mvs_erp_web_cookie_session'))).toBe('1')
+        expect(await sibling.evaluate(() => localStorage.getItem('mvs_erp_session_state'))).toBeNull()
         expect(await sibling.evaluate(async () => (await import('/src/offline/session.ts')).loadRefreshToken())).toBeNull()
         const afterRotation = refreshBodies.length
         expect(await sibling.evaluate(async () => (await import('/src/store/index.ts')).useAuthStore().refreshSession())).toBe(true)
@@ -106,7 +106,7 @@ try {
       }
       await sibling.close()
     }
-    if (storageBlocked) {
+    if (storageBlocked && !desktop) {
       expect(refreshBodies.length).toBeGreaterThan(0)
       expect(refreshBodies.every(body => !body || !JSON.parse(body).refresh_token)).toBe(true)
     }

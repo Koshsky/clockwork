@@ -1,5 +1,7 @@
 'use strict'
 
+const { createSessionVault } = require('./session-vault.cjs')
+const { createSessionService } = require('./session-service.cjs')
 const path = require('node:path')
 const http = require('node:http')
 const { createStaticHandler } = require('./static-server.cjs')
@@ -8,7 +10,7 @@ const { createDesktopService } = require('./service.cjs')
 const { createDesktopIpc } = require('./ipc.cjs')
 const { attachRendererRecovery } = require('./renderer-recovery.cjs')
 
-function startDesktop({ app, BrowserWindow, ipcMain, dialog, session }, { webDir, preload = path.join(__dirname, 'preload.js'), basePort = 31880, portAttempts = 20, ports = {} }) {
+function startDesktop({ app, BrowserWindow, ipcMain, dialog, session, safeStorage, net, powerMonitor }, { webDir, preload = path.join(__dirname, 'preload.js'), basePort = 31880, portAttempts = 20, ports = {} }) {
   // Shell dialogs can precede the renderer, so their copy follows the OS locale.
   const SHELL_TEXT = {
     ru: {
@@ -33,6 +35,7 @@ function startDesktop({ app, BrowserWindow, ipcMain, dialog, session }, { webDir
     return { ready: Promise.resolve(null) }
   }
   let server = null, service = null, ipc = null, quitting = false, shutdown = null
+  let auth = null, authTimer = null, resumeAuth = null
   const windows = new Set()
   let origin = null
   function createWindow() {
@@ -126,7 +129,15 @@ function startDesktop({ app, BrowserWindow, ipcMain, dialog, session }, { webDir
       service = createDesktopService({ profileId, version: app.getVersion(), electron: process.versions.electron, ...ports })
       server = await startServer()
       origin = `http://127.0.0.1:${server.address().port}`
-      ipc = createDesktopIpc({ ipcMain, service, origin })
+      if (safeStorage && net) {
+        const vault = createSessionVault(app.getPath('userData'), safeStorage)
+        await vault.load()
+        auth = createSessionService({ vault, fetch: (url, options) => net.fetch(url, options), onIdentity: state => service.setScope(state.user ? { server: state.server, accountId: state.user.id } : null) })
+        authTimer = setInterval(() => { void auth.tick().catch(() => {}) }, 30000)
+        resumeAuth = () => { void auth.tick().catch(() => {}) }
+        powerMonitor?.on('resume', resumeAuth)
+      }
+      ipc = createDesktopIpc({ ipcMain, service, origin, session: auth })
       service.start()
       createWindow()
       return { service, createWindow, origin }
@@ -142,6 +153,9 @@ function startDesktop({ app, BrowserWindow, ipcMain, dialog, session }, { webDir
     if (!service || quitting) return
     event.preventDefault()
     if (shutdown) return
+    if (authTimer) clearInterval(authTimer)
+    if (resumeAuth) powerMonitor?.removeListener('resume', resumeAuth)
+    auth?.stop()
     shutdown = service.stop().finally(() => {
       ipc?.dispose()
       server?.close()

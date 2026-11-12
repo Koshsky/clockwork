@@ -71,15 +71,15 @@ function getError(): string | null {
  * go to a queue), the password is neither checked nor saved. Identity: typed
  * login → the saved profile (see the prefilled value below).
  */
-function enterOffline() {
+async function enterOffline() {
   const typed = username.value.trim()
   const identity = typed || auth.user?.username
   if (!identity) {
     localError.value = t('auth.noSession')
     return
   }
-  auth.enterOffline(identity)
-  goToRedirect()
+  if (await auth.enterOffline(identity)) goToRedirect()
+  else localError.value = t('auth.noSession')
 }
 
 async function onSubmit() {

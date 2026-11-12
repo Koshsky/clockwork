@@ -1,3 +1,4 @@
+import { desktopSession, prepareDesktopSession } from '@/session/desktop'
 import { ref } from 'vue'
 import type { Ref } from 'vue'
 import { getApiUrl } from '@/config'
@@ -28,6 +29,14 @@ function probeUrl(): string | null {
 
 /** Whether the backend is alive: any status <500 = reachable, network error/5xx = not */
 export async function probeBackend(): Promise<boolean> {
+  if (desktopSession) {
+    try {
+      await prepareDesktopSession()
+      const reachable = await desktopSession.probe()
+      backendReachability.value = reachable ? 'reachable' : 'unreachable'
+      return reachable
+    } catch { backendReachability.value = 'unreachable'; return false }
+  }
   const url = probeUrl()
   if (!url) return false
   try {

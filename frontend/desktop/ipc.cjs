@@ -1,9 +1,10 @@
 'use strict'
 
 const { validate } = require('./protocol.cjs')
+const sessionIpc = require('./session-ipc.cjs')
 const REQUEST = 'erp:service-request', EVENT = 'erp:service-state'
 
-function createDesktopIpc({ ipcMain, service, origin }) {
+function createDesktopIpc({ ipcMain, service, origin, session }) {
   const windows = new Map()
   let disposed = false
   const trusted = event => {
@@ -47,6 +48,29 @@ function createDesktopIpc({ ipcMain, service, origin }) {
       default: return { ok: false, error: unavailable('DESKTOP_UNAVAILABLE') }
     }
   })
+  const sendSession = window => {
+    if (!session || window.sessionAwaiting != null || window.contents.isDestroyed()) return
+    const state = session.status()
+    window.sessionAwaiting = state.revision
+    window.sessionDirty = false
+    try { window.contents.send(sessionIpc.EVENT, state) } catch { window.sessionAwaiting = null }
+  }
+  const unsubscribeSession = session?.subscribe(() => {
+    for (const window of windows.values()) { window.sessionDirty = true; sendSession(window) }
+  })
+  if (session) ipcMain.handle(sessionIpc.CHANNEL, async (event, request) => {
+    const window = trusted(event)
+    if (!window) return { ok: false, error: 'DESKTOP_UNTRUSTED_SENDER' }
+    if (!sessionIpc.valid(request)) return { ok: false, error: 'SESSION_INVALID_REQUEST' }
+    if (request.action === 'ack') {
+      if (window.sessionAwaiting === request.revision) {
+        window.sessionAwaiting = null
+        if (window.sessionDirty) sendSession(window)
+      }
+      return { ok: true }
+    }
+    return sessionIpc.dispatch(session, window.contents.id + ':' + window.document, request)
+  })
   ipcMain.handle('erp:app-version', event => {
     if (!trusted(event)) throw new Error('DESKTOP_UNTRUSTED_SENDER')
     const state = service.status()
@@ -54,10 +78,12 @@ function createDesktopIpc({ ipcMain, service, origin }) {
   })
   function attach(contents) {
     if (disposed || windows.has(contents.id)) throw new Error('Desktop IPC attachment is unavailable')
-    const window = { contents, document: 0, subscription: null, awaiting: null, dirty: false }
+    const window = { contents, document: 0, subscription: null, awaiting: null, dirty: false, sessionAwaiting: null, sessionDirty: false }
     windows.set(contents.id, window)
     const leaveDocument = () => {
+      session?.detach(contents.id + ':' + window.document)
       service.detach(contents.id + ':' + window.document)
+      window.sessionAwaiting = null; window.sessionDirty = false
       window.document++; window.subscription = null; window.awaiting = null; window.dirty = false
     }
     const navigation = (_, __, ___, mainFrame) => { if (mainFrame) leaveDocument() }
@@ -77,6 +103,8 @@ function createDesktopIpc({ ipcMain, service, origin }) {
     if (disposed) return
     disposed = true
     unsubscribeService()
+    unsubscribeSession?.()
+    if (session) ipcMain.removeHandler(sessionIpc.CHANNEL)
     for (const window of [...windows.values()]) window.cleanup()
     windows.clear()
     ipcMain.removeHandler(REQUEST); ipcMain.removeHandler('erp:app-version')

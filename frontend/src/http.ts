@@ -1,5 +1,7 @@
 import { beginMutation, readStamp, mayApplyRead } from './offline/mutationGuard'
 import axios, { type AxiosError, type AxiosResponse, type InternalAxiosRequestConfig } from 'axios'
+import { offlineFailFastAdapter } from './offline/failFast'
+import { desktopSession, desktopSessionAdapter } from './session/desktop'
 import router from './router'
 import { apiErrorMessage } from './utils'
 import { currentLocale, t } from './i18n'
@@ -12,6 +14,7 @@ import { backendReachability, legacyQueueAvailability } from './platform/state'
 import { isOffline } from './offline/state'
 import { getAccessToken, accessTokenExpired } from './token'
 import { ensureAutoSession } from './offline/sync'
+import { sessionEpoch } from './sessionSync'
 import { isLoggedOut } from './loggedOut'
 
 /** Paths where 401 does not mean "token expired" — we leave them alone (loop protection) */
@@ -51,6 +54,9 @@ function redirectToLogin() {
  * generated API clients (src/api/base.ts: globalAxios).
  */
 export function setupHttp() {
+  const epochs = new WeakMap<object, string>()
+  const staleSession = (config: object) => epochs.has(config) && epochs.get(config) !== sessionEpoch()
+  const cancelledSession = (config: InternalAxiosRequestConfig) => new axios.CanceledError('Session context changed', config)
   const reads = new WeakMap<object, { stamp: number | null; prefix: string; key: string }>()
   const writes = new WeakMap<object, () => void>()
   const finishWrite = (config: object | undefined) => {
@@ -64,9 +70,11 @@ export function setupHttp() {
   // simply omitted; protected endpoints then return a plain 401 that flows
   // through the normal refresh/retry path below.
   axios.interceptors.request.use((config) => {
+    if (platformCapabilities.kind === 'web') epochs.set(config, sessionEpoch())
     if ((config.method ?? 'get').toLowerCase() === 'get') {
       reads.set(config, { stamp: readStamp(), prefix: userCachePrefix(), key: cacheKey(config) })
     }
+    if (desktopSession && config.adapter !== offlineFailFastAdapter) config.adapter = desktopSessionAdapter
     const token = getAccessToken()
     config.headers = config.headers ?? {}
     const auth = String(config.headers['authorization'] || config.headers['Authorization'] || '')
@@ -92,6 +100,7 @@ export function setupHttp() {
     async (response) => {
       const { config, status } = response
       finishWrite(config)
+      if (staleSession(config)) throw cancelledSession(config)
       if (platformCapabilities.kind === 'web' && !AUTH_PATHS.some(path => config.url?.includes(path))) {
         isOffline.value = false
         backendReachability.value = 'reachable'
@@ -136,6 +145,7 @@ export function setupHttp() {
       if (!config) {
         return Promise.reject(error)
       }
+      if (staleSession(config)) return Promise.reject(cancelledSession(config))
       const read = reads.get(config)
       if (read && read.prefix !== userCachePrefix()) return Promise.reject(error)
 
@@ -229,6 +239,10 @@ export function setupHttp() {
         notifyError(apiErrorMessage(body?.error, error.message))
       }
 
+      if (desktopSession && response.status === 401) {
+        redirectToLogin()
+        return Promise.reject(error)
+      }
       if (response.status !== 401) {
         return Promise.reject(error)
       }
@@ -260,7 +274,9 @@ export function setupHttp() {
         refreshing ??= ensureAutoSession().finally(() => {
           refreshing = null
         })
-        if (!(await refreshing)) {
+        const renewed = await refreshing
+        if (staleSession(config)) return Promise.reject(cancelledSession(config))
+        if (!renewed) {
           redirectToLogin()
           return Promise.reject(error)
         }
@@ -270,6 +286,7 @@ export function setupHttp() {
       // authorization format» (INVALID_TOKEN) and the UI shows a misleading
       // «Сессия истекла». If no token could be restored, send the user to the
       // login page instead of firing a request that is guaranteed to fail.
+      if (staleSession(config)) return Promise.reject(cancelledSession(config))
       const token = getAccessToken()
       if (!token) {
         redirectToLogin()

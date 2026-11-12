@@ -71,7 +71,7 @@ Frontend service of the MVS ERP monorepo (repo root is `..`, sibling `backend` i
 ## Architecture rules (repo conventions, keep them)
 - API calls are allowed **only** in `views/`, `composables/`, and `store/`. Components under `src/components/` must never import `@/api` or fetch; they receive data via props/emit or read Pinia. Views load via stores and pass down props (see `views/PlannerPage.vue`).
 - Backend always returns `{ data, error }`; unwrap the payload via `data` and never read other top-level fields. `data` is an object/list container, not a bare array.
-- Auth: JWT tokens + user cached in localStorage keys `mvs_erp_*`; the router guard redirects unauthenticated users to `/login` (add `meta: { requiresAuth: true }` on protected routes).
+- Auth: web access tokens stay in memory and refresh uses the same-origin HttpOnly cookie. Electron owns all tokens and API authorization in main, with OS-protected persistence; renderer session state contains no tokens. Public identity metadata may be cached in localStorage. The router guard redirects unauthenticated users to `/login` (add `meta: { requiresAuth: true }` on protected routes).
 
 ## Component conventions
 - Each component dir ships `X.vue` + `types.ts` + `argTypes.ts` + `X.stories.ts` + `index.ts` (barrel re-export, aggregated in `src/components/planner/index.ts`).

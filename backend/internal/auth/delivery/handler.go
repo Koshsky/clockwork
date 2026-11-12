@@ -99,6 +99,9 @@ func (h *AuthHandler) clearRefreshCookie(c *gin.Context) {
 //	@Failure		401		{object}	response.ErrorResponse{data=nil}
 //	@Router			/auth/login [post]
 func (h *AuthHandler) Login(c *gin.Context) {
+	if !requireBrowserSession(c, c.GetHeader(sessionTransportHeader) == sessionTransportCookie) {
+		return
+	}
 	var req dto.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, errors.CodeBadRequest, "invalid request")
@@ -113,7 +116,10 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	// Return the refresh token in the body too, so clients that cannot read
 	// the HttpOnly cookie (e.g. a desktop SPA) can persist it themselves.
-	res.Auth.RefreshToken = res.RefreshToken
+	res.Auth.RefreshToken = ""
+	if c.GetHeader(sessionTransportHeader) != sessionTransportCookie {
+		res.Auth.RefreshToken = res.RefreshToken
+	}
 
 	h.setRefreshCookie(c, res.RefreshToken)
 	response.OK(c, res.Auth)
@@ -138,6 +144,12 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	_ = c.ShouldBindJSON(&req)
 
 	token := req.RefreshToken
+	if c.GetHeader(sessionTransportHeader) == sessionTransportCookie {
+		token = ""
+	}
+	if !requireBrowserSession(c, token == "" || c.GetHeader(sessionTransportHeader) == sessionTransportCookie) {
+		return
+	}
 	if token == "" {
 		if cookie, err := c.Cookie(refreshCookieName); err == nil && cookie != "" {
 			token = cookie
@@ -155,7 +167,10 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	}
 
 	// Return the rotated refresh token in the body too, mirroring login.
-	res.Auth.RefreshToken = res.RefreshToken
+	res.Auth.RefreshToken = ""
+	if c.GetHeader(sessionTransportHeader) != sessionTransportCookie {
+		res.Auth.RefreshToken = res.RefreshToken
+	}
 
 	h.setRefreshCookie(c, res.RefreshToken)
 	response.OK(c, res.Auth)
@@ -177,6 +192,12 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	_ = c.ShouldBindJSON(&req)
 
 	token := req.RefreshToken
+	if c.GetHeader(sessionTransportHeader) == sessionTransportCookie {
+		token = ""
+	}
+	if !requireBrowserSession(c, token == "" || c.GetHeader(sessionTransportHeader) == sessionTransportCookie) {
+		return
+	}
 	if token == "" {
 		if cookie, err := c.Cookie(refreshCookieName); err == nil && cookie != "" {
 			token = cookie

@@ -8,6 +8,8 @@ The web app and the desktop wrapper are versioned together.
 
 ## [Unreleased]
 
+- Separate web cookie sessions from OS-protected Electron sessions.
+
 ### Fixed
 
 - Electron adds a shared IPC service with request validation and renderer recovery.

@@ -38,11 +38,39 @@ ipcRenderer.on(EVENT, (_, message) => {
   void invoke({ kind: 'ack', subscriptionId, revision: message.state.revision }).catch(() => {})
 })
 
+const sessionListeners = new Set()
+ipcRenderer.on('erp:session-state', (_, state) => {
+  for (const listener of sessionListeners) { try { listener(state) } catch { /* Other windows remain independent. */ } }
+  void sessionRequest({ action: 'ack', revision: state.revision }).catch(() => {})
+})
+async function sessionRequest(request) {
+  if (!bounded(request)) throw new Error('SESSION_INVALID_REQUEST')
+  const result = await ipcRenderer.invoke('erp:session', request)
+  if (!result?.ok) throw new Error(result?.error || 'SESSION_UNAVAILABLE')
+  return result.value
+}
+
 // The envelope and channels belong to preload; page code never gets Electron
 // events, ipcRenderer, filesystem paths, SQL or an arbitrary network proxy.
 contextBridge.exposeInMainWorld('erpDesktop', {
   isElectron: true,
   appVersion: () => ipcRenderer.invoke('erp:app-version'),
+  session: {
+    status: () => sessionRequest({ action: 'status' }),
+    selectServer: server => sessionRequest({ action: 'selectServer', server }),
+    login: (username, password) => sessionRequest({ action: 'login', username, password }),
+    refresh: () => sessionRequest({ action: 'refresh' }),
+    logout: () => sessionRequest({ action: 'logout' }),
+    enterOffline: username => sessionRequest({ action: 'enterOffline', username }),
+    probe: () => sessionRequest({ action: 'probe' }),
+    api: request => sessionRequest({ ...request, action: 'api' }),
+    cancel: requestId => sessionRequest({ action: 'cancel', requestId }),
+    subscribe: listener => {
+      if (typeof listener !== 'function' || sessionListeners.size >= 64) throw new Error('Invalid session subscription')
+      sessionListeners.add(listener)
+      return () => sessionListeners.delete(listener)
+    },
+  },
   service: {
     status: () => invoke({ kind: 'status' }),
     read: async request => {

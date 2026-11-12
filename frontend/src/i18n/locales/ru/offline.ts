@@ -74,7 +74,7 @@ export default {
     notFound: 'Назначение не найдено',
   },
   http: {
-    insecureScheme: 'Сервер по http: сессия и автосинк (refresh) могут не работать — используйте https',
+    insecureScheme: 'HTTP не защищает передаваемые данные. Для удалённого сервера используйте HTTPS.',
   },
   queue: {
     foreignCreator:

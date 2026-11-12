@@ -174,9 +174,9 @@ test('service restart changes instance/context identity without changing its pro
   assert.throws(() => first.start()); assert.throws(() => first.setScope({ server: 'file:///private', accountId: 7 }))
 })
 
-function ipcFixture() {
+function ipcFixture(session) {
   const handlers = new Map(), ipcMain = { handle: (name, fn) => handlers.set(name, fn), removeHandler: name => handlers.delete(name) }
-  const service = fixture(), host = createDesktopIpc({ ipcMain, service, origin: 'http://127.0.0.1:31880' })
+  const service = fixture(), host = createDesktopIpc({ ipcMain, service, origin: 'http://127.0.0.1:31880', session })
   const contents = new EventEmitter(); contents.id = 1; contents.mainFrame = { url: 'http://127.0.0.1:31880/planner' }; contents.isDestroyed = () => false; contents.sent = []; contents.send = (channel, value) => contents.sent.push({ channel, value })
   host.attach(contents)
   const event = { sender: contents, senderFrame: contents.mainFrame }
@@ -270,7 +270,7 @@ function preloadFixture() {
 }
 test('preload exposes only narrow bridge methods, never Electron events or raw invocation', () => {
   const f = preloadFixture()
-  assert.deepEqual(Object.keys(f.context.bridge).sort(), ['appVersion', 'isElectron', 'service'])
+  assert.deepEqual(Object.keys(f.context.bridge).sort(), ['appVersion', 'isElectron', 'service', 'session'])
   assert.deepEqual(Object.keys(f.context.bridge.service).sort(), ['cancel', 'execute', 'read', 'status', 'subscribe'])
 })
 test('preload rejects oversized trees before serializing IPC to main', async () => {
@@ -323,4 +323,22 @@ test('scope changes during completion notification cannot leak a final read or c
     const result = kind === 'read' ? await service.read('owner', read(service)) : await service.execute('owner', command(service))
     assert.equal(result.status, kind === 'read' ? 'cancelled' : 'unknown'); assert.equal(result.data, undefined)
   }
+})
+test('session IPC uses the same registered top-frame and origin guard as data operations',async()=>{
+  const f=ipcFixture({subscribe:()=>()=>{},detach:()=>{},status:()=>({revision:1,mode:'signedOut'})}),handler=f.handlers.get('erp:session')
+  assert.equal((await handler(f.event,{action:'status'})).ok,true)
+  assert.equal((await handler({...f.event,senderFrame:{}},{action:'login',username:'u',password:'p'})).error,'DESKTOP_UNTRUSTED_SENDER')
+  f.contents.mainFrame.url='https://evil.example'
+  assert.equal((await handler(f.event,{action:'status'})).error,'DESKTOP_UNTRUSTED_SENDER');f.host.dispose()
+})
+test('session notifications coalesce behind one acknowledgement and discard stale document acknowledgements',async()=>{
+  let notify,revision=1
+  const f=ipcFixture({subscribe:cb=>{notify=cb;return()=>{}},detach:()=>{},status:()=>({revision,mode:'online'})})
+  for(let index=0;index<100;index++){revision++;notify()}
+  assert.equal(f.contents.sent.length,1)
+  const ack=f.handlers.get('erp:session')
+  await ack(f.event,{action:'ack',revision:2});assert.equal(f.contents.sent.length,2);assert.equal(f.contents.sent[1].value.revision,101)
+  f.contents.emit('did-start-navigation',{},'/planner',false,true)
+  await ack(f.event,{action:'ack',revision:101});assert.equal(f.contents.sent.length,2)
+  f.host.dispose()
 })

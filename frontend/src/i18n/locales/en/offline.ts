@@ -73,7 +73,7 @@ export default {
     notFound: 'Assignment not found',
   },
   http: {
-    insecureScheme: 'The server runs over http: the session and auto-sync (refresh) may fail — use https',
+    insecureScheme: 'HTTP does not protect data in transit. Use HTTPS for a remote server.',
   },
   queue: {
     foreignCreator:

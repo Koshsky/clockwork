@@ -243,7 +243,7 @@ router.beforeEach(async (to) => {
   }
 
   // Already-authenticated users are not allowed on the login page
-  if (to.name === 'login' && auth.isAuthenticated && !isLoggedOut()) {
+  if (to.name === 'login' && auth.isAuthenticated && auth.sessionMode !== 'offline' && !isLoggedOut()) {
     return { name: 'home' }
   }
 

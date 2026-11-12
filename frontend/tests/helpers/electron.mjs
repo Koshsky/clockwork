@@ -16,6 +16,7 @@ export async function launchElectronFixture() {
       env,
     })
     await app.firstWindow({ timeout: 15000 })
+    if (process.env.ERP_TEST_API) await app.context().addInitScript(api => localStorage.setItem('mvs_erp_api_url', api.replace(/\/$/, '') + '/api/v1'), process.env.ERP_TEST_API)
     return { app, close: async () => {
       try { await app.close() } finally { rmSync(profile, { recursive: true, force: true }) }
     } }

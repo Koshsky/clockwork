@@ -20,13 +20,13 @@ import { beginMutation, readStamp, mayApplyRead } from '@/offline/mutationGuard'
 import { pendingRefs } from '@/offline/outbox'
 import { getAccessToken, setAccessToken, accessTokenExpired, accessTokenExpiresAt } from '@/token'
 import {
-  withRefreshLock,
+  withRefreshLock, withSessionLock, sessionEpoch, advanceSessionEpoch, sessionUncertain, markSessionUncertain, subscribeEpoch,
   publishSession,
   subscribeSession,
   subscribeToken,
 } from '@/sessionSync'
 import { isLoggedOut, clearLoggedOut, setLoggedOut } from '@/loggedOut'
-import { saveRefreshToken, loadRefreshToken, clearRefreshToken } from '@/offline/session'
+import { desktopSession, desktopSessionState, desktopAction, type SessionState } from '@/session/desktop'
 import { createTemporaryId } from '@/offline/temporaryId'
 import { hydrateFromCache, apiPath } from '@/offline/hydrate'
 import { cacheGetAllByPath } from '@/offline/cache'
@@ -37,6 +37,7 @@ import { createWebTaskData } from './data/webTasks'
 import { readApi, isReadCancelled, isReadForbidden, invalidateApiReads, readPending } from './data/apiReads'
 import { readConfiguration } from './data/readConfiguration'
 import { platformCapabilities } from '@/platform/context'
+import { localDataAvailability } from '@/platform/state'
 import { runMutation, runOnlineCommand } from './data/mutations'
 import { resetWebCommands, runWebCommand } from './data/webCommands'
 import { commandData } from './data/legacyErrors'
@@ -62,7 +63,8 @@ const USER_KEY = 'mvs_erp_user'
  */
 const PERMS_KEY_PREFIX = 'mvs_erp_perms'
 function permsKey(uid: number | null | undefined): string {
-  return uid != null ? `${PERMS_KEY_PREFIX}_${uid}` : PERMS_KEY_PREFIX
+  const server = desktopSession ? `_${encodeURIComponent(getApiUrl() || '')}` : ''
+  return uid != null ? `${PERMS_KEY_PREFIX}_${uid}${server}` : PERMS_KEY_PREFIX + server
 }
 
 /** How long before the token expires that proactive refresh kicks in */
@@ -113,7 +115,7 @@ function authApiConfig(): Configuration {
   return new Configuration({
     basePath: getApiUrl(),
     baseOptions: {
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-ERP-Session': 'cookie' },
       timeout: 10000,
     },
     apiKey: () => `Bearer ${getAccessToken()}`,
@@ -132,6 +134,13 @@ function readStoredUser(): DtoUserInfo | null {
   } catch {
     return null
   }
+}
+
+function saveSessionMetadata(key: string, value: string): void {
+  try { localStorage.setItem(key, value) } catch { /* Public identity may remain memory-only. */ }
+}
+function removeSessionMetadata(key: string): void {
+  try { localStorage.removeItem(key) } catch { /* A storage failure cannot prevent local logout. */ }
 }
 
 /** Whether the token should be renewed early (less than the margin left until expiry) */
@@ -172,10 +181,11 @@ function resetReadModels(): void {
 // === Auth ===
 export const useAuthStore = defineStore('auth', () => {
   // Cached identity supports session restoration, but cannot override a recorded logout.
-  const user = ref<DtoUserInfo | null>(readStoredUser())
+  const user = ref<DtoUserInfo | null>(desktopSession ? null : readStoredUser())
+  let webEpoch = sessionEpoch()
   const isAuthenticated = ref<boolean>(Boolean(user.value) && !isLoggedOut())
   // Neither the in-memory token nor the wall clock invalidates a Vue computed value.
-  function accessExpired(): boolean { return accessTokenExpired() }
+  function accessExpired(): boolean { return desktopSession ? !desktopSessionState.value || desktopSessionState.value.mode === 'online' && desktopSessionState.value.expiresAt <= Date.now() : accessTokenExpired() }
   /** Session mode: online — real (with token), offline — local without token */
   const sessionMode = ref<'online' | 'offline'>('online')
   const loading = ref(false)
@@ -197,15 +207,17 @@ export const useAuthStore = defineStore('auth', () => {
     data: { access_token?: string; user?: DtoUserInfo } | undefined,
     warm = false,
   ) {
+    webEpoch = sessionEpoch()
     const prevUid = user.value?.id
     const token = data?.access_token
     setAccessToken(token ?? null)
     if (data?.user) {
-      localStorage.setItem(USER_KEY, JSON.stringify(data.user))
+      saveSessionMetadata(USER_KEY, JSON.stringify(data.user))
       user.value = data.user
     }
     isAuthenticated.value = Boolean(token)
     sessionMode.value = 'online'
+    isOffline.value = false
     scheduleProactiveRefresh()
     // Permission isolation: when a different user id arrives (a login or an
     // account switch) drop the stale in-memory permission snapshot and fetch
@@ -223,81 +235,75 @@ export const useAuthStore = defineStore('auth', () => {
     if (warm && platformCapabilities.kind !== 'web') scheduleWarmup()
   }
 
-  /**
-   * Offline login (Desktop, the button on /login when isOffline): a local session
-   * without a token — data from cache, mutations to the queue, the server is not polled.
-   * Identity: the saved profile (if it matches the entered login or no login was
-   * entered), otherwise a minimal profile with the entered login.
-   */
-  function enterOffline(username: string | null): boolean {
-    const stored = readStoredUser()
-    const prevUid = user.value?.id
-    if (stored?.username && (!username || stored.username === username)) {
-      user.value = stored
-    } else {
-      user.value = { username: username ?? undefined } as DtoUserInfo
-    }
+  function applyDesktop(state: SessionState) {
+    const previous = user.value?.id
+    const rightsChanged = user.value?.preset !== state.user?.preset || sessionMode.value === 'offline' && state.mode === 'online'
+    const changed = desktopContext !== state.contextId
+    desktopContext = state.contextId
     setAccessToken(null)
-    stopProactiveRefresh()
-    isAuthenticated.value = true
-    sessionMode.value = 'offline'
-    // Offline account switch — never keep another profile's permissions.
-    if (prevUid !== user.value?.id) { resetWebCommands(); resetReadModels(); useRbacStore().resetPermissions() }
-    return true
+    user.value = state.user
+    isAuthenticated.value = state.mode !== 'signedOut' && Boolean(state.user) && localDataAvailability.value === 'available'
+    sessionMode.value = state.mode === 'offline' ? 'offline' : 'online'
+    if (state.user) saveSessionMetadata(USER_KEY, JSON.stringify(state.user))
+    else removeSessionMetadata(USER_KEY)
+    if (state.mode === 'online') { clearLoggedOut(); isOffline.value = false }
+    if (state.mode === 'offline') {
+      isOffline.value = true
+      if (state.offlineAvailable && !state.needsLogin) clearLoggedOut()
+    }
+    if (state.mode === 'signedOut') setLoggedOut()
+    if (changed || rightsChanged || previous !== state.user?.id) {
+      resetWebCommands(); resetReadModels(); useRbacStore().resetPermissions()
+    }
+    if (localDataAvailability.value === 'unavailable') error.value = t('offline.db.unavailable')
+    else if (state.error) error.value = apiErrorMessage(state.error)
   }
+  let desktopContext: string | null = null
+  if (desktopSession) watch([desktopSessionState, localDataAvailability], ([state]) => { if (state) applyDesktop(state) }, { immediate: true, flush: 'sync' })
 
-  // Once the network returns after an offline login, silently try to restore a
-  // real online session (the refresh token is in IndexedDB or the cookie). The
-  // router guard alone cannot do it: it skips the refresh while isOffline is
-  // true and then admits the stored profile without an access token — which
-  // made every request go out with an empty Bearer and the server answered
-  // INVALID_TOKEN («Сессия истекла»). When no refresh token is available at
-  // all (a pure offline session), do nothing: the user stays offline (their
-  // data and queue are intact) and can log in online explicitly.
-  watch(
-    isOffline,
-    (offline) => {
-      if (offline) return
-      if (sessionMode.value !== 'offline') return
-      if (isLoggedOut()) return
-      void (async () => {
-        const stored = await loadRefreshToken()
-        if (stored == null) return // no session to restore — stay offline
-        await refreshSession()
-      })()
-    },
-    { flush: 'sync' },
-  )
+  async function enterOffline(username: string | null): Promise<boolean> {
+    if (!desktopSession) return false
+    try { applyDesktop(await desktopAction('enterOffline', username)); return isAuthenticated.value }
+    catch { error.value = t('auth.noSession'); return false }
+  }
+  watch(isOffline, offline => {
+    if (!offline && sessionMode.value === 'offline' && !isLoggedOut()) void refreshSession()
+  }, { flush: 'sync' })
 
   async function login(username: string, password: string) {
     loading.value = true
     error.value = null
     try {
-      const api = new AuthApi(authApiConfig())
-      const resp = await api.authLoginPost({ username: username.trim(), password })
-      const body = resp.data
-      const errBody = body?.error as { code?: unknown; message?: string } | undefined
-      if (errBody && errBody.code != null) throw new Error(apiErrorMessage(errBody))
-      // Commit shared state before publishing authentication to navigation watchers.
-      if (body?.data?.refresh_token) {
-        await saveRefreshToken(body.data.refresh_token)
+      if (desktopSession) {
+        if (localDataAvailability.value !== 'available') throw new Error(t('offline.db.unavailable'))
+        const state = await desktopAction('login', username, password)
+        applyDesktop(state)
+        if (state.mode !== 'online') return false
+        scheduleWarmup()
+      } else {
+        const own = advanceSessionEpoch()
+        const accepted = await withSessionLock(async () => {
+          const resp = await new AuthApi(authApiConfig()).authLoginPost({ username: username.trim(), password })
+          if (own !== sessionEpoch()) return false
+          const body = resp.data
+          if ((body?.error as { code?: unknown } | undefined)?.code != null) throw new Error(apiErrorMessage(body.error))
+          if (!body?.data?.access_token) return false
+          markSessionUncertain(false)
+          clearLoggedOut()
+          applySession(body.data, true)
+          publishSession({ access: body.data.access_token, user: body.data.user })
+          return true
+        })
+        if (!accepted) return false
       }
-      clearLoggedOut()
-      // Manual login: the offline cache is warmed for the user's role.
-      applySession(body?.data, true)
-      sessionMode.value = 'online'
-      // A verified login orphans the queue entries of the previous account
-      // (their session is revoked; the flush-time creator guard would park
-      // them forever). Same-account entries — e.g. pending work of a sibling
-      // tab — are kept. Non-fatal.
       void pruneForeignOutbox(user.value?.username ?? username.trim()).catch(() => {})
       return true
     } catch (e: unknown) {
-      error.value = e instanceof Error ? e.message || String(e) : String(e)
+      error.value = desktopSession && e instanceof Error && /^(SESSION_|DESKTOP_)/.test(e.message)
+        ? t('auth.serviceUnavailable')
+        : e instanceof Error ? e.message || String(e) : String(e)
       return false
-    } finally {
-      loading.value = false
-    }
+    } finally { loading.value = false }
   }
 
   async function changePassword(oldPassword: string, newPassword: string) {
@@ -321,10 +327,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   /** Proactive refresh: timer + tab visibility return, so the access token never expires prematurely */
   function scheduleProactiveRefresh() {
-    if (!backgroundSessionAllowed || proactiveTimer != null) return
-    // Refresh is unified across environments: the refresh token lives in the
-    // IndexedDB 'session' store (body of /auth/refresh), so the timer works the
-    // same on web and desktop.
+    if (desktopSession || !backgroundSessionAllowed || proactiveTimer != null) return
     const renew = () => {
       if (accessTokenExpiring()) {
         void refreshSession()
@@ -363,6 +366,13 @@ export const useAuthStore = defineStore('auth', () => {
    *  Parallel calls (timer/guard/interceptor) are deduplicated into a single request */
   async function refreshSession(): Promise<boolean> {
     // A sibling logout can leave this tab's cached profile and memory intact.
+    if (desktopSession) {
+      try {
+        const state = await desktopAction('refresh')
+        applyDesktop(state)
+        return isAuthenticated.value && state.mode === 'online' && state.expiresAt > Date.now()
+      } catch { return false }
+    }
     if (isLoggedOut() && !isOffline.value) {
       invalidateOnlineSession()
       return false
@@ -384,7 +394,10 @@ export const useAuthStore = defineStore('auth', () => {
     const previous = getAccessToken()
     const deadline = Date.now() + SIBLING_REFRESH_WAIT_MS
     while (true) {
-      if (isOffline.value) return true
+      if (isOffline.value) {
+        if (sessionUncertain()) { invalidateOnlineSession(); return false }
+        return isAuthenticated.value && !accessTokenExpired()
+      }
       if (isLoggedOut()) {
         invalidateOnlineSession()
         return false
@@ -405,58 +418,28 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function refreshOwnedSession(): Promise<boolean> {
-    let rotated = false
+    if (sessionUncertain()) { invalidateOnlineSession(); error.value = t('auth.noSession'); return false }
+    const own = sessionEpoch()
     loading.value = true
     error.value = null
     try {
-      const api = new AuthApi(authApiConfig())
-      const stored = await loadRefreshToken()
-      const resp = await api.authRefreshPost(stored ? { refresh_token: stored } : undefined)
-      const body = resp.data
-      const errBody = body?.error as { code?: unknown; message?: string } | undefined
-      if (errBody && errBody.code != null) throw new Error(apiErrorMessage(errBody))
-      // A response issued before logout must not resurrect the online session.
-      if (isLoggedOut()) {
-        invalidateOnlineSession()
-        return false
-      }
-      // Rotate: persist the refresh token returned by the backend for the next refresh.
-      if (body?.data?.refresh_token) {
-        rotated = true
-        await saveRefreshToken(body.data.refresh_token)
-      }
-      if (isLoggedOut()) {
-        invalidateOnlineSession()
-        return false
-      }
-      applySession(body?.data)
+      // A lost response may have rotated the cookie; never replay it blindly.
+      if (markSessionUncertain(true) === false) { error.value = t('auth.noSession'); return false }
+      const resp = await new AuthApi(authApiConfig()).authRefreshPost()
+      if (isLoggedOut() || own !== sessionEpoch()) { invalidateOnlineSession(); return false }
+      if ((resp.data?.error as { code?: unknown } | undefined)?.code != null) throw new Error(apiErrorMessage(resp.data.error))
+      markSessionUncertain(false)
+      applySession(resp.data?.data)
       const token = getAccessToken()
-      if (token) {
-        publishSession({ access: token, refresh: body?.data?.refresh_token })
-      }
-      return true
+      if (token) publishSession({ access: token, user: resp.data?.data?.user })
+      return Boolean(token)
     } catch (e: unknown) {
-      // Network error (no HTTP response): the server is unreachable. We do not log out —
-      // we switch to offline mode (the session and the change queue in IndexedDB live
-      // until the network returns), in every environment. Logout happens only on a
-      // real server failure.
-      if (isNetworkError(e)) {
-        isOffline.value = true
-        return true
-      }
-      error.value = e instanceof Error ? e.message || String(e) : String(e)
-      // Storage failures and transient server errors do not revoke a shared session.
+      if (isNetworkError(e)) { isOffline.value = true; return !accessTokenExpired() }
+      error.value = e instanceof Error ? e.message : String(e)
       const status = (e as AxiosError)?.response?.status
-      if (status === 401 || status === 403) logout()
-      else if (rotated) {
-        // The stored token is now revoked; no tab may reuse it after a failed rotation commit.
-        invalidateOnlineSession()
-        setLoggedOut()
-      }
+      if (status === 401 || status === 403) { invalidateOnlineSession(); setLoggedOut() }
       return false
-    } finally {
-      loading.value = false
-    }
+    } finally { loading.value = false }
   }
 
   function startBackgroundSession(): void {
@@ -481,32 +464,23 @@ export const useAuthStore = defineStore('auth', () => {
     // auto-sync is disabled (isLoggedOut) until a manual login. Orphaned
     // entries of the logged-out account are pruned on the next verified login
     // (pruneForeignOutbox). The explicit full wipe is clearOutbox().
-    // Revoke the refresh session on the server: read the stored token and send it
-    // in the body of /auth/logout (falling back to the cookie when none is stored),
-    // then clear our local copy. Best-effort — the cookie is also cleared by the backend.
-    void (async () => {
-      try {
-        const stored = await loadRefreshToken()
-        await new AuthApi(authApiConfig()).authLogoutPost(
-          stored ? { refresh_token: stored } : undefined,
-        )
-      } catch {
-        // the session is revoked/expired on the client regardless
-      } finally {
-        // Local cleanup must never throw out of logout (an IndexedDB failure —
-        // e.g. a missing object store — would otherwise surface as an
-        // unhandled promise rejection after the user logged out).
-        await clearRefreshToken().catch(() => {})
-      }
-    })()
+    if (desktopSession) void desktopAction('logout').then(applyDesktop).catch(() => {})
+    else {
+      advanceSessionEpoch()
+      void withSessionLock(async () => {
+        await new AuthApi(authApiConfig()).authLogoutPost()
+        markSessionUncertain(false)
+        return true
+      }).catch(() => {})
+    }
     setAccessToken(null)
     // The permission cache is per-user: drop the logged-out account's key and
     // the in-memory snapshot so a later login (the same or another account)
     // starts from its real /permissions/me, never from these rights.
     const wasUid = user.value?.id
-    if (wasUid != null) localStorage.removeItem(permsKey(wasUid))
+    if (wasUid != null) removeSessionMetadata(permsKey(wasUid))
     useRbacStore().resetPermissions()
-    localStorage.removeItem(USER_KEY)
+    removeSessionMetadata(USER_KEY)
     user.value = null
     isAuthenticated.value = false
     sessionMode.value = 'online'
@@ -531,7 +505,7 @@ export const useAuthStore = defineStore('auth', () => {
       if (errBody && errBody.code != null) throw new Error(apiErrorMessage(errBody))
       if (body?.data) {
         user.value = body.data as DtoUserInfo
-        localStorage.setItem(USER_KEY, JSON.stringify(user.value))
+        saveSessionMetadata(USER_KEY, JSON.stringify(user.value))
       }
       return true
     } catch (e: unknown) {
@@ -553,7 +527,7 @@ export const useAuthStore = defineStore('auth', () => {
           const d = (body as { data?: DtoUserInfo } | undefined)?.data
           if (d) {
             user.value = d
-            localStorage.setItem(USER_KEY, JSON.stringify(d))
+            saveSessionMetadata(USER_KEY, JSON.stringify(d))
           }
         },
       },
@@ -567,20 +541,18 @@ export const useAuthStore = defineStore('auth', () => {
     if (platformCapabilities.kind !== 'web') scheduleWarmup()
   }
 
-  // Adopt fresher sessions (access token + rotated refresh token) published by
-  // sibling tabs (cross-tab refresh coordination in ALL environments — the
-  // refresh token is shared and rotated once per family).
-  let unsubscribeSessionToken: (() => void) | null = null
-  unsubscribeSessionToken = subscribeSession(({ access }) => {
-    if (isLoggedOut()) return
-    if (access) {
-      const cur = accessTokenExpiresAt(getAccessToken())
-      const next = accessTokenExpiresAt(access)
-      if (next != null && (cur == null || next > cur)) setAccessToken(access)
-    }
-    // The owner persisted the shared refresh token before broadcasting; replaying it here can roll it back.
+  const unsubscribeSessionToken = desktopSession ? () => {} : subscribeSession(({ access, user: identity }) => {
+    if (isLoggedOut() || !access) return
+    const current = accessTokenExpiresAt(), next = accessTokenExpiresAt(access)
+    if (next != null && (current == null || next >= current)) applySession({ access_token: access, user: identity })
   })
-  onScopeDispose(() => unsubscribeSessionToken?.())
+  const unsubscribeEpoch = desktopSession ? () => {} : subscribeEpoch(() => {
+    if (webEpoch === sessionEpoch() && !isLoggedOut()) return
+    webEpoch = sessionEpoch()
+    invalidateOnlineSession()
+    user.value = null
+  })
+  onScopeDispose(() => { unsubscribeSessionToken(); unsubscribeEpoch() })
 
   return {
     user,

@@ -1,3 +1,4 @@
+import { desktopSession, prepareDesktopSession } from '@/session/desktop'
 import { UsersApi, type Configuration } from '@/api'
 import { readApi } from './apiReads'
 import { readConfiguration } from './readConfiguration'
@@ -13,6 +14,9 @@ export async function loadAppManifest(): Promise<{ version?: string } | null> {
 }
 
 export async function probeServerLogin(base: string | undefined): Promise<boolean> {
+  if (desktopSession) {
+    try { await prepareDesktopSession(); return await desktopSession.probe() } catch { return false }
+  }
   if (!base) return false
   try {
     const response = await fetch(`${base}/auth/login`, {

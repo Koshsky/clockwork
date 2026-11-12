@@ -1,0 +1,792 @@
+[
+  {
+    "operation": "GET /assignment",
+    "method": "GET",
+    "path": "/assignment",
+    "pathTypes": {},
+    "query": [
+      "limit",
+      "owner_id",
+      "offset"
+    ]
+  },
+  {
+    "operation": "POST /assignment",
+    "method": "POST",
+    "path": "/assignment",
+    "pathTypes": {},
+    "query": []
+  },
+  {
+    "operation": "GET /assignment/{id}",
+    "method": "GET",
+    "path": "/assignment/{id}",
+    "pathTypes": {
+      "id": "integer"
+    },
+    "query": []
+  },
+  {
+    "operation": "PUT /assignment/{id}",
+    "method": "PUT",
+    "path": "/assignment/{id}",
+    "pathTypes": {
+      "id": "integer"
+    },
+    "query": []
+  },
+  {
+    "operation": "DELETE /assignment/{id}",
+    "method": "DELETE",
+    "path": "/assignment/{id}",
+    "pathTypes": {
+      "id": "integer"
+    },
+    "query": []
+  },
+  {
+    "operation": "GET /audit/events",
+    "method": "GET",
+    "path": "/audit/events",
+    "pathTypes": {},
+    "query": [
+      "limit",
+      "offset",
+      "user_id",
+      "user",
+      "entity",
+      "action",
+      "status",
+      "from",
+      "to",
+      "search",
+      "id",
+      "ip"
+    ]
+  },
+  {
+    "operation": "GET /auto-create/config",
+    "method": "GET",
+    "path": "/auto-create/config",
+    "pathTypes": {},
+    "query": []
+  },
+  {
+    "operation": "PUT /auto-create/config",
+    "method": "PUT",
+    "path": "/auto-create/config",
+    "pathTypes": {},
+    "query": []
+  },
+  {
+    "operation": "GET /milestone",
+    "method": "GET",
+    "path": "/milestone",
+    "pathTypes": {},
+    "query": [
+      "limit",
+      "owner_id",
+      "offset"
+    ]
+  },
+  {
+    "operation": "POST /milestone",
+    "method": "POST",
+    "path": "/milestone",
+    "pathTypes": {},
+    "query": []
+  },
+  {
+    "operation": "GET /milestone/{id}",
+    "method": "GET",
+    "path": "/milestone/{id}",
+    "pathTypes": {
+      "id": "integer"
+    },
+    "query": []
+  },
+  {
+    "operation": "PUT /milestone/{id}",
+    "method": "PUT",
+    "path": "/milestone/{id}",
+    "pathTypes": {
+      "id": "integer"
+    },
+    "query": []
+  },
+  {
+    "operation": "DELETE /milestone/{id}",
+    "method": "DELETE",
+    "path": "/milestone/{id}",
+    "pathTypes": {
+      "id": "integer"
+    },
+    "query": []
+  },
+  {
+    "operation": "GET /permissions/me",
+    "method": "GET",
+    "path": "/permissions/me",
+    "pathTypes": {},
+    "query": []
+  },
+  {
+    "operation": "GET /planning/processes",
+    "method": "GET",
+    "path": "/planning/processes",
+    "pathTypes": {},
+    "query": []
+  },
+  {
+    "operation": "GET /planning/projects",
+    "method": "GET",
+    "path": "/planning/projects",
+    "pathTypes": {},
+    "query": []
+  },
+  {
+    "operation": "GET /planning/tasks",
+    "method": "GET",
+    "path": "/planning/tasks",
+    "pathTypes": {},
+    "query": []
+  },
+  {
+    "operation": "GET /process",
+    "method": "GET",
+    "path": "/process",
+    "pathTypes": {},
+    "query": [
+      "limit",
+      "owner_id",
+      "offset"
+    ]
+  },
+  {
+    "operation": "POST /process",
+    "method": "POST",
+    "path": "/process",
+    "pathTypes": {},
+    "query": []
+  },
+  {
+    "operation": "PUT /process/order",
+    "method": "PUT",
+    "path": "/process/order",
+    "pathTypes": {},
+    "query": []
+  },
+  {
+    "operation": "GET /process/{id}",
+    "method": "GET",
+    "path": "/process/{id}",
+    "pathTypes": {
+      "id": "integer"
+    },
+    "query": []
+  },
+  {
+    "operation": "PUT /process/{id}",
+    "method": "PUT",
+    "path": "/process/{id}",
+    "pathTypes": {
+      "id": "integer"
+    },
+    "query": []
+  },
+  {
+    "operation": "DELETE /process/{id}",
+    "method": "DELETE",
+    "path": "/process/{id}",
+    "pathTypes": {
+      "id": "integer"
+    },
+    "query": []
+  },
+  {
+    "operation": "GET /project",
+    "method": "GET",
+    "path": "/project",
+    "pathTypes": {},
+    "query": [
+      "limit",
+      "owner_id",
+      "offset"
+    ]
+  },
+  {
+    "operation": "POST /project",
+    "method": "POST",
+    "path": "/project",
+    "pathTypes": {},
+    "query": []
+  },
+  {
+    "operation": "GET /project/{id}",
+    "method": "GET",
+    "path": "/project/{id}",
+    "pathTypes": {
+      "id": "integer"
+    },
+    "query": []
+  },
+  {
+    "operation": "PUT /project/{id}",
+    "method": "PUT",
+    "path": "/project/{id}",
+    "pathTypes": {
+      "id": "integer"
+    },
+    "query": []
+  },
+  {
+    "operation": "DELETE /project/{id}",
+    "method": "DELETE",
+    "path": "/project/{id}",
+    "pathTypes": {
+      "id": "integer"
+    },
+    "query": []
+  },
+  {
+    "operation": "GET /rbac/explain",
+    "method": "GET",
+    "path": "/rbac/explain",
+    "pathTypes": {},
+    "query": [
+      "preset",
+      "resource",
+      "action",
+      "user_id",
+      "project_owner",
+      "process_owner",
+      "owner"
+    ]
+  },
+  {
+    "operation": "GET /rbac/kinds",
+    "method": "GET",
+    "path": "/rbac/kinds",
+    "pathTypes": {},
+    "query": []
+  },
+  {
+    "operation": "GET /rbac/matrix",
+    "method": "GET",
+    "path": "/rbac/matrix",
+    "pathTypes": {},
+    "query": []
+  },
+  {
+    "operation": "GET /rbac/policies",
+    "method": "GET",
+    "path": "/rbac/policies",
+    "pathTypes": {},
+    "query": []
+  },
+  {
+    "operation": "PUT /rbac/policies",
+    "method": "PUT",
+    "path": "/rbac/policies",
+    "pathTypes": {},
+    "query": []
+  },
+  {
+    "operation": "DELETE /rbac/policies/{name}",
+    "method": "DELETE",
+    "path": "/rbac/policies/{name}",
+    "pathTypes": {
+      "name": "string"
+    },
+    "query": []
+  },
+  {
+    "operation": "GET /rbac/preset-rules",
+    "method": "GET",
+    "path": "/rbac/preset-rules",
+    "pathTypes": {},
+    "query": []
+  },
+  {
+    "operation": "PUT /rbac/preset-rules",
+    "method": "PUT",
+    "path": "/rbac/preset-rules",
+    "pathTypes": {},
+    "query": []
+  },
+  {
+    "operation": "DELETE /rbac/preset-rules/{id}",
+    "method": "DELETE",
+    "path": "/rbac/preset-rules/{id}",
+    "pathTypes": {
+      "id": "integer"
+    },
+    "query": []
+  },
+  {
+    "operation": "GET /rbac/presets",
+    "method": "GET",
+    "path": "/rbac/presets",
+    "pathTypes": {},
+    "query": []
+  },
+  {
+    "operation": "POST /rbac/presets",
+    "method": "POST",
+    "path": "/rbac/presets",
+    "pathTypes": {},
+    "query": []
+  },
+  {
+    "operation": "PUT /rbac/presets/{tag}",
+    "method": "PUT",
+    "path": "/rbac/presets/{tag}",
+    "pathTypes": {
+      "tag": "string"
+    },
+    "query": []
+  },
+  {
+    "operation": "DELETE /rbac/presets/{tag}",
+    "method": "DELETE",
+    "path": "/rbac/presets/{tag}",
+    "pathTypes": {
+      "tag": "string"
+    },
+    "query": []
+  },
+  {
+    "operation": "POST /rbac/reset",
+    "method": "POST",
+    "path": "/rbac/reset",
+    "pathTypes": {},
+    "query": []
+  },
+  {
+    "operation": "GET /rbac/users/{id}/permissions",
+    "method": "GET",
+    "path": "/rbac/users/{id}/permissions",
+    "pathTypes": {
+      "id": "integer"
+    },
+    "query": []
+  },
+  {
+    "operation": "PUT /rbac/users/{id}/permissions",
+    "method": "PUT",
+    "path": "/rbac/users/{id}/permissions",
+    "pathTypes": {
+      "id": "integer"
+    },
+    "query": []
+  },
+  {
+    "operation": "GET /resources",
+    "method": "GET",
+    "path": "/resources",
+    "pathTypes": {},
+    "query": [
+      "limit",
+      "owner_id",
+      "offset"
+    ]
+  },
+  {
+    "operation": "POST /resources",
+    "method": "POST",
+    "path": "/resources",
+    "pathTypes": {},
+    "query": []
+  },
+  {
+    "operation": "GET /resources/{id}",
+    "method": "GET",
+    "path": "/resources/{id}",
+    "pathTypes": {
+      "id": "integer"
+    },
+    "query": []
+  },
+  {
+    "operation": "PUT /resources/{id}",
+    "method": "PUT",
+    "path": "/resources/{id}",
+    "pathTypes": {
+      "id": "integer"
+    },
+    "query": []
+  },
+  {
+    "operation": "DELETE /resources/{id}",
+    "method": "DELETE",
+    "path": "/resources/{id}",
+    "pathTypes": {
+      "id": "integer"
+    },
+    "query": []
+  },
+  {
+    "operation": "GET /resources/{id}/absence",
+    "method": "GET",
+    "path": "/resources/{id}/absence",
+    "pathTypes": {
+      "id": "integer"
+    },
+    "query": [
+      "start_date",
+      "end_date"
+    ]
+  },
+  {
+    "operation": "GET /resources/{id}/members",
+    "method": "GET",
+    "path": "/resources/{id}/members",
+    "pathTypes": {
+      "id": "integer"
+    },
+    "query": []
+  },
+  {
+    "operation": "POST /resources/{id}/members",
+    "method": "POST",
+    "path": "/resources/{id}/members",
+    "pathTypes": {
+      "id": "integer"
+    },
+    "query": []
+  },
+  {
+    "operation": "DELETE /resources/{id}/members/{userId}",
+    "method": "DELETE",
+    "path": "/resources/{id}/members/{userId}",
+    "pathTypes": {
+      "id": "integer",
+      "userId": "integer"
+    },
+    "query": []
+  },
+  {
+    "operation": "GET /task",
+    "method": "GET",
+    "path": "/task",
+    "pathTypes": {},
+    "query": [
+      "limit",
+      "owner_id",
+      "offset"
+    ]
+  },
+  {
+    "operation": "POST /task",
+    "method": "POST",
+    "path": "/task",
+    "pathTypes": {},
+    "query": []
+  },
+  {
+    "operation": "PUT /task/order",
+    "method": "PUT",
+    "path": "/task/order",
+    "pathTypes": {},
+    "query": []
+  },
+  {
+    "operation": "GET /task/{id}",
+    "method": "GET",
+    "path": "/task/{id}",
+    "pathTypes": {
+      "id": "integer"
+    },
+    "query": []
+  },
+  {
+    "operation": "PUT /task/{id}",
+    "method": "PUT",
+    "path": "/task/{id}",
+    "pathTypes": {
+      "id": "integer"
+    },
+    "query": []
+  },
+  {
+    "operation": "DELETE /task/{id}",
+    "method": "DELETE",
+    "path": "/task/{id}",
+    "pathTypes": {
+      "id": "integer"
+    },
+    "query": []
+  },
+  {
+    "operation": "GET /task/{id}/comments",
+    "method": "GET",
+    "path": "/task/{id}/comments",
+    "pathTypes": {
+      "id": "integer"
+    },
+    "query": []
+  },
+  {
+    "operation": "POST /task/{id}/comments",
+    "method": "POST",
+    "path": "/task/{id}/comments",
+    "pathTypes": {
+      "id": "integer"
+    },
+    "query": []
+  },
+  {
+    "operation": "DELETE /task/{id}/comments/{comment_id}",
+    "method": "DELETE",
+    "path": "/task/{id}/comments/{comment_id}",
+    "pathTypes": {
+      "id": "integer",
+      "comment_id": "integer"
+    },
+    "query": []
+  },
+  {
+    "operation": "GET /task/{id}/dependencies",
+    "method": "GET",
+    "path": "/task/{id}/dependencies",
+    "pathTypes": {
+      "id": "integer"
+    },
+    "query": []
+  },
+  {
+    "operation": "POST /task/{id}/dependencies",
+    "method": "POST",
+    "path": "/task/{id}/dependencies",
+    "pathTypes": {
+      "id": "integer"
+    },
+    "query": []
+  },
+  {
+    "operation": "PUT /task/{id}/dependencies/{dep_id}",
+    "method": "PUT",
+    "path": "/task/{id}/dependencies/{dep_id}",
+    "pathTypes": {
+      "id": "integer",
+      "dep_id": "integer"
+    },
+    "query": []
+  },
+  {
+    "operation": "DELETE /task/{id}/dependencies/{dep_id}",
+    "method": "DELETE",
+    "path": "/task/{id}/dependencies/{dep_id}",
+    "pathTypes": {
+      "id": "integer",
+      "dep_id": "integer"
+    },
+    "query": []
+  },
+  {
+    "operation": "GET /timesheet/calendar",
+    "method": "GET",
+    "path": "/timesheet/calendar",
+    "pathTypes": {},
+    "query": [
+      "start_date",
+      "end_date"
+    ]
+  },
+  {
+    "operation": "GET /timesheet/states",
+    "method": "GET",
+    "path": "/timesheet/states",
+    "pathTypes": {},
+    "query": []
+  },
+  {
+    "operation": "POST /timesheet/states",
+    "method": "POST",
+    "path": "/timesheet/states",
+    "pathTypes": {},
+    "query": []
+  },
+  {
+    "operation": "GET /timesheet/states/{id}",
+    "method": "GET",
+    "path": "/timesheet/states/{id}",
+    "pathTypes": {
+      "id": "integer"
+    },
+    "query": []
+  },
+  {
+    "operation": "PUT /timesheet/states/{id}",
+    "method": "PUT",
+    "path": "/timesheet/states/{id}",
+    "pathTypes": {
+      "id": "integer"
+    },
+    "query": []
+  },
+  {
+    "operation": "DELETE /timesheet/states/{id}",
+    "method": "DELETE",
+    "path": "/timesheet/states/{id}",
+    "pathTypes": {
+      "id": "integer"
+    },
+    "query": []
+  },
+  {
+    "operation": "GET /user",
+    "method": "GET",
+    "path": "/user",
+    "pathTypes": {},
+    "query": [
+      "limit",
+      "preset",
+      "manager_id",
+      "include_hash",
+      "search",
+      "offset"
+    ]
+  },
+  {
+    "operation": "POST /user",
+    "method": "POST",
+    "path": "/user",
+    "pathTypes": {},
+    "query": []
+  },
+  {
+    "operation": "GET /user/accounts",
+    "method": "GET",
+    "path": "/user/accounts",
+    "pathTypes": {},
+    "query": [
+      "limit",
+      "preset",
+      "manager_id",
+      "include_hash",
+      "search",
+      "offset"
+    ]
+  },
+  {
+    "operation": "GET /user/accounts/{id}",
+    "method": "GET",
+    "path": "/user/accounts/{id}",
+    "pathTypes": {
+      "id": "integer"
+    },
+    "query": []
+  },
+  {
+    "operation": "GET /user/all",
+    "method": "GET",
+    "path": "/user/all",
+    "pathTypes": {},
+    "query": []
+  },
+  {
+    "operation": "POST /user/change-password",
+    "method": "POST",
+    "path": "/user/change-password",
+    "pathTypes": {},
+    "query": []
+  },
+  {
+    "operation": "GET /user/days",
+    "method": "GET",
+    "path": "/user/days",
+    "pathTypes": {},
+    "query": [
+      "ids",
+      "start_date",
+      "end_date"
+    ]
+  },
+  {
+    "operation": "GET /user/structure",
+    "method": "GET",
+    "path": "/user/structure",
+    "pathTypes": {},
+    "query": []
+  },
+  {
+    "operation": "GET /user/{id}",
+    "method": "GET",
+    "path": "/user/{id}",
+    "pathTypes": {
+      "id": "integer"
+    },
+    "query": []
+  },
+  {
+    "operation": "PUT /user/{id}",
+    "method": "PUT",
+    "path": "/user/{id}",
+    "pathTypes": {
+      "id": "integer"
+    },
+    "query": []
+  },
+  {
+    "operation": "DELETE /user/{id}",
+    "method": "DELETE",
+    "path": "/user/{id}",
+    "pathTypes": {
+      "id": "integer"
+    },
+    "query": []
+  },
+  {
+    "operation": "GET /user/{id}/days",
+    "method": "GET",
+    "path": "/user/{id}/days",
+    "pathTypes": {
+      "id": "integer"
+    },
+    "query": [
+      "start_date",
+      "end_date"
+    ]
+  },
+  {
+    "operation": "PUT /user/{id}/days",
+    "method": "PUT",
+    "path": "/user/{id}/days",
+    "pathTypes": {
+      "id": "integer"
+    },
+    "query": []
+  },
+  {
+    "operation": "DELETE /user/{id}/days",
+    "method": "DELETE",
+    "path": "/user/{id}/days",
+    "pathTypes": {
+      "id": "integer"
+    },
+    "query": [
+      "start_date",
+      "end_date",
+      "state_id"
+    ]
+  },
+  {
+    "operation": "PUT /user/{id}/manager",
+    "method": "PUT",
+    "path": "/user/{id}/manager",
+    "pathTypes": {
+      "id": "integer"
+    },
+    "query": []
+  },
+  {
+    "operation": "POST /user/{id}/reset-password",
+    "method": "POST",
+    "path": "/user/{id}/reset-password",
+    "pathTypes": {
+      "id": "integer"
+    },
+    "query": []
+  }
+]

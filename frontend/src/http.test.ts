@@ -1,9 +1,10 @@
 import axios, { AxiosError, type AxiosResponse, type InternalAxiosRequestConfig } from 'axios'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-vi.mock('@/platform/context', () => ({ platformCapabilities: { kind: 'desktop', optionalStorage: false } }))
+vi.mock('@/platform/context', () => ({ platformCapabilities: { get kind() { return mocks.kind }, optionalStorage: false } }))
 import { beginMutation } from './offline/mutationGuard'
 
-const mocks = vi.hoisted(() => ({ put: vi.fn(), get: vi.fn(), byPath: vi.fn(), replay: vi.fn(), scheduledReplay: vi.fn(), offline: { value: false }, loggedOut: false, renew: vi.fn(), token: 'test-token', expired: false, prefix: 'u51:' }))
+const mocks = vi.hoisted(() => ({ kind: 'desktop', epoch: 'initial', put: vi.fn(), get: vi.fn(), byPath: vi.fn(), replay: vi.fn(), scheduledReplay: vi.fn(), offline: { value: false }, loggedOut: false, renew: vi.fn(), token: 'test-token', expired: false, prefix: 'u51:' }))
+vi.mock('./sessionSync', () => ({ sessionEpoch: () => mocks.epoch }))
 vi.mock('./router', () => ({ default: { currentRoute: { value: { name: 'planner', fullPath: '/planner' } }, push: vi.fn() } }))
 vi.mock('./offline/cache', () => ({ cachePut: mocks.put, cacheGet: mocks.get, cacheGetByPath: mocks.byPath, userCachePrefix: () => mocks.prefix }))
 vi.mock('./offline/outbox', () => ({ replayOutboxToCache: mocks.replay, scheduleReplayOutboxToCache: mocks.scheduledReplay, createMutationKey: () => crypto.randomUUID() }))
@@ -17,6 +18,7 @@ import router from './router'
 const adapter = axios.defaults.adapter
 beforeEach(() => {
   vi.clearAllMocks()
+  mocks.kind = 'desktop'; mocks.epoch = 'initial'
   mocks.offline.value = false
   mocks.loggedOut = false
   mocks.token = 'test-token'
@@ -195,4 +197,23 @@ it('does not log password-bearing request bodies when an online command loses it
     expect(log).toHaveBeenCalled()
     expect(JSON.stringify(log.mock.calls)).not.toContain(password)
   } finally { log.mockRestore() }
+})
+it.each([200, 401])('does not apply or retry a late web %s response under a different login generation', async status => {
+  mocks.kind = 'web'
+  let finish!: () => void
+  let calls = 0
+  axios.defaults.adapter = config => {
+    calls++
+    return new Promise((resolve, reject) => { finish = () => {
+      const response = { config, status, statusText: '', headers: {}, data: { data: 'old-account' } }
+      if (status === 401) reject(new AxiosError('Unauthorized', 'ERR_BAD_REQUEST', config, undefined, response))
+      else resolve(response)
+    } })
+  }
+  const pending = axios.post('/api/v1/task', { title: 'Old account edit' })
+  await tick(); mocks.epoch = 'new-login'; finish()
+  await expect(pending).rejects.toMatchObject({ code: 'ERR_CANCELED' })
+  expect(calls).toBe(1)
+  expect(mocks.renew).not.toHaveBeenCalled()
+  expect(mocks.put).not.toHaveBeenCalled()
 })

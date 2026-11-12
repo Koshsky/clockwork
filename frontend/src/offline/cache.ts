@@ -1,3 +1,6 @@
+import { desktopSession, desktopSessionState } from '@/session/desktop'
+import { getApiUrl } from '@/config'
+import { platformCapabilities } from '@/platform/context'
 import { optionalCacheClear as idbClear, optionalCacheGet as idbGet, optionalCacheKeys as idbKeys, optionalCachePut as idbPut } from '@/platform/cacheStore'
 
 const CACHE_STORE = 'cache'
@@ -22,6 +25,10 @@ const USER_PREFIX_RE = /^u\d+:/
 
 /** Current user id from localStorage (null — not known yet / logged out). */
 export function currentUserId(): number | null {
+  if (desktopSession) {
+    const state = desktopSessionState.value
+    return state?.mode !== 'signedOut' ? state?.user?.id ?? null : null
+  }
   try {
     const raw = localStorage.getItem(USER_KEY)
     if (!raw) return null
@@ -106,6 +113,15 @@ export async function cacheGet<T>(key: string): Promise<T | null> {
   }
 }
 
+function belongsToServer(key: string): boolean {
+  if (platformCapabilities.kind === 'web') return true
+  try {
+    const base = new URL(getApiUrl() || '')
+    const url = new URL(stripUserPrefix(key))
+    return url.origin === base.origin && url.pathname.startsWith(base.pathname + '/')
+  } catch { return false }
+}
+
 function pathnameOf(key: string): string | null {
   const plain = stripUserPrefix(key)
   try {
@@ -136,7 +152,7 @@ export async function cacheGetByPath<T>(
     let best: { ts: number; data: T } | null = null
     for (const key of keys) {
       // Never serve another user's cached responses (per-user key prefix).
-      if (!keyMatchesUser(key, userId)) continue
+      if (!keyMatchesUser(key, userId) || !belongsToServer(key)) continue
       if (pathnameOf(key) !== pathname) continue
       if (keyPredicate && !keyPredicate(key)) continue
       const entry = await idbGet<CachedEntry<T>>(CACHE_STORE, key)
@@ -171,7 +187,7 @@ export async function cacheGetAllByPath<T>(
     const userId = currentUserId()
     const out: Array<{ key: string; ts: number; data: T }> = []
     for (const key of keys) {
-      if (!keyMatchesUser(key, userId)) continue
+      if (!keyMatchesUser(key, userId) || !belongsToServer(key)) continue
       if (pathnameOf(key) !== pathname) continue
       if (keyPredicate && !keyPredicate(key)) continue
       const entry = await idbGet<CachedEntry<T>>(CACHE_STORE, key)
@@ -200,7 +216,7 @@ export async function cacheGetFresh<T>(
     const userId = currentUserId()
     let best: FreshEntry<T> | null = null
     for (const key of keys) {
-      if (!keyMatchesUser(key, userId)) continue
+      if (!keyMatchesUser(key, userId) || !belongsToServer(key)) continue
       if (pathnameOf(key) !== pathname) continue
       if (keyPredicate && !keyPredicate(key)) continue
       const entry = await idbGet<CachedEntry<T>>(CACHE_STORE, key)

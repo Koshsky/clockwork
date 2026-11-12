@@ -354,11 +354,8 @@ export async function initOfflineSync(active = () => true): Promise<void> {
 }
 
 /**
- * Unified session renewal used by 401 handling and the router guard — the
- * single path for ALL environments (web + desktop). The refresh token lives in
- * the non-volatile IndexedDB 'session' store and is sent in the body of
- * /auth/refresh (falling back to the HttpOnly cookie on the web when the store
- * is empty). Returns whether a fresh session is available.
+ * Platform session renewal used by guards and synchronization. Web uses an
+ * HttpOnly cookie; Electron delegates credentials and rotation to main.
  */
 export async function ensureAutoSession(): Promise<boolean> {
   return useAuthStore().refreshSession()

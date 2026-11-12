@@ -31,6 +31,10 @@
     },
     "files": [
       "main.js",
+      "session-vault.cjs",
+      "session-service.cjs",
+      "session-ipc.cjs",
+      "api-routes.json",
       "application.cjs",
       "renderer-recovery.cjs",
       "profile.cjs",

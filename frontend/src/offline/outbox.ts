@@ -1,3 +1,4 @@
+import { desktopSession, desktopSessionState } from '@/session/desktop'
 import { ref, watch } from 'vue'
 import axios, { type AxiosError, type AxiosRequestConfig, type Method } from 'axios'
 import { idbAll, idbCount, idbDel, idbPut, IDMAP_STORE_NAME, type IdMapEntry } from './db'
@@ -448,6 +449,10 @@ export { errorMessage }
 /** Name of the current user from the saved profile. Straight from localStorage,
  *  without importing the store (otherwise a store ↔ outbox cycle). */
 function currentUsername(): string | null {
+  if (desktopSession) {
+    const state = desktopSessionState.value
+    return state?.mode !== 'signedOut' ? state?.user?.username ?? null : null
+  }
   try {
     const raw = localStorage.getItem('mvs_erp_user')
     if (!raw) return null

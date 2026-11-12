@@ -41,7 +41,7 @@ if (!platformCapabilities.serverSelection) {
 function isValidApiUrl(url: string): boolean {
   try {
     const u = new URL(url)
-    return u.protocol === 'http:' || u.protocol === 'https:'
+    return (u.protocol === 'http:' || u.protocol === 'https:') && !u.username && !u.password && !u.search && !u.hash && ['', '/', '/api/v1', '/api/v1/'].includes(u.pathname)
   } catch {
     return false
   }
@@ -141,9 +141,7 @@ export function hasApiUrlOverride(): boolean {
   return platformCapabilities.serverSelection && Boolean(override ?? readStored())
 }
 
-/** Warning for an http scheme on a non-loopback host: the Secure refresh
- *  cookie is not stored/sent, so login and auto-sync may not work. For
- *  localhost/127.0.0.1 — null (local development). */
+/** Warn about unencrypted remote transport; loopback development is exempt. */
 export function httpSchemeWarning(url: string): string | null {
   try {
     const u = new URL(url)

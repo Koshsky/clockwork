@@ -5,6 +5,10 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 проект придерживается [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [Unreleased]
+
+- Добавлены cookie-сессии без выдачи refresh-токена и проверка источника браузерных запросов.
+
 ## [1.4.3] - 2026-11-11
 
 ### Изменено
