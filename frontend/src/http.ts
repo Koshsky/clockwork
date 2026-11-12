@@ -190,7 +190,6 @@ export function setupHttp() {
             code: ax.code,
             timeout_ms: ax.timeout,
             message: ax.message,
-            data: config.data,
           },
         )
         return Promise.reject(error)

@@ -5,6 +5,7 @@ import AppHeader from '../components/common/AppHeader/AppHeader.vue'
 import AppNavDrawer from '../components/common/AppNavDrawer/AppNavDrawer.vue'
 import { useRbacStore } from '../store'
 import { pageAllowed } from '@/utils/pageAccess'
+import { uncertainCommands, retryUncertainCommand, dismissUncertainCommand } from '@/store/data/webCommands'
 import { useNavigation } from '../composables/useNavigation'
 import { saveCategoryOrder, saveItemOrder } from '../composables/useNavigationOrder'
 import {
@@ -109,6 +110,14 @@ onBeforeUnmount(() => {
       <div class="ml-body">
         <main class="ml-main">
           <p v-if="rbac.permissionsError" role="alert" class="ml-read-error">{{ rbac.permissionsError }}</p>
+          <section v-if="uncertainCommands.length" class="ml-command-status" role="status">
+            <p>{{ $t('common.commandUncertainCount', { count: uncertainCommands.length }) }}</p>
+            <div v-for="command in uncertainCommands" :key="command.id" class="ml-command-actions">
+              <span>{{ $t(command.sensitive ? 'common.commandSecretUnknown' : command.retryable ? 'common.commandUnknown' : 'common.commandCheckResult') }}</span>
+              <button v-if="command.retryable" type="button" class="btn" :disabled="command.busy" @click="retryUncertainCommand(command.id)">{{ $t('common.commandRetry') }}</button>
+              <button type="button" class="btn" :disabled="command.busy" @click="dismissUncertainCommand(command.id)">{{ $t(command.sensitive || !command.retryable ? 'common.commandChecked' : 'common.commandDismiss') }}</button>
+            </div>
+          </section>
           <RouterView />
         </main>
       </div>
@@ -120,6 +129,8 @@ onBeforeUnmount(() => {
 @import '../styles/tokens.css';
 
 .ml-read-error { color: var(--ui-danger); margin-bottom: 12px; }
+.ml-command-status { padding: 12px; margin-bottom: 12px; border: 1px solid var(--ui-border); border-radius: 8px; }
+.ml-command-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
 .ml {
   height: 100vh;

@@ -8,6 +8,12 @@ export class LegacyDomainError extends Error {
   }
 }
 
+export function commandData<T>(response: unknown): T | null {
+  const body = (response as { data?: { data?: T; error?: { code?: unknown; message?: string } } })?.data
+  if (body?.error && (body.error.code != null || body.error.message)) throw new LegacyDomainError(body.error)
+  return body?.data ?? null
+}
+
 export function legacyFailure(error: unknown): DataFailure {
   const response = axios.isAxiosError(error) ? error.response : undefined
   const body = error instanceof LegacyDomainError ? error.body : response?.data?.error

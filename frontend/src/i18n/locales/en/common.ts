@@ -23,4 +23,12 @@ export default {
   copy: 'Copy',
   copied: 'Copied',
   more: 'Show more',
+  commandChecked: 'Result checked',
+  commandCheckResult: 'The result is unconfirmed. Check the data before sending another operation: safe retry is unavailable.',
+  commandUnknown: 'Saving could not be confirmed. Check the data or retry with the same operation key. Changes are not considered saved until confirmed.',
+  commandSecretUnknown: 'The operation could not be confirmed. Check the account before repeating it; passwords and one-time data are not retained for retry.',
+  commandSessionChanged: 'The session changed. Check the operation result in the current account.',
+  commandRetry: 'Retry sending',
+  commandDismiss: 'Dismiss notice',
+  commandUncertainCount: 'Unconfirmed changes: {count}.',
 } satisfies Translation<typeof ru>

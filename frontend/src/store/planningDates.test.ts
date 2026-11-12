@@ -21,6 +21,7 @@
  */
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
+import { resetWebCommands } from './data/webCommands'
 import { pendingRefs } from '@/offline/outbox'
 import { useAppStore, usePlanningStore, useTimesheetStore, useAuthStore } from './index'
 
@@ -33,6 +34,7 @@ const api = vi.hoisted(() => ({
   projectGet: vi.fn(),
   milestoneIdPut: vi.fn(),
   taskIdPut: vi.fn(),
+  taskPost: vi.fn(),
   userIdDaysPut: vi.fn(),
   userIdDaysDelete: vi.fn(),
   userDaysGet: vi.fn(),
@@ -64,6 +66,7 @@ vi.mock('@/api', () => {
     }
   }
   class TasksApi {
+    taskPost(...args: unknown[]) { return api.taskPost(...args) }
     taskIdPut(...args: unknown[]) {
       return api.taskIdPut(...args)
     }
@@ -160,6 +163,7 @@ afterAll(() => {
 })
 
 beforeEach(() => {
+  resetWebCommands()
   setActivePinia(createPinia())
   planning = usePlanningStore()
   app = useAppStore()
@@ -167,6 +171,7 @@ beforeEach(() => {
 })
 
 afterEach(async () => {
+  resetWebCommands()
   // A queued flush would otherwise leak into the next test (the module keeps the
   // armed-timer flag until the flush runs).
   await runCoalescedRefresh()
@@ -436,7 +441,7 @@ describe('task drag and resize persistence', () => {
     const pending = planning.moveTask(7, start_date, end_date)
     const row = planning.taskPlanning!.processes![0].tasks![0]
     expect(row).toMatchObject({ start_date, end_date })
-    expect(api.taskIdPut).toHaveBeenCalledExactlyOnceWith(7, { start_date, end_date })
+    expect(api.taskIdPut).toHaveBeenCalledExactlyOnceWith(7, { start_date, end_date }, expect.objectContaining({ headers: { 'Idempotency-Key': expect.any(String) } }))
     accept(payload({ ...original }))
     await expect(pending).resolves.toBe(true)
     expect(row).toMatchObject(original)
@@ -483,7 +488,7 @@ describe('resource assignment persistence', () => {
     const resources = [{ id: 3, assignment_id: 41, quantity: 4 }]
     api.planningTasksGet.mockResolvedValue(payload({ processes: [{ id: 1, tasks: [{ id: 7, resources }] }] }))
     const pending = planning.assignResource(7, 3, 4)
-    expect(api.assignmentPost).toHaveBeenCalledExactlyOnceWith({ task_id: 7, resource_id: 3, quantity: 4 })
+    expect(api.assignmentPost).toHaveBeenCalledExactlyOnceWith({ task_id: 7, resource_id: 3, quantity: 4 }, expect.objectContaining({ headers: { 'Idempotency-Key': expect.any(String) } }))
     expect(planning.taskPlanning!.processes![0].tasks![0].resources).toMatchObject([{ id: 3, quantity: 4 }])
     accept(payload({ id: 41 }))
     await expect(pending).resolves.toBe(true)
@@ -495,7 +500,7 @@ describe('resource assignment persistence', () => {
     api.assignmentIdDelete.mockResolvedValue(payload(null))
     api.planningTasksGet.mockResolvedValue(payload({ processes: [{ id: 1, tasks: [{ id: 7, resources: [{ id: 4, assignment_id: 42, quantity: 5 }] }] }] }))
     await expect(planning.removeResource(7, 3)).resolves.toBe(true)
-    expect(api.assignmentIdDelete).toHaveBeenCalledExactlyOnceWith(41)
+    expect(api.assignmentIdDelete).toHaveBeenCalledExactlyOnceWith(41, expect.objectContaining({ headers: { 'Idempotency-Key': expect.any(String) } }))
     expect(planning.taskPlanning!.processes![0].tasks![0].resources).toEqual([{ id: 4, assignment_id: 42, quantity: 5 }])
   })
 
@@ -734,5 +739,66 @@ it('resource creation explicitly retains the caller as the default owner', async
   useAuthStore().user = { id: 7, preset: 'worker' }
   api.resourcesPost.mockResolvedValue(payload({ id: 13, owner_id: 7 }))
   await expect(app.createResource({ code: 'Own', title: 'Own resource' })).resolves.toBe(true)
-  expect(api.resourcesPost).toHaveBeenCalledWith({ code: 'Own', title: 'Own resource', owner_id: 7 })
+  expect(api.resourcesPost).toHaveBeenCalledWith({ code: 'Own', title: 'Own resource', owner_id: 7 }, expect.objectContaining({ headers: { 'Idempotency-Key': expect.any(String) } }))
+})
+
+describe('web rollback without a reachable reconciliation API', () => {
+  beforeEach(() => {
+    planning.projectPlanning = { projects: [{ id: 1, start_date: '2026-11-01', end_date: '2026-11-30' }] }
+    app.projects = [{ id: 1, start_date: '2026-11-01', end_date: '2026-11-30' }]
+    planning.processPlanning = { projects: [{ id: 1, processes: [{ id: 10, start_date: '2026-11-02', end_date: '2026-11-20' }] }] }
+    planning.taskPlanning = { processes: [{ id: 10, milestones: [{ id: 20, date: '2026-11-15' }] }] }
+    for (const method of [api.planningProjectsGet, api.projectGet, api.planningProcessesGet, api.planningTasksGet]) method.mockRejectedValue(new Error('API unavailable'))
+  })
+  it('restores both copies of a rejected project before reconciliation can finish', async () => {
+    api.projectIdPut.mockRejectedValue(new Error('Rejected'))
+    expect(await planning.updateProjectDates(1, '2026-11-03', '2026-12-02')).toBe(false)
+    expect(planning.projectPlanning!.projects![0]).toMatchObject({ start_date: '2026-11-01', end_date: '2026-11-30' })
+    expect(app.projects[0]).toMatchObject({ start_date: '2026-11-01', end_date: '2026-11-30' })
+  })
+  it('restores a rejected process without waiting for a GET', async () => {
+    api.processIdPut.mockRejectedValue(new Error('Rejected'))
+    expect(await planning.updateProcessDates(10, '2026-11-04', '2026-11-22')).toBe(false)
+    expect(planning.processPlanning!.projects![0].processes![0]).toMatchObject({ start_date: '2026-11-02', end_date: '2026-11-20' })
+  })
+  it('restores a rejected milestone without waiting for a GET', async () => {
+    api.milestoneIdPut.mockRejectedValue(new Error('Rejected'))
+    expect(await planning.updateMilestoneDate(20, '2026-11-16')).toBe(false)
+    expect(planning.taskPlanning!.processes![0].milestones![0].date).toBe('2026-11-15')
+  })
+  it('does not roll an accepted process back when an older move fails later', async () => {
+    let reject!: (error: Error) => void
+    api.processIdPut.mockImplementationOnce(() => new Promise((_, fail) => { reject = fail }))
+    const old = planning.updateProcessDates(10, '2026-11-03', '2026-11-21')
+    api.processIdPut.mockResolvedValueOnce(payload({ start_date: '2026-11-04', end_date: '2026-11-22' }))
+    expect(await planning.updateProcessDates(10, '2026-11-04', '2026-11-22')).toBe(true)
+    reject(new Error('Late rejection')); expect(await old).toBe(false)
+    expect(planning.processPlanning!.projects![0].processes![0]).toMatchObject({ start_date: '2026-11-04', end_date: '2026-11-22' })
+  })
+  it('uses the submitted resource patch even if its editor changes while saving', async () => {
+    let accept!: (response: unknown) => void
+    app.resources = [{ id: 13, title: 'Before' }]
+    api.resourcesIdPut.mockImplementationOnce(() => new Promise(resolve => { accept = resolve }))
+    const patch = { title: 'Submitted' }, saving = app.updateResource(13, patch)
+    patch.title = 'Not submitted'
+    expect(api.resourcesIdPut.mock.calls[0][1]).toEqual({ title: 'Submitted' })
+    accept(payload({ id: 13, title: 'Submitted' })); expect(await saving).toBe(true)
+    expect(app.resources[0].title).toBe('Submitted')
+  })
+  it('does not append a resource twice if a GET already observed its committed creation', async () => {
+    let accept!: (response: unknown) => void
+    api.resourcesPost.mockImplementationOnce(() => new Promise(resolve => { accept = resolve }))
+    const saving = app.createResource({ code: 'Late', title: 'Late resource' })
+    app.resources = [{ id: 13, code: 'Late', title: 'Late resource' }]
+    accept(payload({ id: 13, code: 'Late', title: 'Late resource' })); expect(await saving).toBe(true)
+    expect(app.resources.map(row => row.id)).toEqual([13])
+  })
+})
+
+it('creates an immediate subtask using its planning parent process before the next GET', async () => {
+  planning.taskPlanning = { processes: [{ id: 10, tasks: [{ id: 7, title: 'Just created', subtasks: [] }] }] }
+  api.taskPost.mockResolvedValueOnce(payload({ id: 8, title: 'Child' }))
+  expect(await planning.createSubtask(7, { title: 'Child' })).toBe(true)
+  expect(api.taskPost).toHaveBeenCalledWith(expect.objectContaining({ parent_id: 7, process_id: 10 }), expect.any(Object))
+  expect(planning.taskPlanning.processes![0].tasks![0].subtasks).toMatchObject([{ id: 8, title: 'Child' }])
 })

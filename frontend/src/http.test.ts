@@ -185,3 +185,14 @@ it.each(['projects', 'processes', 'tasks'])('clears stale online auth before red
   expect(send).toHaveBeenCalledTimes(1)
   expect(router.push).toHaveBeenCalledWith({ name: 'login', query: { redirect: '/planner' } })
 })
+
+it('does not log password-bearing request bodies when an online command loses its response', async () => {
+  const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+  const password = 'Private-test-password'
+  axios.defaults.adapter = async config => { throw new AxiosError('Lost response', 'ERR_NETWORK', config) }
+  try {
+    await expect(axios.post('/api/v1/user/change-password', { old_password: password, new_password: password })).rejects.toThrow('Lost response')
+    expect(log).toHaveBeenCalled()
+    expect(JSON.stringify(log.mock.calls)).not.toContain(password)
+  } finally { log.mockRestore() }
+})

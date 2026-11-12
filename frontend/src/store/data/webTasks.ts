@@ -1,11 +1,12 @@
 import type { Configuration } from '@/api'
-import { PlanningApi } from '@/api'
+import { PlanningApi, TasksApi, type DtoTaskResponse } from '@/api'
 import type { TaskDataPort } from '@/data/contracts'
 import { readApi, isReadCancelled } from './apiReads'
 import { readConfiguration } from './readConfiguration'
 import { createLegacyTaskData } from './legacyTasks'
 import { legacyQueueAvailability } from '@/platform/state'
 import { legacyFailure } from './legacyErrors'
+import { runWebCommand } from './webCommands'
 
 export function createWebTaskData(configuration: () => Configuration): TaskDataPort {
   const legacy = createLegacyTaskData(configuration)
@@ -21,6 +22,12 @@ export function createWebTaskData(configuration: () => Configuration): TaskDataP
         return isReadCancelled(error) ? { status: 'cancelled' } : { status: 'failed', error: legacyFailure(error) }
       }
     },
-    update: legacy.update,
+    update(id, patch, options) {
+      return runWebCommand<DtoTaskResponse>({
+        key: ['task.update', id, patch], entity: 'task', targetId: id, operationId: options?.operationId,
+        call: request => new TasksApi(readConfiguration(configuration)).taskIdPut(id, patch, request),
+        apply: () => {}, onError: () => {},
+      })
+    },
   }
 }

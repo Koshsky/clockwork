@@ -12,6 +12,8 @@ import { syncNow } from '@/offline/sync'
 import { getAccessToken, setAccessToken } from '@/token'
 import { isOffline } from '@/offline/state'
 import type { DtoDetailedProcess } from '@/api'
+import { platformCapabilities } from '@/platform/context'
+import { resetWebCommands, retryUncertainCommand, uncertainCommands } from '@/store/data/webCommands'
 import type { PlanningUnit } from '../calendar'
 
 const meta: Meta<typeof TaskPlanning> = {
@@ -68,6 +70,7 @@ function scenario(unit: PlanningUnit): Story {
       template: `<div style="width:1200px;height:720px"><button data-action="assign" @click="assign">Assign</button><button data-action="remove" @click="remove">Remove</button><TaskPlanning :processes="planning.taskPlanning?.processes" :resources="resources" :calendar="app.calendar" :unit="unit" origin="2026-11-02" focus-date="2026-11-02" @change="commit" /><TimesheetGrid :t="sheetTimeline" :employees="timesheet.employees" :states="timesheet.states" :state-for-day="timesheet.periodFor" :busy="timesheet.busy" /></div>`,
     }),
     play: async ({ canvasElement, step }) => {
+      resetWebCommands()
       commit.mockClear()
       const cell = (rid: number, date: string) => canvasElement.querySelector<HTMLElement>(`.rs-cell[data-resource-id="${rid}"][data-date="${date}"] .uc-inner`)
       const check = async (rid: number, date: string, text: string) => {
@@ -296,7 +299,7 @@ function scenario(unit: PlanningUnit): Story {
           timesheet.periodsByEmployee = { 51: [] }
         }
       })
-      await step('offline persistence, cache hydration and queue-first recovery', async () => {
+      await step('web refusal or desktop persistence and queue-first recovery', async () => {
         const adapter = axios.defaults.adapter
         const fetch = window.fetch
         const token = getAccessToken()
@@ -307,7 +310,24 @@ function scenario(unit: PlanningUnit): Story {
           await clearOutbox()
           await cachePut(cacheKey, { data: original })
           isOffline.value = true
-          axios.defaults.adapter = async (config) => { throw new AxiosError('Network Error', 'ERR_NETWORK', config) }
+          let online = false
+          axios.defaults.adapter = async (config) => {
+            if (!online) throw new AxiosError('Network Error', 'ERR_NETWORK', config)
+            return { status: 200, statusText: 'OK', headers: {}, config, data: { data: { id: 7, ...proposed } } }
+          }
+          if (platformCapabilities.kind === 'web') {
+            await expect(planning.moveTask(7, proposed.start_date, proposed.end_date)).resolves.toBe(false)
+            expect(pendingCount.value).toBe(0)
+            expect(uncertainCommands.value[0]?.retryable).toBe(true)
+            await check(12, '2026-11-23', '0/10')
+            expect((await cacheGet<{ data: { processes: DtoDetailedProcess[] } }>(cacheKey))!.data.processes[0].tasks![0]).not.toMatchObject(proposed)
+            online = true
+            await retryUncertainCommand(uncertainCommands.value[0]!.id)
+            await check(12, '2026-11-23', '13/10')
+            expect(pendingCount.value).toBe(0)
+            expect(uncertainCommands.value).toHaveLength(0)
+            return
+          }
           await expect(planning.moveTask(7, proposed.start_date, proposed.end_date)).resolves.toBe(true)
           expect(pendingCount.value).toBe(1)
           await check(12, '2026-11-23', '13/10')
@@ -348,6 +368,7 @@ function scenario(unit: PlanningUnit): Story {
           expect(planning.taskPlanning!.processes![0].tasks![0]).toMatchObject(proposed)
           await check(12, '2026-11-23', '13/10')
         } finally {
+          resetWebCommands()
           await clearOutbox()
           axios.defaults.adapter = adapter
           window.fetch = fetch

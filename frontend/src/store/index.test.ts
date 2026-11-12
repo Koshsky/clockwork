@@ -24,6 +24,7 @@
  */
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
+import { resetWebCommands } from './data/webCommands'
 import { useAppStore, useTimesheetStore, useAuthStore, useRbacStore } from './index'
 import { buildPullSteps } from '../offline/warmup'
 import { reloadDomainsFor } from '../offline/sync'
@@ -110,6 +111,7 @@ let appStore: ReturnType<typeof useAppStore>
 let tsStore: ReturnType<typeof useTimesheetStore>
 
 beforeEach(() => {
+  resetWebCommands()
   setActivePinia(createPinia())
   appStore = useAppStore()
   tsStore = useTimesheetStore()
