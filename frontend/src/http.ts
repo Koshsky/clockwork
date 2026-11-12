@@ -7,7 +7,7 @@ import { notifyError } from './notify/state'
 import { cacheGet, cacheGetByPath, cachePut, userCachePrefix } from './offline/cache'
 import { replayOutboxToCache, scheduleReplayOutboxToCache, createMutationKey } from './offline/outbox'
 import { isOffline } from './offline/state'
-import { getAccessToken } from './token'
+import { getAccessToken, accessTokenExpired } from './token'
 import { ensureAutoSession } from './offline/sync'
 import { isLoggedOut } from './loggedOut'
 
@@ -212,19 +212,16 @@ export function setupHttp() {
         return Promise.reject(error)
       }
 
-      // Renew the session before retry: desktop silently re-logs-in with the stored
-      // auto-sync credentials; web refreshes via the HttpOnly cookie. The unified
-      // ensureAutoSession picks the right path for the current environment.
-      refreshing ??= (async () => {
-        return ensureAutoSession()
-      })().finally(() => {
-        refreshing = null
-      })
-
-      const ok = await refreshing
-      if (!ok) {
-        redirectToLogin()
-        return Promise.reject(error)
+      // A delayed 401 can belong to a request sent before session restoration.
+      const sent = String(config.headers.get('Authorization') ?? '')
+      if (accessTokenExpired() || sent === `Bearer ${getAccessToken()}`) {
+        refreshing ??= ensureAutoSession().finally(() => {
+          refreshing = null
+        })
+        if (!(await refreshing)) {
+          redirectToLogin()
+          return Promise.reject(error)
+        }
       }
 
       // Never retry with an EMPTY bearer: the server answers «invalid

@@ -48,6 +48,38 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); setAccessToken(null) })
 
 describe('waiting for a sibling session', () => {
+  it('lets explicit recovery wait for a pending startup renewal', async () => {
+    fake.locked.mockImplementation(async run => run())
+    let reply!: (value: unknown) => void
+    fake.refresh.mockImplementation(() => new Promise(resolve => { reply = resolve }))
+    const auth = useAuthStore()
+    const refresh = auth.refreshSession()
+    let settled = false
+    const waiting = auth.waitForSessionRefresh().then(() => { settled = true })
+    await vi.advanceTimersByTimeAsync(1)
+    expect(settled).toBe(false)
+    reply({ data: { data: { access_token: jwt(3600) } } })
+    await Promise.all([refresh, waiting])
+    expect(settled).toBe(true)
+    expect(fake.refresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('coalesces offline-session recovery with a concurrent explicit refresh', async () => {
+    fake.locked.mockImplementation(async run => run())
+    let reply!: (value: unknown) => void
+    fake.refresh.mockImplementation(() => new Promise(resolve => { reply = resolve }))
+    isOffline.value = true
+    const auth = useAuthStore()
+    auth.enterOffline('admin')
+    isOffline.value = false
+    const pending = auth.refreshSession()
+    await vi.advanceTimersByTimeAsync(1)
+    expect(fake.refresh).toHaveBeenCalledTimes(1)
+    reply({ data: { data: { access_token: jwt(3600) } } })
+    expect(await pending).toBe(true)
+    expect(auth.accessExpired()).toBe(false)
+  })
+
   it('does not report success after two seconds with an expired token', async () => {
     const auth = useAuthStore()
     let settled = false

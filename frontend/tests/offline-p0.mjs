@@ -139,6 +139,7 @@ await page.route('**/api/v1/**', async (route) => {
   const path = url.pathname
   const mutation = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method()) && !path.includes('/auth/')
   const f = fault
+  if (f?.type === 'offline-all') return route.abort('failed')
   if (f?.type === 'offline' && !path.includes('/auth/')) return route.abort('failed')
   if (f?.type === 'interrupt' && f.sends >= 2 && path.endsWith('/health')) return route.abort('failed')
   if (!mutation) return route.continue()
@@ -309,8 +310,27 @@ try {
   expect(await queue()).toHaveLength(0)
   expect(replays.some((r) => r.key === heldKey)).toBe(true)
   await settled(prefix + '-reload-edited', fixture.resource, 3)
-  expect(await page.evaluate(() => window.p0.db.idbAll('idmap'))).toHaveLength(0)
+  // Sibling tabs can still enqueue edits against these completed temporary ids.
+  const finalMaps = await page.evaluate(() => window.p0.db.idbAll('idmap'))
+  expect(finalMaps).toEqual(expect.arrayContaining(map))
+  expect(finalMaps.every(item => item.temp < 0 && item.real > 0)).toBe(true)
+  expect(new Set(finalMaps.map(item => item.temp)).size).toBe(finalMaps.length)
   report.push('P0-6 PASS: reload mid-flush preserves suffix, keys and persistent id map')
+
+  // Explicit Push must restore authorization after an offline cold document start.
+  await reset()
+  await offline()
+  const manualTitle = prefix + '-manual-recovery'
+  await createOffline(manualTitle, fixture)
+  fault = { type: 'offline-all' }
+  await reload()
+  expect(await queue()).toHaveLength(1)
+  expect(await cachedTask(manualTitle)).toBeTruthy()
+  fault = null
+  await page.evaluate(() => window.p0.sync.syncNow())
+  expect(await queue()).toHaveLength(0)
+  expect((await tasks()).filter(task => task.title === manualTitle)).toHaveLength(1)
+  report.push('P0-7 PASS: one manual Push restores auth and delivers the offline queue with auto-sync disabled')
   expect(cspViolations, 'offline queue/cache/recovery must not violate CSP').toEqual([])
   console.log(report.join('\n'))
 } finally {

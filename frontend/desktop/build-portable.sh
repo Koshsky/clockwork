@@ -310,16 +310,14 @@ rm -rf "$REL_DIR/.icon-ico" "$REL_DIR/builder-debug.yml" "$REL_DIR/builder-effec
 # Embedded-payload gate: what electron-builder actually copied into the release
 # must be exactly the fresh dist/. This is the check that would have caught the
 # stale-frontend release: it compares the packaged resources/web with dist/ and
-# fails on any difference (extra, missing or changed file).
+# fails on any payload difference; .gitkeep placeholders are not distributed.
 check_embedded_web() {
   local unpacked="$1"
   local web="$unpacked/resources/web"
   [ -d "$web" ] || return 0
   echo "   сверяем встроенный web с собранным dist/ ($(basename "$unpacked"))"
-  if ! diff -r "$FRONTEND_DIR/dist" "$web" >/dev/null 2>&1; then
+  if ! node "$DESKTOP_DIR/verify-web.cjs" "$FRONTEND_DIR/dist" "$web"; then
     echo "ОШИБКА: встроенный в артефакт web отличается от свежего dist/." >&2
-    echo "Различия (первые строки):" >&2
-    diff -rq "$FRONTEND_DIR/dist" "$web" 2>&1 | head -20 >&2
     exit 1
   fi
   # The embedded manifest version must match the release version as well — a

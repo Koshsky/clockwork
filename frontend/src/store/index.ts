@@ -16,7 +16,7 @@ import { applyRangeSplit } from '@/offline/periodSplit'
 import { updatePeriodAvailability } from './periodAvailability'
 import { beginMutation, readStamp, mayApplyRead } from '@/offline/mutationGuard'
 import { pendingRefs } from '@/offline/outbox'
-import { getAccessToken, setAccessToken } from '@/token'
+import { getAccessToken, setAccessToken, accessTokenExpired, accessTokenExpiresAt } from '@/token'
 import {
   withRefreshLock,
   publishSession,
@@ -194,34 +194,9 @@ function readStoredUser(): DtoUserInfo | null {
   }
 }
 
-function base64UrlDecode(input: string): string {
-  const b64 = input.replace(/-/g, '+').replace(/_/g, '/')
-  return atob(b64.padEnd(b64.length + ((4 - (b64.length % 4)) % 4), '='))
-}
-
-/** Expiry time (epoch ms) from the access-token payload, or null if it cannot be parsed */
-function decodeTokenExp(token: string | null): number | null {
-  if (!token) return null
-  try {
-    const payload = token.split('.')[1]
-    if (!payload) return null
-    const data = JSON.parse(base64UrlDecode(payload)) as { exp?: number }
-    return typeof data.exp === 'number' ? data.exp * 1000 : null
-  } catch {
-    return null
-  }
-}
-
-/** Whether the access token is expired: missing, unparseable, or exp already passed */
-function accessTokenExpired(): boolean {
-  const exp = decodeTokenExp(getAccessToken())
-  if (exp == null) return true
-  return exp - Date.now() <= 0
-}
-
 /** Whether the token should be renewed early (less than the margin left until expiry) */
 function accessTokenExpiring(): boolean {
-  const exp = decodeTokenExp(getAccessToken())
+  const exp = accessTokenExpiresAt()
   if (exp == null) return true
   return exp - Date.now() <= REFRESH_MARGIN_MS
 }
@@ -236,8 +211,8 @@ function waitForExternalToken(previous: string): Promise<boolean> {
       resolve(renewed())
     }, 2000)
     const unsub = subscribeToken((token) => {
-      const cur = decodeTokenExp(getAccessToken())
-      const next = decodeTokenExp(token)
+      const cur = accessTokenExpiresAt(getAccessToken())
+      const next = accessTokenExpiresAt(token)
       if (isLoggedOut() || token === previous || next == null || next <= Date.now() || (cur != null && next < cur)) return
       if (cur == null || next >= cur) setAccessToken(token)
       window.clearTimeout(timer)
@@ -339,7 +314,7 @@ export const useAuthStore = defineStore('auth', () => {
       void (async () => {
         const stored = await loadRefreshToken()
         if (stored == null) return // no session to restore — stay offline
-        await doRefresh()
+        await refreshSession()
       })()
     },
     { flush: 'sync' },
@@ -461,6 +436,10 @@ export const useAuthStore = defineStore('auth', () => {
     } finally {
       refreshInFlight = null
     }
+  }
+
+  async function waitForSessionRefresh(): Promise<void> {
+    await refreshInFlight
   }
 
   async function doRefresh(): Promise<boolean> {
@@ -644,8 +623,8 @@ export const useAuthStore = defineStore('auth', () => {
   unsubscribeSessionToken = subscribeSession(({ access }) => {
     if (isLoggedOut()) return
     if (access) {
-      const cur = decodeTokenExp(getAccessToken())
-      const next = decodeTokenExp(access)
+      const cur = accessTokenExpiresAt(getAccessToken())
+      const next = accessTokenExpiresAt(access)
       if (next != null && (cur == null || next > cur)) setAccessToken(access)
     }
     // The owner persisted the shared refresh token before broadcasting; replaying it here can roll it back.
@@ -663,6 +642,7 @@ export const useAuthStore = defineStore('auth', () => {
     enterOffline,
     changePassword,
     refreshSession,
+    waitForSessionRefresh,
     fetchProfile,
     loadProfile,
     logout,

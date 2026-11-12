@@ -89,7 +89,7 @@ export function releaseRefreshLock(): void {
   }
 }
 
-/** Web Locks makes acquisition atomic; the storage lock also coordinates older clients. */
+/** A storage lease must not outlive the browser-owned lock after a page closes. */
 export async function withRefreshLock(refresh: () => Promise<boolean>): Promise<boolean | null> {
   const run = async () => {
     if (!tryAcquireRefreshLock()) return null
@@ -100,7 +100,7 @@ export async function withRefreshLock(refresh: () => Promise<boolean>): Promise<
     }
   }
   if (typeof navigator !== 'undefined' && navigator.locks) {
-    return navigator.locks.request('mvs_erp_refresh', { ifAvailable: true }, lock => lock ? run() : null)
+    return navigator.locks.request('mvs_erp_refresh', { ifAvailable: true }, lock => lock ? refresh() : null)
   }
   return run()
 }

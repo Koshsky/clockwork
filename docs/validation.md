@@ -36,3 +36,34 @@ toolchain. Version 2.13.2 could not read Go 1.27 export data even when rebuilt;
 both the importer's dependencies and build toolchain must support this format.
 These tooling fixes follow the initial snapshot in a short-lived branch; the
 published initial commit is not rewritten.
+
+## Local acceptance follow-up (2026-11-11)
+
+A local topic branch fixes the four acceptance findings: delayed unauthorized
+responses no longer rotate an already restored token, manual Push renews an
+offline session before sending mutations, the offline regression respects durable
+temporary-ID mappings, and desktop packaging compares payload files while ignoring
+only `.gitkeep` placeholders. Browser-owned refresh locks are authoritative when
+Web Locks is available; the storage lease remains the fallback when it is absent.
+This prevents a closed document's lease from blocking a new Electron process.
+
+Validation uses a disposable PostgreSQL 16 database, synthetic credentials and
+independent browser/Electron profiles. The frontend has 702 passing unit tests
+and 20 passing CSP, static-server and payload-verification checks. The official
+Linux portable packaging script completes successfully. Three independent macOS
+Electron profiles preserve the session, cached task and mutation queue across a
+full offline process restart, then deliver the task exactly once with one manual
+Push and automatic synchronization disabled. Resource-header/recalculation browser
+stories pass in days and weeks.
+
+The browser acceptance also passes 27 navigation transitions, 141 backend-driven
+RBAC checks (three consecutive runs), ten multi-tab scenarios, seven offline P0
+cases in each environment, resource ownership/filtering, 40 PDF checks and native
+CSP enforcement. Direct HTTP session-lock tests pass all five checks. RBAC menu
+tests wait for catalogue loading and use real pointer input before asserting
+permissions; no authorization assertions were removed.
+
+The macOS runs use the real main/preload and freshly built web payload, with
+`app.isPackaged=false`; they do not stand in for Windows/Linux GUI execution or a
+signed macOS installer. At acceptance time, no GitHub push, image publication or
+server deployment was performed. Published versions and migration SQL are unchanged.

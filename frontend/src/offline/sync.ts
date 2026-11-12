@@ -12,7 +12,7 @@ import {
   type FailedSyncItem,
   type MutationEntity,
 } from './outbox'
-import { isOffline } from './state'
+import { isOffline, probeBackend } from './state'
 
 /**
  * Offline queue synchronization: when the network returns (and at app startup
@@ -261,6 +261,23 @@ function runSync(): Promise<void> {
 }
 
 async function flushAndReconcile(): Promise<void> {
+  await refreshPendingCount()
+  if (pendingCount.value > 0) {
+    const auth = useAuthStore()
+    // A late failure from startup must not overwrite the new reachability decision.
+    await auth.waitForSessionRefresh()
+    if (isLoggedOut() || !(await probeBackend())) {
+      syncNotice.value = { ok: 0, failed: 0, interrupted: true, failedEntries: [] }
+      return
+    }
+    // Explicit Push must recover even when automatic connection monitoring is disabled.
+    isOffline.value = false
+    if (auth.accessExpired()) await auth.refreshSession()
+    if (isLoggedOut() || isOffline.value || auth.accessExpired()) {
+      syncNotice.value = { ok: 0, failed: 0, interrupted: true, failedEntries: [] }
+      return
+    }
+  }
   const res = await flushOutbox()
   if (res.ok > 0 || res.failed > 0 || res.interrupted) {
     if (res.ok > 0) noteLastPush()

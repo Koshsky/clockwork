@@ -8,7 +8,30 @@ const path = require('node:path')
 const http = require('node:http')
 const { webPolicy, desktopPolicy, securityHeaders } = require('../desktop/security.cjs')
 const { createStaticHandler } = require('../desktop/static-server.cjs')
+const { verifyWeb } = require('../desktop/verify-web.cjs')
 const root = path.join(__dirname, '..')
+for (const kind of ['identical', 'placeholder', 'missing', 'changed', 'extra', 'hidden-asset']) {
+  test(`desktop payload gate: ${kind}`, t => {
+    const fixture = mkdtempSync(path.join(tmpdir(), 'erp-web-payload-'))
+    t.after(() => rmSync(fixture, { recursive: true, force: true }))
+    const source = path.join(fixture, 'source'), packaged = path.join(fixture, 'packaged')
+    for (const dir of [source, packaged]) {
+      mkdirSync(dir)
+      writeFileSync(path.join(dir, 'index.html'), 'fresh web')
+    }
+    if (kind === 'placeholder') {
+      mkdirSync(path.join(source, 'assets/custom/icons'), { recursive: true })
+      writeFileSync(path.join(source, 'assets/custom/icons/.gitkeep'), '')
+    }
+    if (kind === 'missing') rmSync(path.join(packaged, 'index.html'))
+    if (kind === 'changed') writeFileSync(path.join(packaged, 'index.html'), 'stale web')
+    if (kind === 'extra') writeFileSync(path.join(packaged, 'old.js'), 'stale code')
+    if (kind === 'hidden-asset') writeFileSync(path.join(source, '.well-known'), 'real content')
+    const differences = verifyWeb(source, packaged)
+    if (['identical', 'placeholder'].includes(kind)) assert.deepEqual(differences, [])
+    else assert.equal(differences.length, 1)
+  })
+}
 const directives = policy => Object.fromEntries(policy.split('; ').map(value => {
   const [name, ...sources] = value.split(' ')
   return [name, sources]

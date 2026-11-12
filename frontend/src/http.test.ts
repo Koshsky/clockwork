@@ -2,14 +2,14 @@ import axios, { AxiosError, type AxiosResponse, type InternalAxiosRequestConfig 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { beginMutation } from './offline/mutationGuard'
 
-const mocks = vi.hoisted(() => ({ put: vi.fn(), get: vi.fn(), byPath: vi.fn(), replay: vi.fn(), scheduledReplay: vi.fn(), offline: { value: false }, loggedOut: false, renew: vi.fn() }))
+const mocks = vi.hoisted(() => ({ put: vi.fn(), get: vi.fn(), byPath: vi.fn(), replay: vi.fn(), scheduledReplay: vi.fn(), offline: { value: false }, loggedOut: false, renew: vi.fn(), token: 'test-token', expired: false }))
 vi.mock('./router', () => ({ default: { currentRoute: { value: { name: 'planner', fullPath: '/planner' } }, push: vi.fn() } }))
 vi.mock('./offline/cache', () => ({ cachePut: mocks.put, cacheGet: mocks.get, cacheGetByPath: mocks.byPath, userCachePrefix: () => 'u51:' }))
 vi.mock('./offline/outbox', () => ({ replayOutboxToCache: mocks.replay, scheduleReplayOutboxToCache: mocks.scheduledReplay, createMutationKey: () => crypto.randomUUID() }))
 vi.mock('./offline/state', () => ({ isOffline: mocks.offline }))
 vi.mock('./offline/sync', () => ({ ensureAutoSession: mocks.renew }))
 vi.mock('./loggedOut', () => ({ isLoggedOut: () => mocks.loggedOut }))
-vi.mock('./token', () => ({ getAccessToken: () => 'test-token' }))
+vi.mock('./token', () => ({ getAccessToken: () => mocks.token, accessTokenExpired: () => mocks.expired }))
 import { setupHttp } from './http'
 import router from './router'
 
@@ -18,6 +18,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.offline.value = false
   mocks.loggedOut = false
+  mocks.token = 'test-token'
+  mocks.expired = false
   mocks.get.mockResolvedValue(null)
   mocks.byPath.mockResolvedValue(null)
   axios.interceptors.request.clear()
@@ -30,6 +32,31 @@ afterEach(() => {
   axios.interceptors.response.clear()
 })
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+it.each(['', 'Bearer previous'])('reuses a restored token for a delayed 401 sent with %j', async authorization => {
+  const sent: unknown[] = []
+  axios.defaults.adapter = async config => {
+    sent.push(config.headers.get('Authorization'))
+    if (sent.length === 1) throw new AxiosError('Unauthorized', 'ERR_BAD_REQUEST', config, undefined, { config, status: 401, statusText: 'Unauthorized', headers: {}, data: {} })
+    return { status: 200, statusText: 'OK', headers: {}, config, data: {} }
+  }
+  await axios.get('/api/v1/planning/tasks', { headers: { Authorization: authorization } })
+  expect(sent).toEqual([authorization, 'Bearer test-token'])
+  expect(mocks.renew).not.toHaveBeenCalled()
+})
+
+it.each(['current', 'expired'])('renews a rejected %s token instead of blindly retrying', async kind => {
+  mocks.expired = kind === 'expired'
+  mocks.renew.mockImplementation(async () => { mocks.token = 'renewed'; mocks.expired = false; return true })
+  let calls = 0
+  axios.defaults.adapter = async config => {
+    if (++calls === 1) throw new AxiosError('Unauthorized', 'ERR_BAD_REQUEST', config, undefined, { config, status: 401, statusText: 'Unauthorized', headers: {}, data: {} })
+    return { status: 200, statusText: 'OK', headers: {}, config, data: {} }
+  }
+  await axios.get('/api/v1/planning/tasks', { headers: { Authorization: kind === 'expired' ? 'Bearer old' : 'Bearer test-token' } })
+  expect(mocks.renew).toHaveBeenCalledTimes(1)
+  expect(calls).toBe(2)
+})
 
 describe('offline cache and in-flight read safety', () => {
   it('stores a clean successful read under the current user cache key', async () => {

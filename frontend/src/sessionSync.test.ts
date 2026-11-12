@@ -38,7 +38,7 @@ describe('cross-tab refresh ownership', () => {
     expect(competing).toHaveBeenCalledTimes(1)
   })
 
-  it('releases both locks when refresh throws', async () => {
+  it('releases the atomic lock when refresh throws', async () => {
     await expect(session.withRefreshLock(async () => { throw new Error('unreachable') })).rejects.toThrow('unreachable')
     expect(storage.size).toBe(0)
     expect(await session.withRefreshLock(async () => false)).toBe(false)
@@ -53,6 +53,7 @@ describe('cross-tab refresh ownership', () => {
   })
 
   it('recovers an abandoned legacy lock after its lease expires', async () => {
+    vi.stubGlobal('navigator', {})
     storage.set('mvs_erp_refresh_lock', JSON.stringify({ owner: 'closed-tab', ts: Date.now() - 15_001 }))
     expect(await session.withRefreshLock(async () => true)).toBe(true)
     expect(storage.size).toBe(0)
@@ -64,9 +65,17 @@ describe('cross-tab refresh ownership', () => {
     JSON.stringify({ ts: Date.now() }),
     '{broken',
   ])('recovers invalid or future-dated legacy lock metadata: %s', async value => {
+    vi.stubGlobal('navigator', {})
     storage.set('mvs_erp_refresh_lock', value)
     expect(await session.withRefreshLock(async () => true)).toBe(true)
     expect(storage.size).toBe(0)
+  })
+
+  it('does not let a closed document storage lease block a free Web Lock', async () => {
+    storage.set('mvs_erp_refresh_lock', JSON.stringify({ owner: 'closed-document', ts: Date.now() }))
+    const refresh = vi.fn(async () => true)
+    expect(await session.withRefreshLock(refresh)).toBe(true)
+    expect(refresh).toHaveBeenCalledTimes(1)
   })
 
 })

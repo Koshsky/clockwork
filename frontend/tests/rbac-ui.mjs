@@ -46,12 +46,14 @@ async function loadPlanning(kind) {
     const store = (await import('/src/store/index.ts')).usePlanningStore()
     await store[`refresh${kind}Planning`](true)
   }, kind)
+  // Catalogue-driven layout updates can scroll the chart and close an open menu.
+  await page.waitForLoadState('networkidle')
 }
 async function closeMenu() { await page.mouse.click(1400, 950); await page.keyboard.press('Escape') }
 async function contextMenu(text, expected) {
   const bar = page.locator('.gantt-bar').filter({ hasText: text }).first()
   await expect(bar).toHaveCount(1)
-  await bar.dispatchEvent('contextmenu', { bubbles: true, button: 2, clientX: 650, clientY: 400 })
+  await bar.click({ button: 'right' })
   await expect(page.getByRole('menuitem')).toHaveText(expected)
   checks++
 }

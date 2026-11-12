@@ -9,6 +9,7 @@ import { makeDemoTimeline } from '../demoTimeline'
 import { cachePut, cacheGet, userCachePrefix } from '@/offline/cache'
 import { clearOutbox, pendingCount } from '@/offline/outbox'
 import { syncNow } from '@/offline/sync'
+import { getAccessToken, setAccessToken } from '@/token'
 import { isOffline } from '@/offline/state'
 import type { DtoDetailedProcess } from '@/api'
 import type { PlanningUnit } from '../calendar'
@@ -298,6 +299,7 @@ function scenario(unit: PlanningUnit): Story {
       await step('offline persistence, cache hydration and queue-first recovery', async () => {
         const adapter = axios.defaults.adapter
         const fetch = window.fetch
+        const token = getAccessToken()
         const cacheKey = userCachePrefix() + '/api/v1/planning/tasks'
         const original = JSON.parse(JSON.stringify(planning.taskPlanning))
         const proposed = { start_date: '2026-11-16', end_date: '2026-11-29' }
@@ -334,6 +336,7 @@ function scenario(unit: PlanningUnit): Story {
             return { status: 200, statusText: 'OK', headers: {}, config, data: { data } }
           }
           isOffline.value = false
+          setAccessToken(`e30.${btoa(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 }))}.fixture`)
           const recovering = syncNow()
           await waitFor(() => expect(order).toEqual(['put']))
           await check(12, '2026-11-23', '13/10')
@@ -348,6 +351,7 @@ function scenario(unit: PlanningUnit): Story {
           await clearOutbox()
           axios.defaults.adapter = adapter
           window.fetch = fetch
+          setAccessToken(token)
           isOffline.value = false
         }
       })
