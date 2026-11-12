@@ -27,12 +27,19 @@ app.whenReady().then(async () => {
   const { createDesktopIpc } = require('../desktop/ipc.cjs')
   const vault = createSessionVault(app.getPath('userData'), safeStorage)
   await vault.load()
-  const service = createDesktopService({ profileId: 'isolated-test', version: '1.6.3', electron: process.versions.electron })
+  const { createStorage } = require('../desktop/storage.cjs')
+  const storage = await createStorage({ directory: app.getPath('userData') })
+  const service = createDesktopService({ storage, profileId: 'isolated-test', version: '1.6.3', electron: process.versions.electron })
   service.start()
-  const auth = createSessionService({ vault, fetch: (url, options) => globalThis.sessionFetchOverride ? globalThis.sessionFetchOverride(url, options, net.fetch.bind(net)) : net.fetch(url, options), onIdentity: state => service.setScope(state.user ? { server: state.server, accountId: state.user.id } : null) })
+  const auth = createSessionService({ vault, fetch: (url, options) => globalThis.sessionFetchOverride ? globalThis.sessionFetchOverride(url, options, net.fetch.bind(net)) : net.fetch(url, options), onIdentity: state => service.setScope(state.user && state.mode !== 'signedOut' ? { server: state.server, accountId: state.user.id } : null) })
   globalThis.sessionFixture = auth
   const bridge = createDesktopIpc({ ipcMain, service, session: auth, origin: new URL(process.env.ERP_TEST_URL || process.env.NAV_TEST_WEB_URL || 'http://127.0.0.1:5173').origin })
-  app.once('will-quit', () => { auth.stop(); bridge.dispose() })
+  let stopping = false
+  app.on('before-quit', event => {
+    if (stopping) return
+    event.preventDefault(); stopping = true; auth.stop()
+    void service.stop().finally(async () => { await storage.close(); bridge.dispose(); app.quit() })
+  })
   const win = new BrowserWindow({
     width: 1440,
     height: 1030,

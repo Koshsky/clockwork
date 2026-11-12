@@ -1,5 +1,6 @@
 'use strict'
 
+const { createStorage } = require('./storage.cjs')
 const { createSessionVault } = require('./session-vault.cjs')
 const { createSessionService } = require('./session-service.cjs')
 const path = require('node:path')
@@ -10,7 +11,7 @@ const { createDesktopService } = require('./service.cjs')
 const { createDesktopIpc } = require('./ipc.cjs')
 const { attachRendererRecovery } = require('./renderer-recovery.cjs')
 
-function startDesktop({ app, BrowserWindow, ipcMain, dialog, session, safeStorage, net, powerMonitor }, { webDir, preload = path.join(__dirname, 'preload.js'), basePort = 31880, portAttempts = 20, ports = {} }) {
+function startDesktop({ app, BrowserWindow, ipcMain, dialog, session, safeStorage, net, powerMonitor }, { webDir, preload = path.join(__dirname, 'preload.js'), basePort = 31880, portAttempts = 20, ports = {}, createPorts }) {
   // Shell dialogs can precede the renderer, so their copy follows the OS locale.
   const SHELL_TEXT = {
     ru: {
@@ -35,6 +36,7 @@ function startDesktop({ app, BrowserWindow, ipcMain, dialog, session, safeStorag
     return { ready: Promise.resolve(null) }
   }
   let server = null, service = null, ipc = null, quitting = false, shutdown = null
+  let storage = null
   let auth = null, authTimer = null, resumeAuth = null
   const windows = new Set()
   let origin = null
@@ -126,13 +128,15 @@ function startDesktop({ app, BrowserWindow, ipcMain, dialog, session, safeStorag
 
     try {
       const profileId = await loadProfile(app.getPath('userData'))
-      service = createDesktopService({ profileId, version: app.getVersion(), electron: process.versions.electron, ...ports })
+      storage = await createStorage({ directory: app.getPath('userData') })
+      const adapters = createPorts ? await createPorts({ storage }) : ports
+      service = createDesktopService({ profileId, version: app.getVersion(), electron: process.versions.electron, ...adapters, storage })
       server = await startServer()
       origin = `http://127.0.0.1:${server.address().port}`
       if (safeStorage && net) {
         const vault = createSessionVault(app.getPath('userData'), safeStorage)
         await vault.load()
-        auth = createSessionService({ vault, fetch: (url, options) => net.fetch(url, options), onIdentity: state => service.setScope(state.user ? { server: state.server, accountId: state.user.id } : null) })
+        auth = createSessionService({ vault, fetch: (url, options) => net.fetch(url, options), onIdentity: state => service.setScope(state.user && state.mode !== 'signedOut' ? { server: state.server, accountId: state.user.id } : null) })
         authTimer = setInterval(() => { void auth.tick().catch(() => {}) }, 30000)
         resumeAuth = () => { void auth.tick().catch(() => {}) }
         powerMonitor?.on('resume', resumeAuth)
@@ -140,8 +144,10 @@ function startDesktop({ app, BrowserWindow, ipcMain, dialog, session, safeStorag
       ipc = createDesktopIpc({ ipcMain, service, origin, session: auth })
       service.start()
       createWindow()
-      return { service, createWindow, origin }
+      return { service, storage, createWindow, origin }
     } catch (error) {
+      await storage?.close()
+      server?.close()
       const copy = shellText()
       dialog.showErrorBox(copy.errorTitle, copy.startFailed(error instanceof Error ? error.message : String(error)))
       app.quit()
@@ -156,7 +162,8 @@ function startDesktop({ app, BrowserWindow, ipcMain, dialog, session, safeStorag
     if (authTimer) clearInterval(authTimer)
     if (resumeAuth) powerMonitor?.removeListener('resume', resumeAuth)
     auth?.stop()
-    shutdown = service.stop().finally(() => {
+    shutdown = service.stop().finally(async () => {
+      await storage?.close()
       ipc?.dispose()
       server?.close()
       quitting = true

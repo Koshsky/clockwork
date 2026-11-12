@@ -19,7 +19,7 @@
     "dist:linux": "electron-builder --linux"
   },
   "devDependencies": {
-    "electron": "^43.4.1",
+    "electron": "43.4.1",
     "electron-builder": "^26.15.3"
   },
   "build": {
@@ -31,6 +31,11 @@
     },
     "files": [
       "main.js",
+      "storage.cjs",
+      "storage-worker.cjs",
+      "storage-db.cjs",
+      "storage-schema.cjs",
+      "storage-validation.cjs",
       "session-vault.cjs",
       "session-service.cjs",
       "session-ipc.cjs",
@@ -97,6 +102,13 @@
       ],
       "artifactName": "${productName}-${version}-linux-${arch}.${ext}",
       "category": "Office;Business"
-    }
+    },
+    "asarUnpack": [
+      "storage*.cjs",
+      "protocol.cjs",
+      "protocol-operations.json",
+      "session-service.cjs",
+      "api-routes.json"
+    ]
   }
 }

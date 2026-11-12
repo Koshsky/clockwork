@@ -15,7 +15,7 @@ const aborted = signal => new Promise(resolve => {
 
 // This owns IPC work now; storage, session and sync adapters are installed by
 // later stages. Empty capabilities must not pretend that migration is complete.
-function createDesktopService({ profileId, version, electron, reads = {}, commands = {}, maxPending = 32, maxPerOwner = 8, readTimeoutMs = 10000, commandTimeoutMs = 10000 }) {
+function createDesktopService({ profileId, version, electron, reads = {}, commands = {}, storage, maxPending = 32, maxPerOwner = 8, readTimeoutMs = 10000, commandTimeoutMs = 10000 }) {
   const instanceId = randomUUID()
   let phase = 'starting', revision = 0, scope = null, epoch = 0, stopping = null
   const listeners = new Set(), pending = new Map(), receipts = new Map()
@@ -23,11 +23,13 @@ function createDesktopService({ profileId, version, electron, reads = {}, comman
     context: scope ? { ...scope } : null,
     running: [...pending.values()].filter(item => item.contextId === scope?.id).length,
     capabilities: { reads: Object.keys(reads), commands: Object.keys(commands) },
+    ...(storage ? { storage: storage.status() } : {}),
   })
   const changed = () => {
     revision++
     for (const listener of listeners) { try { listener(status()) } catch { /* One leaving window cannot stop the service. */ } }
   }
+  const unsubscribeStorage = storage?.subscribe(changed)
   const current = contextId => phase === 'ready' && scope?.id === contextId
   const family = owner => owner.split(':')[0]
   const full = owner => pending.size >= maxPending || [...pending.values()].filter(item => family(item.owner) === family(owner)).length >= maxPerOwner
@@ -129,7 +131,7 @@ function createDesktopService({ profileId, version, electron, reads = {}, comman
     ]).then(drained => {
       clearTimeout(timer)
       if (!drained) for (const item of pending.values()) item.controller.abort()
-      phase = drained ? 'stopped' : 'failed'; changed()
+      phase = drained ? 'stopped' : 'failed'; changed(); unsubscribeStorage?.()
       return drained
     })
     return stopping

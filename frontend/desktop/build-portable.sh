@@ -275,6 +275,8 @@ mkdir -p "$REL_DIR"
 # release/<version>/ and the file names always carry the SAME version, even if
 # package.json drifted (this is what previously produced release/1.1.0/ with
 # 1.0.5 artifacts).
+node "$DESKTOP_DIR/verify-storage.cjs" || { echo "Desktop SQLite runtime verification failed." >&2; exit 1; }
+
 if [ "$LINUX_PORTABLE" -eq 1 ] && [ "$LINUX_APPIMAGE" -eq 1 ]; then
   echo "== Linux: dir (portable-папка) + AppImage (единый файл) =="
   (cd "$DESKTOP_DIR" && npx electron-builder --linux dir AppImage --x64 -c.directories.output="$REL_DIR" -c.extraMetadata.version="$VERSION")
@@ -320,6 +322,7 @@ check_embedded_web() {
     echo "ОШИБКА: встроенный в артефакт web отличается от свежего dist/." >&2
     exit 1
   fi
+  node "$DESKTOP_DIR/verify-storage.cjs" --payload "$DESKTOP_DIR" "$unpacked/resources" || exit 1
   # The embedded manifest version must match the release version as well — a
   # copy of an old dist/ would pass a file compare only if it were identical,
   # but this catches a manifest that drifted from the artifact version.
