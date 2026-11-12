@@ -12,8 +12,10 @@ import { offlineFailFastAdapter } from '@/offline/failFast'
 import { scheduleWarmup } from '@/offline/warmup'
 import { enqueueMutation, isNetworkError, pruneForeignOutbox } from '@/offline/outbox'
 import { scheduleDomainRefresh } from '@/offline/sync'
-import { applyRangeSplit } from '@/offline/periodSplit'
-import { updatePeriodAvailability } from './periodAvailability'
+import { applyRangeSplit, mergePeriodWindow, replaceEmployeeAbsences, shiftPeriodDate as shiftDate } from '@/domain/timesheet'
+import { updatePeriodAvailability } from '@/domain/periodAvailability'
+import { assignmentAllowed } from '@/domain/resourceUsage'
+import { findPlanningTask, findTaskProcess, reorderItems, projectPriorityChanges, taskDateRollback, addResourceAssignment, removeResourceAssignment } from '@/domain/planning'
 import { beginMutation, readStamp, mayApplyRead } from '@/offline/mutationGuard'
 import { pendingRefs } from '@/offline/outbox'
 import { getAccessToken, setAccessToken, accessTokenExpired, accessTokenExpiresAt } from '@/token'
@@ -43,7 +45,7 @@ import {
   type DependencyType,
   type TaskDates,
   type TaskDatePatch,
-} from '@/components/planner/dependencies'
+} from '@/domain/dependencies'
 
 const USER_KEY = 'mvs_erp_user'
 /**
@@ -1365,15 +1367,6 @@ export const useTimesheetStore = defineStore('timesheet', () => {
    */
   const timesheetRows = computed<DtoUserResponse[]>(() => employeesWithTitles.value)
 
-  /** Date YYYY-MM-DD n days from an ISO date (local timezone) */
-  function shiftDate(iso: string, days: number): string {
-    const d = new Date(`${iso}T00:00:00`)
-    d.setDate(d.getDate() + days)
-    const m = String(d.getMonth() + 1).padStart(2, '0')
-    const dd = String(d.getDate()).padStart(2, '0')
-    return `${d.getFullYear()}-${m}-${dd}`
-  }
-
   function todayISO(): string {
     const d = new Date()
     const m = String(d.getMonth() + 1).padStart(2, '0')
@@ -1404,35 +1397,8 @@ export const useTimesheetStore = defineStore('timesheet', () => {
   function mergeWindowPeriods(id: number, list: DtoUserStateResponse[], start: string, end: string): void {
     if (busy.value) return
     const existing = periodsByEmployee.value[id] ?? []
-    // A fresh response for the [start, end] window is authoritative for periods overlapping it:
-    // old overlapping periods (e.g. cleared via DELETE) are removed,
-    // then new ones are merged. Periods outside the window are kept for incremental loading.
-    const kept = existing.filter(
-      (p) =>
-        !(p.start_date != null && p.end_date != null && !(p.end_date < start || p.start_date > end)),
-    )
-    const byId = new Map<number, DtoUserStateResponse>()
-    for (const p of kept) if (p.id != null) byId.set(p.id, p)
-    for (const p of list) if (p.id != null) byId.set(p.id, p)
-    const merged = [...byId.values()].sort((a, b) =>
-      (a.start_date ?? '').localeCompare(b.start_date ?? ''),
-    )
-    // Keep the previous array reference when nothing changed: the grid reads
-    // periodsByEmployee, and replacing it with an equal-but-new array re-renders
-    // every cell on each background refresh (flicker on "Табель").
-    if (!samePeriods(existing, merged)) periodsByEmployee.value[id] = merged
-  }
-
-  /** Field-by-field equality of two sorted periods lists (same ids + fields) */
-  function samePeriods(a: DtoUserStateResponse[], b: DtoUserStateResponse[]): boolean {
-    if (a.length !== b.length) return false
-    for (let i = 0; i < a.length; i++) {
-      if (a[i]?.id !== b[i]?.id) return false
-      for (const key of Object.keys(a[i] ?? {}) as Array<keyof DtoUserStateResponse>) {
-        if (a[i][key] !== b[i]?.[key]) return false
-      }
-    }
-    return true
+    const merged = mergePeriodWindow(existing, list, start, end)
+    if (merged !== existing) periodsByEmployee.value[id] = merged
   }
 
   /**
@@ -1839,14 +1805,9 @@ export const useTimesheetStore = defineStore('timesheet', () => {
     const updateCalendar = (from: DtoUserStateResponse[], to: DtoUserStateResponse[]) => {
       if (resource?.id != null) {
         app.calendar = updatePeriodAvailability(app.calendar, resource.id, from, to, startDate, endDate)
-        app.absenceByResource[resource.id] = [
-          ...(previousAbsences ?? []).filter((p) => p.user_id !== employeeId),
-          ...to.filter((p) => p.is_available === false).map((p) => ({
-            start_date: p.start_date, end_date: p.end_date, state_id: p.state_id,
-            state_code: p.state_code, state_name: p.state_name, user_id: employeeId,
-            user_name: employees.value.find((e) => e.id === employeeId)?.name,
-          })),
-        ]
+        app.absenceByResource[resource.id] = replaceEmployeeAbsences(
+          previousAbsences ?? [], to, employeeId, employees.value.find((e) => e.id === employeeId)?.name,
+        )
       }
     }
     periodsByEmployee.value[employeeId] = after
@@ -2067,15 +2028,7 @@ export const usePlanningStore = defineStore('planning', () => {
 
   /** Finds a task (top-level or subtask) anywhere in the planning data. */
   function findTaskRow(id: number): DtoDetailedTask | undefined {
-    for (const p of taskPlanning.value?.processes ?? []) {
-      const t = (p.tasks ?? []).find((x: DtoDetailedTask) => x.id === id)
-      if (t) return t
-      const s = (p.tasks ?? [])
-        .flatMap((x: DtoDetailedTask) => x.subtasks ?? [])
-        .find((x: DtoDetailedTask) => x.id === id)
-      if (s) return s
-    }
-    return undefined
+    return findPlanningTask(taskPlanning.value?.processes ?? [], id)
   }
 
   /** Locates the object holding a subtask list (a top-level task with subtasks). */
@@ -2165,11 +2118,7 @@ export const usePlanningStore = defineStore('planning', () => {
 
   /** The process whose task list contains the given task (top-level or subtask). */
   function findProcessOfTask(id: number): DtoDetailedProcess | undefined {
-    for (const p of taskPlanning.value?.processes ?? []) {
-      if ((p.tasks ?? []).some((x: DtoDetailedTask) => x.id === id)) return p
-      if ((p.tasks ?? []).some((x: DtoDetailedTask) => (x.subtasks ?? []).some((s: DtoDetailedTask) => s.id === id))) return p
-    }
-    return undefined
+    return findTaskProcess(taskPlanning.value?.processes ?? [], id)
   }
 
   /** Dependency edges of the process containing a task. */
@@ -2241,9 +2190,8 @@ export const usePlanningStore = defineStore('planning', () => {
         for (const pendingId of order.slice(order.indexOf(tid))) {
           const row = findTaskRow(pendingId)
           const proposed = changes.get(pendingId)!
-          if (row?.start_date === proposed.start_date && row?.end_date === proposed.end_date) {
-            patchRow(row, previous.get(pendingId) ?? {})
-          }
+          const rollback = taskDateRollback(row, proposed, previous.get(pendingId) ?? {})
+          if (rollback) patchRow(row, rollback)
         }
         void refreshTaskPlanning(true)
         ok = false
@@ -2969,11 +2917,10 @@ export const usePlanningStore = defineStore('planning', () => {
     const assignAll = permsReady ? rbac.perm('assignment', 'create') === 'all' : auth.user?.preset === 'admin'
     const process = findProcessOfTask(taskId)
     const resource = useAppStore().resources.find((r) => r.id === resourceId)
-    if (process?.owner_id != null && resource?.owner_id != null && process.owner_id !== resource.owner_id) {
-      error.value = t('offline.assignment.foreignResource')
-      return false
-    }
-    if (!assignAll && resource?.owner_id != null && (resource.owner_id !== auth.user?.id || findTaskRow(taskId)?.owner_id !== auth.user?.id)) {
+    if (!assignmentAllowed({
+      processOwner: process?.owner_id, resourceOwner: resource?.owner_id,
+      taskOwner: findTaskRow(taskId)?.owner_id, userId: auth.user?.id, all: assignAll,
+    })) {
       error.value = t('offline.assignment.foreignResource')
       return false
     }
@@ -2981,10 +2928,10 @@ export const usePlanningStore = defineStore('planning', () => {
     const add = () => {
       const task = findTaskRow(taskId)
       if (!task) return
-      task.resources ??= []
-      if (task.resources.some((r) => r.id === resourceId)) return
       const meta = useAppStore().resources.find((r) => r.id === resourceId)
-      task.resources.push({ id: resourceId, assignment_id: tempId, quantity, code: meta?.code, title: meta?.title, color: meta?.color })
+      task.resources = addResourceAssignment(task.resources ?? [], {
+        id: resourceId, assignment_id: tempId, quantity, code: meta?.code, title: meta?.title, color: meta?.color,
+      })
     }
     add()
     return runMutation({
@@ -3001,7 +2948,7 @@ export const usePlanningStore = defineStore('planning', () => {
       onError: (m) => {
         error.value = m
         const task = findTaskRow(taskId)
-        if (task) task.resources = (task.resources ?? []).filter((r) => r.assignment_id !== tempId)
+        if (task) task.resources = removeResourceAssignment(task.resources ?? [], tempId, 'assignment')
       },
     })
   }
@@ -3034,7 +2981,7 @@ export const usePlanningStore = defineStore('planning', () => {
     const removed = task?.resources?.find((r) => r.id === resourceId)
     const remove = () => {
       const row = findTaskRow(taskId)
-      if (row) row.resources = (row.resources ?? []).filter((r) => r.id !== resourceId)
+      if (row) row.resources = removeResourceAssignment(row.resources ?? [], resourceId, 'resource')
     }
     remove()
     return runMutation({
@@ -3060,15 +3007,11 @@ export const usePlanningStore = defineStore('planning', () => {
   async function reorderProjects(from: number, to: number): Promise<boolean> {
     const list = projectPlanning.value?.projects
     if (!Array.isArray(list) || from === to) return true
-    if (from < 0 || from >= list.length || to < 0 || to >= list.length) return false
-    const moved = list.splice(from, 1)[0]
-    list.splice(to, 0, moved)
+    const reordered = reorderItems(list, from, to)
+    if (!reordered) return false
+    for (let i = 0; i < reordered.length; i++) list[i] = reordered[i]
 
-    const changes: { id: number; priority: number }[] = []
-    list.forEach((p: DtoProject, i: number) => {
-      const priority = i + 1
-      if (p.priority !== priority) changes.push({ id: p.id as number, priority })
-    })
+    const changes = projectPriorityChanges(list)
     if (!changes.length) return true
 
     try {
@@ -3121,9 +3064,9 @@ export const usePlanningStore = defineStore('planning', () => {
     const project = processPlanning.value?.projects?.find((p: DtoDetailedProject) => p.id === projectId)
     const list = project?.processes
     if (!Array.isArray(list) || from === to) return true
-    if (from < 0 || from >= list.length || to < 0 || to >= list.length) return false
-    const moved = list.splice(from, 1)[0]
-    list.splice(to, 0, moved)
+    const reordered = reorderItems(list, from, to)
+    if (!reordered) return false
+    for (let i = 0; i < reordered.length; i++) list[i] = reordered[i]
     list.forEach((p: DtoProcess, i: number) => {
       p.order = i + 1
     })
@@ -3163,9 +3106,9 @@ export const usePlanningStore = defineStore('planning', () => {
     const process = taskPlanning.value?.processes?.find((p: DtoDetailedProcess) => p.id === processId)
     const list = process?.tasks
     if (!Array.isArray(list) || from === to) return true
-    if (from < 0 || from >= list.length || to < 0 || to >= list.length) return false
-    const moved = list.splice(from, 1)[0]
-    list.splice(to, 0, moved)
+    const reordered = reorderItems(list, from, to)
+    if (!reordered) return false
+    for (let i = 0; i < reordered.length; i++) list[i] = reordered[i]
     list.forEach((t: DtoDetailedTask, i: number) => {
       t.order = i + 1
     })

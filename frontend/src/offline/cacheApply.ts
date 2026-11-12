@@ -17,7 +17,8 @@ import type {
 import { idbGet, idbKeys, idbPut } from './db'
 import { stripUserPrefix, currentUserId, keyMatchesUser } from './cache'
 import type { OutboxEntry } from './outbox'
-import { applyRangeSplit, type PutPeriodFields } from './periodSplit'
+import { applyRangeSplit, type PutPeriodFields } from '@/domain/timesheet'
+import { addResourceAssignment } from '@/domain/planning'
 
 /**
  * Write-through of offline deltas into "warmed" data (cache of GET responses in IndexedDB).
@@ -486,16 +487,13 @@ async function applyPlanningTasks(
         for (const pr of processes) {
           const t = (pr.tasks ?? []).find((x) => x.id === taskId)
           if (!t) continue
-          t.resources = t.resources ?? []
-          if (!t.resources.some((r) => r.id === body?.resource_id)) {
-            t.resources.push({
-              id: body?.resource_id,
-              assignment_id: entry.tempId ?? -1,
-              quantity: body?.quantity,
-              code: resourceFields.code,
-              title: resourceFields.title,
-            })
-          }
+          t.resources = addResourceAssignment(t.resources ?? [], {
+            id: body?.resource_id,
+            assignment_id: entry.tempId ?? -1,
+            quantity: body?.quantity,
+            code: resourceFields.code,
+            title: resourceFields.title,
+          })
           return
         }
       } else if (method === 'DELETE') {

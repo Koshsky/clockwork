@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { fmtDate } from '@/components/planner/calendar'
+import { resourceAbsencesInRange, resourceCellUsage } from '@/domain/resourceUsage'
 import TooltipCell from '../TooltipCell/TooltipCell.vue'
 import { InfoTooltip } from '../Tooltips'
 import UsageCell from '../UsageCell/UsageCell.vue'
@@ -31,37 +32,16 @@ interface CellUsage {
 function cellAbsentees(resourceId: number, start: Date, end: Date): DtoResourceAbsenceResponse[] {
   const list = props.absenceByResource?.[resourceId]
   if (!list?.length) return []
-  const startT = start.getTime()
-  const endT = end.getTime()
-  return list.filter((a) => {
-    const s = a.start_date ? new Date(`${a.start_date}T00:00:00`).getTime() : -Infinity
-    const e = a.end_date ? new Date(`${a.end_date}T00:00:00`).getTime() : Infinity
-    return s <= endT && e >= startT
-  })
+  return resourceAbsencesInRange(list, start, end)
 }
 
 function cellUsage(resourceId: number, idx: number): CellUsage {
-  let peak = 0
-  let minAvail: number | null = null
-  let hasUnknown = false
-  let weekend = true
   const start = props.t.cellStart(idx)
   const end = props.t.cellEnd(idx)
-  const absentees = cellAbsentees(resourceId, start, end)
-  const cur = new Date(start)
-  while (cur <= end) {
-    const wd = cur.getDay() === 0 || cur.getDay() === 6
-    if (!wd) weekend = false
-    peak = Math.max(peak, props.usageFn(resourceId, cur))
-    const avail = props.availableFn(resourceId, cur)
-    if (avail == null) {
-      hasUnknown = true
-    } else if (minAvail == null || avail < minAvail) {
-      minAvail = avail
-    }
-    cur.setDate(cur.getDate() + 1)
+  return {
+    ...resourceCellUsage(resourceId, start, end, props.usageFn, props.availableFn),
+    absentees: cellAbsentees(resourceId, start, end),
   }
-  return { used: peak, available: hasUnknown ? null : minAvail, isWeekend: weekend, absentees }
 }
 
 /** Usage per resource and visible cell (peak daily load inside a cell) */
