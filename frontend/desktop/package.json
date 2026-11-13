@@ -10,7 +10,8 @@
   "license": "UNLICENSED",
   "private": true,
   "scripts": {
-    "build:web": "npm run build",
+    "build:web": "npm run build:renderer",
+    "build:renderer": "node ../scripts/build-renderer.cjs desktop",
     "start": "electron .",
     "dist": "node build.cjs",
     "dist:win": "node build.cjs --win",

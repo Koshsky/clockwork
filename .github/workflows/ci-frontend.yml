@@ -35,7 +35,7 @@ jobs:
       - run: npm run check
       - run: npm run lint
       - run: npm run test:stories -- --project unit
-      - run: node --test tests/security.test.cjs tests/desktop-service.test.cjs tests/desktop-business.test.cjs tests/platform-session.test.cjs tests/desktop-storage.test.cjs tests/desktop-command-queue.test.cjs tests/desktop-sync.test.cjs tests/desktop-baseline.test.cjs tests/app-version.test.cjs
+      - run: node --test tests/security.test.cjs tests/desktop-service.test.cjs tests/desktop-business.test.cjs tests/platform-session.test.cjs tests/desktop-storage.test.cjs tests/desktop-command-queue.test.cjs tests/desktop-sync.test.cjs tests/desktop-baseline.test.cjs tests/app-version.test.cjs tests/desktop-security-boundary.test.cjs tests/build-targets.test.cjs tests/desktop-storage-stress.test.cjs tests/desktop-read-concurrency.test.cjs
       - run: npm run build
   native-storage:
     name: SQLite and ASAR (${{ matrix.os }})

@@ -8,6 +8,14 @@ The web app and the desktop wrapper are versioned together.
 
 ## [Unreleased]
 
+- Web and Electron artifacts use explicit platform compositions with verified package targets.
+
+- Electron keeps normal TLS trust and restricts privileged documents, popups and renderer network access.
+
+- Concurrent native reads preserve pending changes and access revocations.
+
+- Electron loads uncached discussions and saves tasks without a responsible person.
+
 - Web and Electron share typed application services, session actions and capability-driven queue controls while preserving native offline delivery and diagram export.
 
 - Electron shares minute synchronization, resource snapshots and explicit conflict review across windows.

@@ -8,13 +8,14 @@ const { createSessionVault } = require('./session-vault.cjs')
 const { createSessionService } = require('./session-service.cjs')
 const path = require('node:path')
 const http = require('node:http')
+const { isApplicationDocument, isWebUrl } = require('./security.cjs')
 const { createStaticHandler } = require('./static-server.cjs')
 const { loadProfile } = require('./profile.cjs')
 const { createDesktopService } = require('./service.cjs')
 const { createDesktopIpc } = require('./ipc.cjs')
 const { attachRendererRecovery } = require('./renderer-recovery.cjs')
 
-function startDesktop({ app, BrowserWindow, ipcMain, dialog, session, safeStorage, net, powerMonitor }, { webDir, preload = path.join(__dirname, 'preload.js'), basePort = 31880, portAttempts = 20, ports = {}, createPorts }) {
+function startDesktop({ app, BrowserWindow, ipcMain, dialog, shell, safeStorage, net, powerMonitor }, { webDir, preload = path.join(__dirname, 'preload.js'), basePort = 31880, portAttempts = 20, ports = {}, createPorts }) {
   // Shell dialogs can precede the renderer, so their copy follows the OS locale.
   const SHELL_TEXT = {
     ru: {
@@ -43,8 +44,8 @@ function startDesktop({ app, BrowserWindow, ipcMain, dialog, session, safeStorag
   let auth = null, authTimer = null, resumeAuth = null
   const windows = new Set()
   let origin = null
-  function createWindow() {
-    if (!origin || service.status().phase !== 'ready') throw new Error('Desktop service is not ready')
+  function createWindow(target = origin) {
+    if (!isApplicationDocument(target, origin) || service.status().phase !== 'ready') throw new Error('Desktop service is not ready')
     const win = new BrowserWindow({
       width: 1440, height: 900, minWidth: 1024, minHeight: 640,
       show: false, autoHideMenuBar: true, backgroundColor: '#f4f6f9',
@@ -57,12 +58,30 @@ function startDesktop({ app, BrowserWindow, ipcMain, dialog, session, safeStorag
       onFailed: () => { const copy = shellText(); dialog.showErrorBox(copy.errorTitle, copy.recoveryFailed) },
     })
     win.webContents.on('will-navigate', (event, url) => {
-      try { if (new URL(url).origin === origin) return } catch { /* Invalid URLs are denied. */ }
+      if (isApplicationDocument(url, origin)) return
       event.preventDefault()
+    })
+    let linkGestureAt = -Infinity
+    win.webContents.on('before-mouse-event', (_, input) => {
+      if (input.type === 'mouseUp' && ['left', 'middle'].includes(input.button)) linkGestureAt = performance.now()
+    })
+    win.webContents.on('before-input-event', (_, input) => {
+      if (input.type === 'keyDown' && input.key === 'Enter') linkGestureAt = performance.now()
+    })
+    win.webContents.setWindowOpenHandler(details => {
+      // A page script cannot turn a timer or a forged DOM click into an OS launch.
+      const gesture = performance.now() - linkGestureAt <= 1000
+      linkGestureAt = -Infinity
+      if (gesture && !details.postBody && isApplicationDocument(win.webContents.getURL(), origin)) {
+        if (isApplicationDocument(details.url, origin)) {
+          createWindow(details.url)
+        } else if (isWebUrl(details.url)) void shell?.openExternal(details.url).catch(() => {})
+      }
+      return { action: 'deny' }
     })
     win.once('closed', () => windows.delete(win))
     win.once('ready-to-show', () => win.show())
-    void win.loadURL(origin)
+    void win.loadURL(target)
     return win
   }
   app.on('second-instance', () => {
@@ -70,18 +89,6 @@ function startDesktop({ app, BrowserWindow, ipcMain, dialog, session, safeStorag
     if (win) { if (win.isMinimized()) win.restore(); win.show(); win.focus() }
   })
   app.on('activate', () => { if (service?.status().phase === 'ready' && !windows.size) createWindow() })
-  app.on('certificate-error', (event, webContents, url, error, certificate, callback) => {
-    const isSelfSigned =
-      certificate.issuerName === certificate.subjectName &&
-      /CN=/.test(certificate.subjectName)
-    if (isSelfSigned && /^https:\/\//.test(url)) {
-      console.log('[desktop] accepted a self-signed certificate:', url)
-      event.preventDefault()
-      callback(true)
-    } else {
-      callback(false)
-    }
-  })
   async function listen(port) {
     return new Promise((resolve, reject) => {
       const candidate = http.createServer(createStaticHandler(webDir))
@@ -97,38 +104,8 @@ function startDesktop({ app, BrowserWindow, ipcMain, dialog, session, safeStorag
     throw new Error('No free local application port')
   }
   const ready = app.whenReady().then(async () => {
-    // setCertificateVerifyProc intercepts ALL TLS session verifications, including
-    // fetch/axios from the renderer (for them certificate-error does not always fire).
-    // It runs on the presented (unvalidated) certificate chain, so the same policy
-    // as the 'certificate-error' handler above must be re-applied here: a failed
-    // verification is accepted ONLY when the server presented a genuine self-signed
-    // certificate (issuer == subject, subject carries a CN). A certificate forged
-    // by a MITM CA has issuer != subject and is rejected — as are expiry and
-    // hostname-mismatch errors, which self-signing cannot cure.
-    // Codes — Chromium net::Error:
-    //   0    — certificate is valid (always accepted);
-    //  -202  — ERR_CERT_AUTHORITY_INVALID (self-signed / untrusted CA);
-    //  -207  — ERR_CERT_INVALID (invalid, but often self-signed).
-    // Expired (-201) and wrong-domain (-200) are rejected regardless of the
-    // issuer/subject match, exactly as before.
-    session.defaultSession.setCertificateVerifyProc((request, callback) => {
-      const isSelfSigned =
-        request.certificate.issuerName === request.certificate.subjectName &&
-        /CN=/.test(request.certificate.subjectName)
-      const isTrustedSelfSigned =
-        request.errorCode !== 0 &&
-        (request.errorCode === -202 || request.errorCode === -207) &&
-        isSelfSigned
-      if (request.errorCode !== 0 && !isTrustedSelfSigned) {
-        console.log('[desktop] certificate rejected:', request.hostname, 'code=', request.errorCode)
-      }
-      if (request.errorCode === 0 || isTrustedSelfSigned) {
-        callback(0)
-      } else {
-        callback(-3)
-      }
-    })
-
+    // Backend credentials require normal Chromium/OS certificate verification.
+    // Private deployments can trust their CA in the OS store, never a blanket bypass.
     try {
       const profileId = await loadProfile(app.getPath('userData'))
       storage = await createStorage({ directory: app.getPath('userData') })

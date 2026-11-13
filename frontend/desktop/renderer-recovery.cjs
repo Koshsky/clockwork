@@ -1,5 +1,7 @@
 'use strict'
 
+const { isApplicationDocument } = require('./security.cjs')
+
 function attachRendererRecovery(contents, { origin, active, onFailed, now = Date.now }) {
   let attempts = 0, since = now(), stopped = false
   const recover = (_, details) => {
@@ -8,7 +10,7 @@ function attachRendererRecovery(contents, { origin, active, onFailed, now = Date
     if (current - since >= 30000) { since = current; attempts = 0 }
     if (++attempts > 2) { onFailed(); return }
     let target = origin
-    try { const url = new URL(contents.getURL()); if (url.origin === origin) target = url.href } catch { /* Only the local application can be restored. */ }
+    if (isApplicationDocument(contents.getURL(), origin)) target = contents.getURL()
     setImmediate(() => {
       if (stopped || contents.isDestroyed() || !active()) return
       void contents.loadURL(target).catch(() => { if (!stopped && !contents.isDestroyed() && active()) onFailed() })

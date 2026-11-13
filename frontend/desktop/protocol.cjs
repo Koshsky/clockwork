@@ -42,7 +42,8 @@ read['timesheet.employeePeriods'] = shape({ ...range, userId: positive })
 read['assignment.catalog'] = shape({ ...page, ownerId: optional(positive) })
 for (const name of ['rbac.presets', 'rbac.rules', 'rbac.matrix', 'rbac.policies', 'rbac.kinds']) read[name] = voidInput
 const command = {}
-const common = { owner_id: positive, responsible_id: nullable(positive), color: shortText }
+// Zero is the backend's explicit clear-responsible sentinel, never an owner ID.
+const common = { owner_id: positive, responsible_id: nullable(value => Number.isSafeInteger(value) && value >= 0), color: shortText }
 const dates = { start_date: date, end_date: date }
 const entities = {
   project: { code: shortText, priority: number, ...common, ...dates },

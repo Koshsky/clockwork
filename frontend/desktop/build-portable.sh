@@ -185,6 +185,7 @@ if [ "$NEED_INSTALL" -eq 1 ]; then
 fi
 
 node "$FRONTEND_DIR/scripts/desktop-domain.cjs" --check
+node "$FRONTEND_DIR/scripts/application-services.cjs" --check
 
 # Purge everything that could serve a stale bundle. dist/ goes first: if the
 # build fails, no half-written or old bundle is left behind for electron-builder
@@ -196,7 +197,9 @@ rm -rf "$FRONTEND_DIR/dist" \
 # Build. APP_VERSION is already exported: vite inlines it into __APP_VERSION__
 # (UI "App/build version") and writes it into precache-manifest.json. The
 # explicit `|| exit 1` keeps a failure loud even if `set -e` is ever weakened.
-(cd "$FRONTEND_DIR" && npm run build) || { echo "ОШИБКА: сборка web-фронтенда не удалась." >&2; exit 1; }
+(cd "$FRONTEND_DIR" && ERP_BUILD_TARGET=desktop npm run build) || { echo "ОШИБКА: сборка web-фронтенда не удалась." >&2; exit 1; }
+
+node "$FRONTEND_DIR/scripts/verify-renderer.cjs" "$FRONTEND_DIR/dist" desktop
 
 # The freshly built output must exist — otherwise there is nothing to package.
 if [ ! -f "$FRONTEND_DIR/dist/index.html" ]; then
@@ -284,6 +287,7 @@ check_embedded_web() {
     echo "ОШИБКА: встроенный в артефакт web отличается от свежего dist/." >&2
     exit 1
   fi
+  node "$FRONTEND_DIR/scripts/verify-renderer.cjs" "$web" desktop
   node "$DESKTOP_DIR/verify-storage.cjs" --payload "$DESKTOP_DIR" "$unpacked/resources" || exit 1
   # The embedded manifest version must match the release version as well — a
   # copy of an old dist/ would pass a file compare only if it were identical,

@@ -45,6 +45,6 @@ async function packaged() {
 }
 void (async () => {
   console.log(JSON.stringify(verifyStorageRuntime(executable)))
-  if (!process.argv.includes('--package-only')) await run(['--test', path.join(__dirname, '../tests/desktop-storage.test.cjs'), path.join(__dirname, '../tests/desktop-command-queue.test.cjs'), path.join(__dirname, '../tests/desktop-sync.test.cjs')], { ...process.env, ELECTRON_RUN_AS_NODE: '1' })
+  if (!process.argv.includes('--package-only')) await run(['--test', path.join(__dirname, '../tests/desktop-storage.test.cjs'), path.join(__dirname, '../tests/desktop-storage-stress.test.cjs'), path.join(__dirname, '../tests/desktop-read-concurrency.test.cjs'), path.join(__dirname, '../tests/desktop-command-queue.test.cjs'), path.join(__dirname, '../tests/desktop-sync.test.cjs')], { ...process.env, ELECTRON_RUN_AS_NODE: '1' })
   await packaged()
 })().catch(error => { console.error(error.message); process.exitCode = 1 })

@@ -15,7 +15,7 @@ ENV APP_VERSION=$APP_VERSION
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
-RUN npm run build
+RUN ERP_BUILD_TARGET=web npm run build && node scripts/verify-renderer.cjs dist web
 
 # Stage 2: serve via nginx
 FROM nginx:1.28-alpine

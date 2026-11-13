@@ -1,6 +1,8 @@
 'use strict'
 
 const { spawnSync } = require('node:child_process')
+const path = require('node:path')
+const { verifyRenderer } = require('../scripts/verify-renderer.cjs')
 const { readVersion } = require('../scripts/app-version.cjs')
 
 function builderArguments(args) {
@@ -11,6 +13,7 @@ function builderArguments(args) {
 if (require.main === module) {
   try {
     const args = builderArguments(process.argv.slice(2))
+    verifyRenderer(path.join(__dirname, '../dist'), 'desktop')
     const result = spawnSync(process.execPath, [require.resolve('electron-builder/cli.js'), ...args], { cwd: __dirname, env: process.env, stdio: 'inherit' })
     if (result.error) throw result.error
     process.exitCode = result.status ?? 1

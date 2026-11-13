@@ -2,6 +2,7 @@
 
 const { validate } = require('./protocol.cjs')
 const sessionIpc = require('./session-ipc.cjs')
+const { isApplicationDocument } = require('./security.cjs')
 const REQUEST = 'erp:service-request', EVENT = 'erp:service-state'
 
 function createDesktopIpc({ ipcMain, service, origin, session, queue }) {
@@ -10,10 +11,7 @@ function createDesktopIpc({ ipcMain, service, origin, session, queue }) {
   const trusted = event => {
     const window = windows.get(event.sender.id)
     if (!window || event.sender !== window.contents || event.sender.isDestroyed() || !event.senderFrame || event.senderFrame !== event.sender.mainFrame) return null
-    try {
-      const url = new URL(event.senderFrame.url)
-      return url.origin === origin && !url.username && !url.password ? window : null
-    } catch { return null }
+    return isApplicationDocument(event.senderFrame.url, origin) ? window : null
   }
   const send = window => {
     if (!window.subscription || window.awaiting != null || window.contents.isDestroyed()) return

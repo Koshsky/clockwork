@@ -3440,7 +3440,7 @@ export const usePlanningStore = defineStore('planning', () => {
     commentsLoading.value = true
     commentsError.value = null
     try {
-      const resp = await readApi('task.comments:' + taskId, taskId, request => applicationServices.tasks.comments(taskId, request), !opts?.fresh)
+      const resp = await readApi('task.comments:' + taskId, taskId, request => applicationServices.tasks.comments(taskId, request), !nativeQueue?.mainSync && !opts?.fresh)
       commentsByTask.value[taskId] = (resp.data?.data as DtoCommentResponse[] | undefined) ?? []
     } catch (e: unknown) {
       if (isReadCancelled(e)) return

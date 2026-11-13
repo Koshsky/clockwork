@@ -16,6 +16,8 @@ function createCommandQueue({ storage, session, now = Date.now, retryMs = 60000,
   let identity = session.status().contextId
   let manualFollowUp = null, pullOwner = false, mutationRevision = 0, snapshotRevision = 0
   const assertCurrent = own => { if (!current(own)) throw new Error('SESSION_CONTEXT_CHANGED') }
+  let readSequence = 0, accessGeneration = 0
+  const foregroundReads = new Map()
   const submissions = new Set()
   const listeners = new Set()
   const scope = () => { const s = session.status(); return s.server && s.user && s.mode !== 'signedOut' ? { server: s.server, accountId: s.user.id } : null }
@@ -25,7 +27,7 @@ function createCommandQueue({ storage, session, now = Date.now, retryMs = 60000,
   const status = () => ({ revision, mutationRevision, snapshotRevision, running, contextId: session.status().contextId })
   function emit() { revision++; for (const listener of listeners) { try { listener(status()) } catch { /* A closed view cannot stop delivery. */ } } }
   const unsubscribe = session.subscribe(() => {
-    if (identity !== session.status().contextId) { identity = session.status().contextId; emit() }
+    if (identity !== session.status().contextId) { identity = session.status().contextId; accessGeneration++; foregroundReads.clear(); emit() }
     if (session.status().mode === 'online') schedule(0)
   })
   async function all(repository) {
@@ -384,20 +386,50 @@ function createCommandQueue({ storage, session, now = Date.now, retryMs = 60000,
     return { ...projection, baseline, data: local ? data : { ...row.projection.data, data } }
   }
   async function cacheGet(key, own = identity) { return (await readCache(key, own))?.projection }
-  async function cachePut(key, value, revisions = {}, stamp = revision, own = identity) {
+  async function beginRead(key, own) {
+    return exclusive(async () => {
+      assertCurrent(own)
+      if ([...foregroundReads.values()].reduce((count, cohort) => count + cohort.count, 0) >= 64) throw new Error('COMMAND_BUSY')
+      const previous = await repo().cacheRead({ key })
+      assertCurrent(own)
+      let cohort = foregroundReads.get(key)
+      if (!cohort) { cohort = { count: 0, applied: 0, revision: previous?.revision ?? 0 }; foregroundReads.set(key, cohort) }
+      cohort.count++
+      return { key, cohort, sequence: ++readSequence, mutation: mutationRevision, access: accessGeneration, revision: previous?.revision ?? 0 }
+    })
+  }
+  function currentRead(stamp, previous) {
+    if (!stamp || typeof stamp !== 'object') return stamp === revision
+    const version = previous?.revision ?? 0, cohort = stamp.cohort
+    // Only this cohort's own permission refresh can advance its overlapping peers.
+    const accessCurrent = stamp.access === accessGeneration || stamp.key.endsWith('/permissions/me') && cohort.applied > 0 && cohort.access === accessGeneration
+    return stamp.mutation === mutationRevision && accessCurrent && foregroundReads.get(stamp.key) === cohort && stamp.sequence > cohort.applied &&
+      (version === stamp.revision || cohort.applied > 0 && version === cohort.revision)
+  }
+  function finishRead(stamp) {
+    if (--stamp.cohort.count === 0 && foregroundReads.get(stamp.key) === stamp.cohort) foregroundReads.delete(stamp.key)
+  }
+  async function cachePut(key, value, revisions = {}, stamp = revision, own = identity, refreshAccess = false) {
     return exclusive(async () => {
       assertCurrent(own)
       const repository = repo(), previous = await repository.cacheRead({ key })
       assertCurrent(own)
+      if (!currentRead(stamp, previous)) { if (!previous) throw new Error('COMMAND_SNAPSHOT_CHANGED'); return { ...previous, pending: await visiblePending(repository) } }
+      if (refreshAccess) {
+        const signature = rules => JSON.stringify([...(Array.isArray(rules) ? rules : [])].map(rule => JSON.stringify(rule)).sort())
+        if (value.status >= 400 || !previous || signature(previous.projection.data?.data) !== signature(value.data?.data)) await invalidateReadsOwned([key], repository, own)
+      }
+      const validatedStamp = typeof stamp === 'object' ? { ...stamp, access: accessGeneration } : stamp
       const entries = await all(repository)
       assertCurrent(own)
-      if (stamp !== revision) { if (!previous) throw new Error('COMMAND_SNAPSHOT_CHANGED'); return { ...previous, pending: await visiblePending(repository) } }
       const values = new Map([[key, { key, revision: previous?.revision ?? 0, baseline: value, projection: value, revisions }]])
       const changes = await overlay(values, entries, [], repository)
       assertCurrent(own)
       if (!changes.length) changes.push({ key, expectedRevision: previous?.revision ?? 0, baseline: value, projection: value, revisions })
+      if (!currentRead(validatedStamp, previous)) { if (!previous) throw new Error('COMMAND_SNAPSHOT_CHANGED'); return { ...previous, pending: await visiblePending(repository) } }
       await repository.cacheCommit({ changes })
       assertCurrent(own)
+      if (typeof stamp === 'object') { stamp.cohort.applied = stamp.sequence; stamp.cohort.revision = (previous?.revision ?? 0) + 1; stamp.cohort.access = accessGeneration }
       if (pullOwner) { snapshotRevision++; emit() }
       return { projection: changes[0].projection, revisions, pending: await visiblePending(repository) }
     })
@@ -422,18 +454,22 @@ function createCommandQueue({ storage, session, now = Date.now, retryMs = 60000,
       return true
     })
   }
+  async function invalidateReadsOwned(keep, repository, own) {
+    accessGeneration++
+    const changes = []
+    for (const [key, value] of await caches(repository)) if (!keep.includes(key)) {
+      const denied = { ts: now(), status: 403, data: { data: null, error: { code: 'FORBIDDEN' } } }
+      changes.push({ key, expectedRevision: value.revision, baseline: denied, projection: denied, revisions: {} })
+    }
+    // Batches are bounded by the storage protocol; each batch only removes access.
+    for (let i = 0; i < changes.length; i += 128) { assertCurrent(own); await repository.cacheCommit({ changes: changes.slice(i, i + 128) }) }
+    assertCurrent(own)
+  }
   async function invalidateReads(keep, own = identity, stamp) {
     return exclusive(async () => {
       assertCurrent(own)
       if (stamp != null && stamp !== revision) return null
-      const repository = repo(), changes = []
-      for (const [key, value] of await caches(repository)) if (!keep.includes(key)) {
-        const denied = { ts: now(), status: 403, data: { data: null, error: { code: 'FORBIDDEN' } } }
-        changes.push({ key, expectedRevision: value.revision, baseline: denied, projection: denied, revisions: {} })
-      }
-      // Batches are bounded by the storage protocol; each batch only removes access.
-      for (let i = 0; i < changes.length; i += 128) { assertCurrent(own); await repository.cacheCommit({ changes: changes.slice(i, i + 128) }) }
-      assertCurrent(own)
+      await invalidateReadsOwned(keep, repo(), own)
       snapshotRevision++; emit()
       return revision
     })
@@ -524,33 +560,36 @@ function createCommandQueue({ storage, session, now = Date.now, retryMs = 60000,
       }
       if (!request.operation.startsWith('GET ') || request.operation.startsWith('GET /operations') || request.viewUser) {
         const own = identity, result = await sendRequest()
-        if (pullOwner && !request.operation.startsWith('GET ') && result.status >= 200 && result.status < 300 && current(own)) { mutationRevision++; emit() }
+        if (pullOwner && !request.operation.startsWith('GET ') && result.status >= 200 && result.status < 300 && current(own)) {
+          mutationRevision++; emit()
+          // A confirmed online-only write cannot precede an older cache commit.
+          await exclusive(() => assertCurrent(own))
+        }
         return result
       }
       const root = session.status().server, route = require('./api-routes.json').find(row => row.operation === request.operation)
       let path = route.path; for (const [name, id] of Object.entries(request.path || {})) path = path.replace('{' + name + '}', encodeURIComponent(String(id)))
-      const query = new URLSearchParams(request.query || {}), key = root + path + (query.size ? '?' + query : ''), own = identity, stamp = revision
+      const query = new URLSearchParams(request.query || {}), key = root + path + (query.size ? '?' + query : ''), own = identity
       if (request.snapshotOnly) {
         const cached = await readCache(key, own)
         if (cached) return { status: cached.projection.status || 200, data: exposed(cached, key).data, baseline: exposed(cached, key).baseline, localSnapshot: true }
         pullOwner?.observe?.(request)
         return { status: 503, data: { data: null, error: { code: 'LOCAL_SNAPSHOT_MISSING' } } }
       }
+      const stamp = await beginRead(key, own)
       try {
         const wrapped = await sendRequest({ revisionProtocol: true }), value = unwrap(wrapped)
         assertCurrent(own)
         if (current(own) && wrapped.status >= 200 && wrapped.status < 300) {
-          let readStamp = stamp
-          if (path === '/permissions/me') {
-            const previous = await cacheGet(key, own)
-            const signature = rules => JSON.stringify([...(Array.isArray(rules) ? rules : [])].map(rule => JSON.stringify(rule)).sort())
-            if (previous && signature(previous.data?.data) !== signature(value.result.data?.data)) readStamp = await invalidateReads([key], own, stamp) ?? stamp
-          }
-          const cached = await cachePut(key, { ts: now(), data: value.result.data }, value.revisions, readStamp, own)
+          const cached = await cachePut(key, { ts: now(), data: value.result.data }, value.revisions, stamp, own, path === '/permissions/me')
           assertCurrent(own)
           return cached ? { ...value.result, data: exposed(cached, key).data, baseline: exposed(cached, key).baseline } : value.result
         }
-        if ([403, 404].includes(wrapped.status)) await commitPull([{ key, value: { ts: now(), status: wrapped.status, data: { data: null, error: value.result.data?.error || {} } } }], mutationRevision, own)
+        if ([403, 404].includes(wrapped.status)) {
+          const cached = await cachePut(key, { ts: now(), status: wrapped.status, data: { data: null, error: value.result.data?.error || {} } }, {}, stamp, own, path === '/permissions/me')
+          const exposedValue = exposed(cached, key)
+          return { ...value.result, status: cached.projection.status || 200, data: exposedValue.data, baseline: exposedValue.baseline }
+        }
         return value.result
       } catch (error) {
         if (!current(own)) throw error
@@ -558,7 +597,7 @@ function createCommandQueue({ storage, session, now = Date.now, retryMs = 60000,
         assertCurrent(own)
         if (cached) return { status: cached.projection.status || 200, data: exposed(cached, key).data, baseline: exposed(cached, key).baseline, localSnapshot: true }
         throw error
-      }
+      } finally { finishRead(stamp) }
     },
     async stop() { stopped = true; clearTimeout(timer); unsubscribe(); await flight; await tail; listeners.clear() },
   }

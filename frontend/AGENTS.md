@@ -63,6 +63,32 @@ Frontend service of the MVS ERP monorepo (repo root is `..`, sibling `backend` i
   — `version` must equal the release version. A git-hash value
   (e.g. `1808c37-mtx0hk8x`) means a stale bundle was embedded.
 
+## Renderer targets and acceptance
+
+Production builds require an explicit platform composition: `npm run build`
+defaults to web; use `node scripts/build-renderer.cjs web` or
+`node scripts/build-renderer.cjs desktop` to select it portably. Development keeps
+runtime platform selection unless `ERP_BUILD_TARGET` is explicitly supplied.
+Web artifacts use only same-origin `/api/v1` and contain no persistent offline
+engine, native session or IPC implementation. Desktop renderers keep the native
+adapters; never package a web artifact into Electron.
+
+Each artifact includes `build-target.json` with the compiled module graph and the
+canonical frontend version. Verify with
+`node scripts/verify-renderer.cjs <directory> web|desktop`. This proves target and
+version consistency, not freshness against source; the mandatory clean build and
+embedded byte comparison in `desktop/build-portable.sh` remain required.
+`desktop/build.cjs` refuses missing or wrong-target renderer evidence before
+packaging. Local acceptance uses `scripts/package-acceptance.cjs` with explicit
+`ERP_TEST_ISOLATED=1`, an empty output directory and a verified desktop renderer;
+its temporary ASAR is a test fixture, not a distributable release.
+
+Electron uses normal Chromium/OS TLS verification. Private HTTPS deployments must
+trust their CA in the OS store; do not reintroduce certificate bypasses. Privileged
+IPC and renderer recovery accept actual credential-free application HTTP(S)
+documents only. External links require a native user gesture; popup documents
+cannot acquire an unmanaged privileged window.
+
 ## Desktop storage
 
 Electron's durable store lives in `desktop/storage*.cjs`, outside the renderer.

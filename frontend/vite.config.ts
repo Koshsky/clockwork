@@ -1,4 +1,5 @@
 import { defineConfig, loadEnv, type Plugin } from 'vite'
+import { buildTarget, rendererBuildComposition, webApiPath } from './scripts/build-targets.mjs'
 import { rendererPlatformBoundary } from './scripts/platform-boundaries.mjs'
 import { readVersion } from './scripts/app-version.cjs'
 import vue from '@vitejs/plugin-vue'
@@ -44,7 +45,8 @@ function versionManifest(version: string): Plugin {
   }
 }
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ mode, command }) => {
+  const target = buildTarget(command)
   // Load environment variables from .env (VITE_* etc.)
   const envDir = fileURLToPath(new URL('../', import.meta.url))
   const env = loadEnv(mode, envDir, '')
@@ -61,9 +63,11 @@ export default defineConfig(({ mode }) => {
   envDir,
   define: {
     __APP_VERSION__: JSON.stringify(appVersion),
+    ...(target === 'web' ? { 'import.meta.env.VITE_API_URL': JSON.stringify(webApiPath(env.VITE_API_URL)) } : {}),
   },
   plugins: [
     rendererPlatformBoundary(),
+    ...(target !== 'auto' ? [rendererBuildComposition(target, appVersion)] : []),
     vue(),
     checker({
       vueTsc: true,
