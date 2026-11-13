@@ -135,6 +135,27 @@ func TestCrossSiteAuthNeverCallsService(t *testing.T) {
 	}
 }
 
+func TestCookieRefreshNeverReturnsBodyCredentialWithoutTransportFlag(t *testing.T) {
+	t.Parallel()
+	for _, body := range []string{"", `{}`, `{"refresh_token":""}`, `{"unknown":true}`, `{`} {
+		t.Run(body, func(t *testing.T) {
+			t.Parallel()
+			service := &browserAuth{}
+			handler := &AuthHandler{service: service}
+			router := gin.New()
+			router.POST("/refresh", handler.RefreshToken)
+			request := httptest.NewRequest(http.MethodPost, "/refresh", strings.NewReader(body))
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set("Sec-Fetch-Site", "same-origin")
+			request.AddCookie(&http.Cookie{Name: refreshCookieName, Value: "cookie-token"})
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, request)
+			sessionEqual(t, http.StatusOK, recorder.Code)
+			assertBrowserResponse(t, "refresh", true, recorder, service)
+		})
+	}
+}
+
 func sessionEqual(t *testing.T, want, got any) {
 	t.Helper()
 	if !reflect.DeepEqual(want, got) {

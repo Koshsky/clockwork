@@ -24,6 +24,7 @@ function createSessionService({ vault, fetch: fetchRequest, onIdentity = () => {
     for (const listener of listeners) { try { listener(status()) } catch { /* Views cannot block the session owner. */ } }
   }
   function reset() {
+    pending = null
     epoch++; access = null; refresh = null; user = null; mode = 'signedOut'; offlineAvailable = false; needsLogin = false; persistent = false
     for (const request of requests.values()) request.controller.abort()
     emit(true)
@@ -72,8 +73,8 @@ function createSessionService({ vault, fetch: fetchRequest, onIdentity = () => {
   async function renew() {
     if (stopped || !server || !user || mode === 'signedOut' || needsLogin) return status()
     if (pending) return pending
-    const own = epoch, base = server
-    pending = (async () => {
+    const own = epoch, base = server, expectedUser = user.id
+    const flight = (async () => {
       // An unavailable network must not consume the last saved refresh token.
       try { if ((await wire(base, '/health', 'GET')).status >= 500) return status() } catch { return status() }
       if (own !== epoch) return status()
@@ -88,12 +89,13 @@ function createSessionService({ vault, fetch: fetchRequest, onIdentity = () => {
         const result = await wire(base, '/auth/refresh', 'POST', { refresh_token: token })
         if (result.status === 401 || result.status === 403) { await invalidate(own, base); return status() }
         if (result.status !== 200) throw new Error('SESSION_REFRESH_UNCERTAIN')
-        return await accept(result, own, base, user?.id)
+        return await accept(result, own, base, expectedUser)
       } catch {
         if (own === epoch) { needsLogin = true; persistent = false; access = null; mode = 'offline'; emit() }
         return status()
       }
-    })().finally(() => { pending = null })
+    })().finally(() => { if (pending === flight) pending = null })
+    pending = flight
     return pending
   }
   return {

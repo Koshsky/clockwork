@@ -59,6 +59,52 @@ test('two windows, timer and wake coalesce one refresh and preserve account cont
   const results=await Promise.all([first,second]);assert.equal(results[0].contextId,initial.contextId)
   assert.equal(f.records[initial.server].cipher,'encrypted:rotated-secret')
 })
+for (const changeServer of [false, true]) test('an old refresh cannot hold or release the next identity refresh: server=' + changeServer, async () => {
+  const old = defer(), current = defer()
+  let account = 7, rotations = 0, first, next, joined
+  const f = fixture({ fetch: async url => {
+    if (url.endsWith('/auth/refresh')) return ++rotations === 1 ? old.promise : current.promise
+    if (url.endsWith('/auth/login')) return reply(success(account, 'login-' + account))
+    return reply({})
+  } })
+  try {
+    await f.login(); first = f.service.refresh(); await tick()
+    if (changeServer) await f.service.selectServer('https://second.example')
+    else await f.service.logout()
+    account = 8; await f.service.login('user8', 'password')
+    next = f.service.refresh(); await tick()
+    assert.equal(rotations, 2)
+    old.resolve(reply(success(7, 'old-rotation'))); await first; await tick()
+    joined = f.service.refresh(); await tick()
+    assert.equal(rotations, 2)
+    current.resolve(reply(success(8, 'new-rotation'))); await Promise.all([next, joined])
+    assert.equal(f.service.status().user.id, 8)
+    assert.equal(f.records[f.service.status().server].cipher, 'encrypted:new-rotation')
+    assert.ok(f.calls.some(call => call.url === 'https://erp.example/api/v1/auth/logout' && call.body?.refresh_token === 'old-rotation'))
+  } finally {
+    old.resolve(reply(success(7))); current.resolve(reply(success(8)))
+    await Promise.allSettled([first, next, joined].filter(Boolean)); f.service.stop()
+  }
+})
+
+test('Windows vault persistence does not require opening a directory descriptor', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'clockwork-vault-windows-'))
+  const descriptor = Object.getOwnPropertyDescriptor(process, 'platform'), open = fs.open
+  try {
+    Object.defineProperty(process, 'platform', { value: 'win32' })
+    fs.open = async function (filename, ...args) {
+      if (filename === dir && args[0] === 'r') throw Object.assign(new Error('directory handles are unavailable'), { code: 'EPERM' })
+      return open.call(this, filename, ...args)
+    }
+    const vault = createSessionVault(dir, {})
+    await vault.put('https://erp.example', { user: { id: 7 }, cipher: 'encrypted', eligible: true })
+    const reopened = createSessionVault(dir, {}); await reopened.load()
+    assert.equal(reopened.get('https://erp.example').cipher, 'encrypted')
+  } finally {
+    fs.open = open; Object.defineProperty(process, 'platform', descriptor)
+    await fs.rm(dir, { recursive: true, force: true })
+  }
+})
 test('refresh persists an uncertainty marker before sending and never replays after lost response', async () => {
   let f;f=fixture({ fetch: async url => {
     if (url.endsWith('/auth/refresh')) {assert.equal(f.records['https://erp.example/api/v1'].cipher,undefined);throw new Error('response lost after commit')}
@@ -153,8 +199,21 @@ test('renderer closure aborts its reads but preserves accepted writes',async()=>
 })
 test('bounded session IPC rejects extra auth/URL/native fields and malformed requests',async()=>{
   for(const request of [null,[],{action:'__proto__'},{action:'status',refresh_token:'x'},{action:'api',operation:'GET /project',contextId:'c',requestId:'r',url:'https://evil.example'},{action:'login',username:'u',password:'x'.repeat(65537)},{action:'login',username:'u',password:()=>{}}]) assert.equal(valid(request),false)
-  const result=await dispatch({login:async()=>{throw new Error('Authorization: secret')}},'window',{action:'login',username:'u',password:'p'})
+  const result=await dispatch({status:()=>({server:'https://erp.example/api/v1'}),login:async()=>{throw new Error('Authorization: secret')}},'window',{action:'login',username:'u',password:'p',server:'https://erp.example/api/v1'})
   assert.deepEqual(result,{ok:false,error:'SESSION_UNAVAILABLE'})
+})
+test('login IPC refuses stale or missing server binding before sending credentials',async()=>{
+  const f=fixture()
+  const first=await f.service.selectServer('https://first.example')
+  await f.service.selectServer('https://second.example')
+  const request={action:'login',username:'user7',password:'password'}
+  assert.deepEqual(await dispatch(f.service,'first',request),{ok:false,error:'SESSION_INVALID_REQUEST'})
+  assert.deepEqual(await dispatch(f.service,'first',{...request,server:first.server}),{ok:false,error:'SESSION_CONTEXT_CHANGED'})
+  assert.equal(f.calls.length,0)
+  const result=await dispatch(f.service,'second',{...request,server:f.service.status().server})
+  assert.equal(result.ok,true)
+  assert.equal(f.calls.length,1)
+  assert.ok(f.calls[0].url.startsWith('https://second.example/'))
 })
 test('real vault uses OS encryption, atomic private storage and survives reopening',async()=>{
   const dir=await fs.mkdtemp(path.join(os.tmpdir(),'clockwork-session-'))

@@ -25,11 +25,19 @@ try {
  const origin = new URL(page.url()).origin
  await expect.poll(() => page.evaluate(() => Boolean(window.erpDesktop?.session))).toBe(true)
  await page.evaluate(async server => window.erpDesktop.session.selectServer(server), `https://127.0.0.1:${tls.address().port}`)
- const rejected = await page.evaluate(async () => { try { await window.erpDesktop.session.login('untrusted', 'must-not-cross-tls'); return false } catch { return true } })
+ const rejected = await page.evaluate(async () => { try { const state = await window.erpDesktop.session.status(); await window.erpDesktop.session.login('untrusted', 'must-not-cross-tls', state.server); return false } catch { return true } })
  expect(rejected).toBe(true); expect(credentialRequests).toBe(0)
  expect(await page.evaluate(async () => (await window.erpDesktop.session.status()).mode)).toBe('signedOut')
  console.log('PASS production shell rejects an untrusted self-signed peer before sending credentials')
- const session = await page.evaluate(async ({ target, password }) => { await window.erpDesktop.session.selectServer(target); return window.erpDesktop.session.login('admin', password) }, { target, password })
+ const staleLogin = await page.evaluate(async ({ target, other, password }) => {
+  const state = await window.erpDesktop.session.selectServer(target)
+  await window.erpDesktop.session.selectServer(other)
+  try { await window.erpDesktop.session.login('admin', password, state.server); return null }
+  catch (error) { return error.message }
+ }, { target, other: `https://127.0.0.1:${tls.address().port}`, password })
+ expect(staleLogin).toBe('SESSION_CONTEXT_CHANGED'); expect(credentialRequests).toBe(0)
+ console.log('PASS stale server selection cannot send login credentials through native IPC')
+ const session = await page.evaluate(async ({ target, password }) => { const state = await window.erpDesktop.session.selectServer(target); return window.erpDesktop.session.login('admin', password, state.server) }, { target, password })
  expect(session.mode).toBe('online'); expect(JSON.stringify(session)).not.toMatch(/access_token|refresh_token|must-not-cross-tls/)
  await expect.poll(async () => {
   try { return await page.evaluate(async () => (await window.erpDesktop.session.api({ operation: 'GET /project', requestId: crypto.randomUUID(), contextId: (await window.erpDesktop.session.status()).contextId })).status) }

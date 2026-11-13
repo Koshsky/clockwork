@@ -1,11 +1,13 @@
 import { beforeEach, afterEach, expect, it, vi } from 'vitest'
 import { AxiosHeaders, type InternalAxiosRequestConfig } from 'axios'
-const fake = vi.hoisted(() => ({ selectServer: vi.fn(), api: vi.fn(), cancel: vi.fn(), status: vi.fn(), subscribe: vi.fn(), server: 'https://erp.example/api/v1' }))
+const fake = vi.hoisted(() => ({ selectServer: vi.fn(), login: vi.fn(), api: vi.fn(), cancel: vi.fn(), status: vi.fn(), subscribe: vi.fn(), server: 'https://erp.example/api/v1' }))
 vi.mock('@/config', () => ({ getApiUrl: () => fake.server }))
 const state = { server: 'https://erp.example/api/v1', user: { id: 7, username: 'u' }, mode: 'online', persistent: true, offlineAvailable: true, needsLogin: false, contextId: 'ctx', revision: 1, expiresAt: Date.now() + 60000 }
 let session: typeof import('./desktop')
 beforeEach(async () => {
-  vi.resetModules(); vi.clearAllMocks()
+  vi.resetModules(); vi.resetAllMocks()
+  fake.server = state.server
+  fake.login.mockResolvedValue(state)
   fake.cancel.mockResolvedValue(undefined); fake.selectServer.mockResolvedValue(state); fake.api.mockResolvedValue({ status: 200, data: { data: { id: 1 }, error: {} } })
   vi.stubGlobal('window', { erpDesktop: { session: fake } })
   session = await import('./desktop')
@@ -91,4 +93,57 @@ it('does not turn a late transport error from another account into a queued muta
   fake.subscribe.mock.calls[0]![0]({ ...state, contextId: 'another-account', revision: 10 })
   reject(new Error('SESSION_UNAVAILABLE'))
   await expect(pending).rejects.toMatchObject({ code: 'ERR_CANCELED' })
+})
+
+it('selects the new server before forwarding login and cancels the old preparation', async () => {
+  let finishOld!: (value: typeof state) => void
+  const next = { ...state, server: 'https://second.example/api/v1', contextId: 'second', revision: 2 }
+  fake.selectServer.mockImplementationOnce(() => new Promise(resolve => { finishOld = resolve })).mockResolvedValueOnce(next)
+  fake.login.mockResolvedValue(next)
+  const old = session.prepareDesktopSession().catch(error => error)
+  fake.server = next.server
+  const login = session.desktopAction('login', 'user', 'password')
+  try {
+    await vi.waitFor(() => expect(fake.selectServer).toHaveBeenCalledTimes(2))
+    expect(await login).toMatchObject({ server: next.server })
+    expect(fake.login).toHaveBeenCalledWith('user', 'password', next.server)
+  } finally {
+    finishOld(state)
+    await login.catch(() => {})
+  }
+  expect(await old).toMatchObject({ message: 'SESSION_CONTEXT_CHANGED' })
+  expect(session.desktopSessionState.value?.server).toBe(next.server)
+})
+
+it('does not let an old server reply release the current selection flight', async () => {
+  let finishOld!: (value: typeof state) => void, finishNew!: (value: typeof state) => void
+  const next = { ...state, server: 'https://second.example/api/v1', contextId: 'second', revision: 2 }
+  fake.selectServer.mockImplementationOnce(() => new Promise(resolve => { finishOld = resolve })).mockImplementationOnce(() => new Promise(resolve => { finishNew = resolve }))
+  const old = session.prepareDesktopSession().catch(error => error)
+  fake.server = next.server
+  const current = session.prepareDesktopSession()
+  let joined: Promise<unknown> | undefined
+  try {
+    await vi.waitFor(() => expect(fake.selectServer).toHaveBeenCalledTimes(2))
+    finishOld(state)
+    expect(await old).toMatchObject({ message: 'SESSION_CONTEXT_CHANGED' })
+    joined = session.prepareDesktopSession()
+    expect(fake.selectServer).toHaveBeenCalledTimes(2)
+  } finally {
+    finishOld(state)
+    finishNew?.(next)
+    await Promise.all([old, current, joined])
+  }
+})
+
+it('does not forward credentials when the native state belongs to another server', async () => {
+  fake.selectServer.mockResolvedValue({ ...state, server: 'https://wrong.example/api/v1' })
+  await expect(session.desktopAction('login', 'user', 'password')).rejects.toMatchObject({ message: 'SESSION_CONTEXT_CHANGED' })
+  expect(fake.login).not.toHaveBeenCalled()
+})
+
+it('does not log in when another window selected a different server after the reply was sent', async () => {
+  fake.subscribe.mock.calls[0]![0]({ ...state, server: 'https://second.example/api/v1', revision: 10 })
+  await expect(session.desktopAction('login', 'user', 'password')).rejects.toMatchObject({ message: 'SESSION_CONTEXT_CHANGED' })
+  expect(fake.login).not.toHaveBeenCalled()
 })

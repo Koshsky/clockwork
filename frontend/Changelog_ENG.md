@@ -8,6 +8,8 @@ The web app and the desktop wrapper are versioned together.
 
 ## [Unreleased]
 
+- Electron isolates pending session requests across account and server changes and persists sessions on Windows.
+
 - Large diagrams use indexed permissions, reusable resource cells and scoped desktop refreshes to reduce memory pressure.
 - Large task diagrams recalculate resource headers faster in days and weeks.
 

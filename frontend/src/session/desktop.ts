@@ -20,7 +20,7 @@ export interface SessionState {
 export interface DesktopSession {
   status(): Promise<SessionState>
   selectServer(server: string): Promise<SessionState>
-  login(username: string, password: string): Promise<SessionState>
+  login(username: string, password: string, server: string): Promise<SessionState>
   refresh(): Promise<SessionState>
   logout(): Promise<SessionState>
   enterOffline(username: string | null): Promise<SessionState>
@@ -37,18 +37,26 @@ function adopt(state: SessionState) {
 }
 const unsubscribe = desktopSession?.subscribe(adopt)
 import.meta.hot?.dispose(() => unsubscribe?.())
-let selecting: Promise<SessionState> | null = null
+let selecting: { server: string; promise: Promise<SessionState> } | null = null
 export async function prepareDesktopSession(): Promise<SessionState> {
   if (!desktopSession) throw new Error('SESSION_UNAVAILABLE')
   const server = getApiUrl()
   if (!server || !/^https?:\/\//.test(server)) return adopt(await desktopSession.status())
-  selecting ??= desktopSession.selectServer(server).then(adopt).finally(() => { selecting = null })
-  return selecting
+  if (selecting?.server !== server) {
+    const flight = { server, promise: desktopSession.selectServer(server).then(state => {
+      if (getApiUrl() !== server || state.server !== new URL(server).origin + '/api/v1') throw new Error('SESSION_CONTEXT_CHANGED')
+      const current = adopt(state)
+      if (current.server !== state.server) throw new Error('SESSION_CONTEXT_CHANGED')
+      return current
+    }).finally(() => { if (selecting === flight) selecting = null }) }
+    selecting = flight
+  }
+  return selecting.promise
 }
 export async function desktopAction(action: 'login' | 'refresh' | 'logout' | 'enterOffline', username?: string | null, password?: string): Promise<SessionState> {
-  await prepareDesktopSession()
+  const state = await prepareDesktopSession()
   const bridge = desktopSession!
-  return adopt(await (action === 'login' ? bridge.login(username || '', password || '') : action === 'enterOffline' ? bridge.enterOffline(username || null) : bridge[action]()))
+  return adopt(await (action === 'login' ? bridge.login(username || '', password || '', state.server || '') : action === 'enterOffline' ? bridge.enterOffline(username || null) : bridge[action]()))
 }
 
 // Generated clients and the legacy outbox retain canonical remote URLs, but no

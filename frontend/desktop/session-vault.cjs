@@ -57,8 +57,10 @@ function createSessionVault(directory, safeStorage, { timeoutMs = 5000 } = {}) {
           const handle = await fs.open(temp, 'wx', 0o600)
           try { await handle.writeFile(JSON.stringify(next)); await handle.sync() } finally { await handle.close() }
           await fs.rename(temp, filename)
-          const parent = await fs.open(directory, 'r')
-          try { await parent.sync() } finally { await parent.close() }
+          if (process.platform !== 'win32') {
+            const parent = await fs.open(directory, 'r')
+            try { await parent.sync() } finally { await parent.close() }
+          }
           data = next
         } finally { await fs.rm(temp, { force: true }) }
       }

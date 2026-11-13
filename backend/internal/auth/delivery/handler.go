@@ -131,7 +131,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 //
 //	@Tags			Auth
 //	@Summary		Refresh Token
-//	@Description	Rotate the refresh session; the token is read from the body ({refresh_token}) or the HttpOnly cookie, and a new refresh token is returned in both
+//	@Description	Rotate the refresh session using a body token or the HttpOnly cookie. Cookie-based responses never expose the new refresh token in JSON; native clients supplying a body token receive the rotated token in JSON too.
 //	@Accept			json
 //	@Produce		json
 //	@Param			request	body		dto.RefreshRequest	false	"Refresh token (optional; falls back to the HttpOnly cookie)"
@@ -147,6 +147,7 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	if c.GetHeader(sessionTransportHeader) == sessionTransportCookie {
 		token = ""
 	}
+	bodyCredential := token != ""
 	if !requireBrowserSession(c, token == "" || c.GetHeader(sessionTransportHeader) == sessionTransportCookie) {
 		return
 	}
@@ -166,9 +167,9 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 		return
 	}
 
-	// Return the rotated refresh token in the body too, mirroring login.
+	// Cookie possession must not become a script-readable refresh credential.
 	res.Auth.RefreshToken = ""
-	if c.GetHeader(sessionTransportHeader) != sessionTransportCookie {
+	if bodyCredential {
 		res.Auth.RefreshToken = res.RefreshToken
 	}
 

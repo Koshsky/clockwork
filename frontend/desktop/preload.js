@@ -58,7 +58,7 @@ contextBridge.exposeInMainWorld('erpDesktop', {
   session: {
     status: () => sessionRequest({ action: 'status' }),
     selectServer: server => sessionRequest({ action: 'selectServer', server }),
-    login: (username, password) => sessionRequest({ action: 'login', username, password }),
+    login: (username, password, server) => sessionRequest({ action: 'login', username, password, server }),
     refresh: () => sessionRequest({ action: 'refresh' }),
     logout: () => sessionRequest({ action: 'logout' }),
     enterOffline: username => sessionRequest({ action: 'enterOffline', username }),

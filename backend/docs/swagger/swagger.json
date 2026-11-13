@@ -768,7 +768,7 @@
         },
         "/auth/refresh": {
             "post": {
-                "description": "Rotate the refresh session; the token is read from the body ({refresh_token}) or the HttpOnly cookie, and a new refresh token is returned in both",
+                "description": "Rotate the refresh session using a body token or the HttpOnly cookie. Cookie-based responses never expose the new refresh token in JSON; native clients supplying a body token receive the rotated token in JSON too.",
                 "consumes": [
                     "application/json"
                 ],

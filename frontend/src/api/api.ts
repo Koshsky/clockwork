@@ -1706,7 +1706,7 @@ export const AuthApiAxiosParamCreator = function (configuration?: Configuration)
             };
         },
         /**
-         * Rotate the refresh session; the token is read from the body ({refresh_token}) or the HttpOnly cookie, and a new refresh token is returned in both
+         * Rotate the refresh session using a body token or the HttpOnly cookie. Cookie-based responses never expose the new refresh token in JSON; native clients supplying a body token receive the rotated token in JSON too.
          * @summary Refresh Token
          * @param {DtoRefreshRequest} [request] Refresh token (optional; falls back to the HttpOnly cookie)
          * @param {*} [options] Override http request option.
@@ -1774,7 +1774,7 @@ export const AuthApiFp = function(configuration?: Configuration) {
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
         /**
-         * Rotate the refresh session; the token is read from the body ({refresh_token}) or the HttpOnly cookie, and a new refresh token is returned in both
+         * Rotate the refresh session using a body token or the HttpOnly cookie. Cookie-based responses never expose the new refresh token in JSON; native clients supplying a body token receive the rotated token in JSON too.
          * @summary Refresh Token
          * @param {DtoRefreshRequest} [request] Refresh token (optional; falls back to the HttpOnly cookie)
          * @param {*} [options] Override http request option.
@@ -1816,7 +1816,7 @@ export const AuthApiFactory = function (configuration?: Configuration, basePath?
             return localVarFp.authLogoutPost(request, options).then((request) => request(axios, basePath));
         },
         /**
-         * Rotate the refresh session; the token is read from the body ({refresh_token}) or the HttpOnly cookie, and a new refresh token is returned in both
+         * Rotate the refresh session using a body token or the HttpOnly cookie. Cookie-based responses never expose the new refresh token in JSON; native clients supplying a body token receive the rotated token in JSON too.
          * @summary Refresh Token
          * @param {DtoRefreshRequest} [request] Refresh token (optional; falls back to the HttpOnly cookie)
          * @param {*} [options] Override http request option.
@@ -1855,7 +1855,7 @@ export class AuthApi extends BaseAPI {
     }
 
     /**
-     * Rotate the refresh session; the token is read from the body ({refresh_token}) or the HttpOnly cookie, and a new refresh token is returned in both
+     * Rotate the refresh session using a body token or the HttpOnly cookie. Cookie-based responses never expose the new refresh token in JSON; native clients supplying a body token receive the rotated token in JSON too.
      * @summary Refresh Token
      * @param {DtoRefreshRequest} [request] Refresh token (optional; falls back to the HttpOnly cookie)
      * @param {*} [options] Override http request option.
