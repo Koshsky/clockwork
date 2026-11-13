@@ -26,6 +26,19 @@ function reference(processes: ResourceProcess[], resourceId: number, day: Date, 
   return inNew === inOld ? used : inNew ? used + assignment.quantity : used - assignment.quantity
 }
 
+function demandSamples() {
+  let seed = 1771
+  const random = (limit: number) => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed % limit }
+  // Freeze the original random sequence before execution so cases can run independently.
+  return ['UTC', 'Europe/Moscow', 'America/New_York'].flatMap(zone => Array.from({ length: 100 }, (_, sample) => {
+    const plans = Array.from({ length: 3 }, (_, process) => ({ tasks: Array.from({ length: 8 }, (_, task) => {
+      const start = random(12) - 2
+      return { id: process * 8 + task, start, end: start + random(9), resources: Array.from({ length: random(6) }, () => ({ resource_id: random(4) + 1, quantity: (random(11) - 2) / 2 })) }
+    }) }))
+    return { zone, sample, anchor: ['2026-03-02', '2026-10-26', '2020-12-28'][sample % 3]!, plans, previewTasks: [random(24), random(24)] as const }
+  }))
+}
+
 describe('indexed resource demand', () => {
   it('preserves first duplicate assignments, all duplicate task rows and the first task used by preview', () => {
     const processes = [{ tasks: [
@@ -58,30 +71,22 @@ describe('indexed resource demand', () => {
     }
   })
 
-  it('matches 300 reproducible multi-process plans over DST and ISO year boundaries', () => {
-    let seed = 1771
-    const random = (limit: number) => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed % limit }
-    for (const zone of ['UTC', 'Europe/Moscow', 'America/New_York']) {
-      vi.stubEnv('TZ', zone)
-      try {
-        for (let sample = 0; sample < 100; sample++) {
-          const anchor = ['2026-03-02', '2026-10-26', '2020-12-28'][sample % 3]!
-          const date = (offset: number) => { const value = toDate(anchor); value.setDate(value.getDate() + offset); return value }
-          const text = (offset: number) => { const day = date(offset); return `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}` }
-          const processes = Array.from({ length: 3 }, (_, process) => ({ tasks: Array.from({ length: 8 }, (_, task) => {
-            const start = random(12) - 2
-            return { id: process * 8 + task, start_date: text(start), end_date: text(start + random(9)), resources: Array.from({ length: random(6) }, () => ({ resource_id: random(4) + 1, quantity: (random(11) - 2) / 2 })) }
-          }) }))
-          const original = structuredClone(processes), index = indexResourceDemand(processes)
-          const previews = [idle, { active: true, taskId: random(24), startDate: text(-1), endDate: text(5) },
-            { active: true, taskId: random(24), startDate: text(7), endDate: text(14) }, { active: true, taskId: 99, startDate: text(0), endDate: text(1) }]
-          for (let offset = -1; offset < 14; offset++) for (let resource = 1; resource <= 5; resource++) for (const preview of previews) {
-            expect(indexedResourceUsage(index, resource, date(offset), preview), `${zone} sample ${sample} resource ${resource} day ${offset}`).toBe(reference(processes, resource, date(offset), preview))
-          }
-          expect(processes).toEqual(original)
-        }
-      } finally { vi.unstubAllEnvs() }
-    }
+  it.each(demandSamples())('matches a reproducible plan over DST and ISO year boundaries: $zone sample $sample', ({ zone, sample, anchor, plans, previewTasks }) => {
+    vi.stubEnv('TZ', zone)
+    try {
+      const date = (offset: number) => { const value = toDate(anchor); value.setDate(value.getDate() + offset); return value }
+      const text = (offset: number) => { const day = date(offset); return `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}` }
+      const processes = plans.map(process => ({ tasks: process.tasks.map(task => ({
+        id: task.id, start_date: text(task.start), end_date: text(task.end), resources: task.resources,
+      })) }))
+      const original = structuredClone(processes), index = indexResourceDemand(processes)
+      const previews = [idle, { active: true, taskId: previewTasks[0], startDate: text(-1), endDate: text(5) },
+        { active: true, taskId: previewTasks[1], startDate: text(7), endDate: text(14) }, { active: true, taskId: 99, startDate: text(0), endDate: text(1) }]
+      for (let offset = -1; offset < 14; offset++) for (let resource = 1; resource <= 5; resource++) for (const preview of previews) {
+        expect(indexedResourceUsage(index, resource, date(offset), preview), `${zone} sample ${sample} resource ${resource} day ${offset}`).toBe(reference(processes, resource, date(offset), preview))
+      }
+      expect(processes).toEqual(original)
+    } finally { vi.unstubAllEnvs() }
   })
 
   it('rebuilds after confirmed, pending and rolled-back dates or assignments, but not for a held preview', () => {
