@@ -18,6 +18,28 @@ export function useRoleAccess() {
   const role = computed(() => auth.user?.preset)
   const userId = computed(() => auth.user?.id)
 
+  // Bar renders must not rescan every task for each ownership and peer check.
+  const taskAccess = computed(() => {
+    const processes = new Map<OwnerId, { process: DtoDetailedProcess; owners: Map<OwnerId, OwnerId>; sibling: boolean }>()
+    const projects = new Set<number>()
+    const employee = userId.value
+    for (const process of planning.taskPlanning?.processes ?? []) {
+      const owners = new Map<OwnerId, OwnerId>()
+      let sibling = false
+      for (const task of process.tasks ?? []) {
+        if (!owners.has(task.id)) owners.set(task.id, task.owner_id)
+        if (employee != null && task.owner_id === employee) sibling = true
+        for (const subtask of task.subtasks ?? []) {
+          if (!owners.has(subtask.id)) owners.set(subtask.id, subtask.owner_id)
+          if (employee != null && subtask.owner_id === employee) sibling = true
+        }
+      }
+      if (!processes.has(process.id)) processes.set(process.id, { process, owners, sibling })
+      if (sibling && process.project_id != null) projects.add(process.project_id)
+    }
+    return { processes, projects }
+  })
+
   // === Projects ===
 
   /** View/list projects: project.view */
@@ -48,11 +70,11 @@ export function useRoleAccess() {
   /** Process owner of a task/milestone (task/milestone.update — parent scope) */
   function processOwner(processId: OwnerId): OwnerId {
     if (processId == null) return null
-    return planning.taskPlanning?.processes?.find((p: DtoDetailedProcess) => p.id === processId)?.owner_id ?? null
+    return taskAccess.value.processes.get(processId)?.process.owner_id ?? null
   }
 
   function taskProjectOwner(processId: OwnerId): OwnerId {
-    return planning.taskPlanning?.processes?.find((p) => p.id === processId)?.project_owner_id ?? null
+    return taskAccess.value.processes.get(processId)?.process.project_owner_id ?? null
   }
 
   function processPeerProbe(projectId: OwnerId) {
@@ -61,16 +83,11 @@ export function useRoleAccess() {
   }
 
   function taskPeerProbe(processId: OwnerId) {
-    const processes = planning.taskPlanning?.processes ?? []
-    const process = processes.find((p) => p.id === processId)
-    const hasEmployeeTask = (p: DtoDetailedProcess) => (p.tasks ?? []).some((task) =>
-      task.owner_id === userId.value || (task.subtasks ?? []).some((subtask) => subtask.owner_id === userId.value),
-    )
+    const index = taskAccess.value
+    const row = index.processes.get(processId)
     return {
-      sibling: userId.value != null && !!process && hasEmployeeTask(process),
-      projectSibling: userId.value != null && process?.project_id != null && processes.some((p) =>
-        p.project_id === process.project_id && hasEmployeeTask(p),
-      ),
+      sibling: row?.sibling ?? false,
+      projectSibling: row?.process.project_id != null && index.projects.has(row.process.project_id),
     }
   }
 
@@ -125,8 +142,7 @@ export function useRoleAccess() {
   }
 
   function taskOwner(processId: OwnerId, taskId?: number): OwnerId {
-    const tasks = planning.taskPlanning?.processes?.find((p) => p.id === processId)?.tasks ?? []
-    return tasks.flatMap((task) => [task, ...(task.subtasks ?? [])]).find((task) => task.id === taskId)?.owner_id ?? null
+    return taskAccess.value.processes.get(processId)?.owners.get(taskId) ?? null
   }
 
   /** Edit task: task.update + parent */

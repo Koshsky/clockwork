@@ -16,7 +16,7 @@ export interface DesktopServiceState {
   revision: number
   context: { id: string; server: string; accountId: number } | null
   storage?: { phase: 'starting' | 'ready' | 'closing' | 'stopped' | 'failed'; driver?: string; sqlite?: string; schemaVersion?: number; journalMode?: string; synchronous?: number; readOnly?: boolean; code?: string }
-  queue?: { revision: number; running: boolean; contextId: string }
+  queue?: { revision: number; running: boolean; contextId: string; mutationRevision?: number; snapshotRevision?: number; snapshotDomains?: Record<string, number> }
   sync?: { revision: number; contextId: string; running: boolean; reachable: boolean | null; lastPullAt: number | null; progress: number | null; reconnectAt: number | null; code?: string }
   running: number
   capabilities: { reads: Array<keyof ReadOperations>; commands: Array<keyof CommandOperations> }

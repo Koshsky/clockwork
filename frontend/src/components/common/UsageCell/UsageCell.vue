@@ -11,6 +11,7 @@ const props = withDefaults(
     used: number
     available: number | null
     isWeekend: boolean
+    contextKey?: string | number
     /** Whether to show the used/available caption (hidden in narrow cells) */
     showText?: boolean
     /** Resource employees absent on the cell's days (for the tooltip) */
@@ -33,7 +34,7 @@ const displayText = computed(() =>
 </script>
 
 <template>
-  <TooltipCell class="uc" :multiline="true">
+  <TooltipCell class="uc" :multiline="true" :context-key="contextKey">
     <div class="uc-inner" :class="[state, { 'uc--compact': !showText }]"><span v-if="showText">{{ displayText }}</span></div>
     <template #popup>
       <UsageTooltip :used="used" :available="available" :absentees="absentees" />

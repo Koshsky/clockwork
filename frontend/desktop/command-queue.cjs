@@ -5,6 +5,12 @@ const { createCacheApplier } = require('./command-cacheProjection.cjs')
 const { validMutation, requestPath, entryOf, requestHash, unwrap, kinds } = require('./command-request.cjs')
 const { decorateSnapshot, applyOwnConfirmation } = require('./command-baseline.cjs')
 const { revisionsFor } = require('./command-revisions.cjs')
+const snapshotRoutes = {
+  '/project': ['projects'], '/resources': ['resources'], '/local/resource-header': ['resources'],
+  '/user/all': ['users'], '/user': ['staff', 'employees'], '/timesheet/calendar': ['calendar'],
+  '/timesheet/states': ['states'], '/planning/projects': ['project-plan'],
+  '/planning/processes': ['process-plan'], '/planning/tasks': ['task-plan'],
+}
 const { safeJSON } = require('./storage-validation.cjs')
 const clone = value => structuredClone(value)
 const problem = code => ({ code, message: code })
@@ -15,6 +21,7 @@ function createCommandQueue({ storage, session, now = Date.now, retryMs = 60000,
   let tail = Promise.resolve(), flight = null, stopped = false, revision = 0, timer = null, running = false
   let identity = session.status().contextId
   let manualFollowUp = null, pullOwner = false, mutationRevision = 0, snapshotRevision = 0
+  let snapshotDomains = {}
   const assertCurrent = own => { if (!current(own)) throw new Error('SESSION_CONTEXT_CHANGED') }
   let readSequence = 0, accessGeneration = 0
   const foregroundReads = new Map()
@@ -24,10 +31,24 @@ function createCommandQueue({ storage, session, now = Date.now, retryMs = 60000,
   const current = own => !stopped && own === session.status().contextId && scope() != null
   const repo = () => { const s = scope(); if (!s) throw new Error('COMMAND_SESSION_UNAVAILABLE'); return storage.forScope(s) }
   const exclusive = run => { const result = tail.then(run); tail = result.catch(() => {}); return result }
-  const status = () => ({ revision, mutationRevision, snapshotRevision, running, contextId: session.status().contextId })
+  const status = () => ({ revision, mutationRevision, snapshotRevision, snapshotDomains: { ...snapshotDomains }, running, contextId: session.status().contextId })
   function emit() { revision++; for (const listener of listeners) { try { listener(status()) } catch { /* A closed view cannot stop delivery. */ } } }
+  // Fixed domain watermarks survive missed notifications without retaining cache keys or payloads.
+  function snapshotsChanged(changes, invalidate = false) {
+    snapshotRevision++
+    if (invalidate) snapshotDomains['*'] = snapshotRevision
+    for (const change of changes) {
+      const key = change.key.startsWith(session.status().server + '/') ? change.key.slice(session.status().server.length) : change.key
+      const path = key.split('?')[0]
+      const names = snapshotRoutes[path] || (/^\/resources\/[1-9]\d*\/members$/.test(path) ? ['members']
+        : /^\/resources\/[1-9]\d*\/absence$/.test(path) ? ['absences']
+          : /^\/user\/[1-9]\d*\/days$/.test(path) ? ['periods'] : ['*'])
+      for (const name of names) snapshotDomains[name] = snapshotRevision
+    }
+    emit()
+  }
   const unsubscribe = session.subscribe(() => {
-    if (identity !== session.status().contextId) { identity = session.status().contextId; accessGeneration++; foregroundReads.clear(); emit() }
+    if (identity !== session.status().contextId) { identity = session.status().contextId; accessGeneration++; foregroundReads.clear(); snapshotDomains = {}; emit() }
     if (session.status().mode === 'online') schedule(0)
   })
   async function all(repository) {
@@ -299,7 +320,7 @@ function createCommandQueue({ storage, session, now = Date.now, retryMs = 60000,
       }
       assertCurrent(own)
       await repository.settle({ operationId: entry.operationId, status, result: { ...unwrapped.result, operationId: entry.operationId, data: accepted ? { ...unwrapped.result.data, data: decorateSnapshot(dto, unwrapped.revisions, entry.input.route) } : unwrapped.result.data, baseline: unwrapped.revisions, revisions: unwrapped.revisions, previousRevisions: wire.body?._preconditions || {}, sequence: entry.sequence }, mappings, cacheChanges })
-      mutationRevision++; snapshotRevision++; emit()
+      mutationRevision++; snapshotsChanged(cacheChanges, true)
     })
     return true
   }
@@ -430,7 +451,7 @@ function createCommandQueue({ storage, session, now = Date.now, retryMs = 60000,
       await repository.cacheCommit({ changes })
       assertCurrent(own)
       if (typeof stamp === 'object') { stamp.cohort.applied = stamp.sequence; stamp.cohort.revision = (previous?.revision ?? 0) + 1; stamp.cohort.access = accessGeneration }
-      if (pullOwner) { snapshotRevision++; emit() }
+      if (pullOwner) snapshotsChanged(changes)
       return { projection: changes[0].projection, revisions, pending: await visiblePending(repository) }
     })
   }
@@ -450,7 +471,7 @@ function createCommandQueue({ storage, session, now = Date.now, retryMs = 60000,
       if (stamp !== mutationRevision) return false
       if (changes.length) await repository.cacheCommit({ changes })
       assertCurrent(own)
-      snapshotRevision++; emit()
+      snapshotsChanged(changes)
       return true
     })
   }
@@ -470,7 +491,7 @@ function createCommandQueue({ storage, session, now = Date.now, retryMs = 60000,
       assertCurrent(own)
       if (stamp != null && stamp !== revision) return null
       await invalidateReadsOwned(keep, repo(), own)
-      snapshotRevision++; emit()
+      snapshotsChanged([], true)
       return revision
     })
   }
@@ -542,7 +563,7 @@ function createCommandQueue({ storage, session, now = Date.now, retryMs = 60000,
       if (request.action === 'discard') {
         const entries = await all(repository), values = await caches(repository)
         const changes = await overlay(values, entries.filter(row => !request.operationIds.includes(row.operationId)), [], repository)
-        await repository.discardHttp({ operationIds: request.operationIds, changes }); mutationRevision++; snapshotRevision++; emit(); return null
+        await repository.discardHttp({ operationIds: request.operationIds, changes }); mutationRevision++; snapshotsChanged(changes, true); return null
       }
       throw new Error('COMMAND_INVALID_REQUEST')
     })

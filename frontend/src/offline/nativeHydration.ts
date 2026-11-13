@@ -15,6 +15,6 @@ export function nativeSnapshotReloaders(): Array<{ name: string; run: () => Prom
     { name: 'project-plan', run: () => planning.refreshProjectPlanning(true, true) },
     { name: 'process-plan', run: () => planning.refreshProcessPlanning(true, true) },
     { name: 'task-plan', run: () => planning.refreshTaskPlanning(true, true) },
-    { name: 'members', run: async () => { for (const row of app.resources) if (row.id != null) await app.refreshResourceMembers(row.id, true) } },
+    { name: 'members', run: async () => { for (const id of Object.keys(app.resourceMembers)) await app.refreshResourceMembers(Number(id), true) } },
   ]
 }

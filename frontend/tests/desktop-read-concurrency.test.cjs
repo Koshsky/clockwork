@@ -27,6 +27,46 @@ function held(queue, operation, input = {}) {
 }
 const title = result => result.data.data.processes[0].tasks[0].title
 async function seed(f, value = 'Before') { await f.queue.cachePut(base + '/planning/tasks', { ts: 1, data: reply(plan(value)).data }, { 'process:10': 'v1' }) }
+
+for (const [path, names] of [
+ ['/planning/tasks', ['task-plan']], ['/planning/processes', ['process-plan']], ['/planning/projects', ['project-plan']],
+ ['/resources?limit=50', ['resources']], ['/local/resource-header?owner_id=all', ['resources']],
+ ['/user?limit=50', ['staff', 'employees']], ['/user/all', ['users']], ['/timesheet/calendar', ['calendar']],
+ ['/resources/10/members', ['members']], ['/resources/10/absence', ['absences']], ['/permissions/me', ['*']],
+]) test('cache notifications target fixed domains for ' + path, async t => {
+ const f = await fixture(t), key = path.startsWith('/local/') ? path : base + path
+ await f.queue.cachePut(key, { ts: 1, data: reply([]).data })
+ const state = f.queue.status()
+ assert.deepEqual(Object.keys(state.snapshotDomains).sort(), [...names].sort())
+ assert.ok(names.every(name => state.snapshotDomains[name] === state.snapshotRevision))
+ const copy = state.snapshotDomains; copy.forged = 1000
+ assert.equal(f.queue.status().snapshotDomains.forged, undefined)
+})
+
+test('snapshot watermarks stay bounded across resource keys and preserve missed domain changes', async t => {
+ const f = await fixture(t)
+ await seed(f)
+ const planVersion = f.queue.status().snapshotDomains['task-plan']
+ for (let id = 1; id <= 64; id++) await f.queue.cachePut(base + '/resources/' + id + '/members', { ts: id, data: reply([]).data })
+ const state = f.queue.status()
+ assert.deepEqual(Object.keys(state.snapshotDomains).sort(), ['members', 'task-plan'])
+ assert.equal(state.snapshotDomains['task-plan'], planVersion)
+ assert.equal(state.snapshotDomains.members, state.snapshotRevision)
+ f.switchAccount()
+ assert.deepEqual(f.queue.status().snapshotDomains, {})
+})
+
+test('a committed pull publishes its domains together and a stale pull cannot publish any', async t => {
+ const f = await fixture(t)
+ const rows = ['/planning/tasks', '/timesheet/calendar'].map(path => ({ key: base + path, value: { ts: 1, data: reply([]).data } }))
+ assert.equal(await f.queue.commitPull(rows, f.queue.status().mutationRevision), true)
+ const before = f.queue.status()
+ assert.deepEqual(before.snapshotDomains, { 'task-plan': before.snapshotRevision, calendar: before.snapshotRevision })
+ assert.equal(await f.queue.commitPull(rows, -1), false)
+ assert.deepEqual(f.queue.status(), before)
+ await f.queue.invalidateReads([])
+ assert.equal(f.queue.status().snapshotDomains['*'], f.queue.status().snapshotRevision)
+})
 test('parallel cold reads for unrelated keys all commit without invalidating one another', async t => {
  const f = await fixture(t)
  const reads = Array.from({ length: 6 }, (_, i) => held(f.queue, 'GET /task/{id}/comments', { path: { id: String(i + 1) } }))

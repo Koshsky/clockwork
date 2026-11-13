@@ -26,7 +26,7 @@ const iso = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStar
 const add = (date, days) => { const value = new Date(date + 'T00:00:00'); value.setDate(value.getDate() + days); return iso(value) }
 const from = iso(startDay), to = add(from, size.days - 1), absentDay = add(from, 2), spikeDay = add(from, 3)
 const dates = { start_date: from, end_date: to }
-const users = [], projects = [], processes = [], resources = [], tasks = [], report = [], calls = [], budgetFailures = []
+const users = [], projects = [], processes = [], resources = [], tasks = [], report = [], calls = [], budgetFailures = [], measurements = []
 let token, state, employee, browser, native, profile, heapDiagnostic, absencePresent = false, functionalComplete = false
 const mark = (mode, message, metrics = {}) => { report.push({ mode, message, ...metrics }); console.log('PASS', mode, message, JSON.stringify(metrics)) }
 function latency(label, elapsed, ceiling) {
@@ -93,6 +93,7 @@ async function metrics(page) {
 }
 async function boundedDOM(page, mode, label) {
  const value = await metrics(page)
+ measurements.push({ mode, label, ...value })
  expect(value.resourceCells, mode + ' ' + label + ' horizontally virtualized cells').toBeLessThanOrEqual(value.cellCeiling)
  expect(value.domNodes, mode + ' ' + label + ' DOM ceiling').toBeLessThanOrEqual(budget.domNodes)
  expect(value.jsHeapBytes, 'Chromium exposes the measured JS heap').not.toBeNull()
@@ -228,6 +229,17 @@ async function verifyView(mode, page, errors) {
  expect(errors).toEqual([])
  mark(mode, 'deleting the real absence restores availability only on its day and updates weekly minimum without changing assignments or demand')
  await absence(true)
+ for (let cycle = 0; cycle < 3; cycle++) {
+  await unit(page, 'День')
+  for (const date of [from, add(from, 32), add(from, 64), from]) {
+   await scrollDate(page, date, 'day'); await boundedDOM(page, mode, 'repeat ' + cycle + ' day ' + date)
+  }
+  await unit(page, 'Неделя'); await scrollDate(page, from, 'week')
+  await boundedDOM(page, mode, 'repeat ' + cycle + ' week')
+ }
+ await assertPlanning(page)
+ expect(errors).toEqual([])
+ mark(mode, 'repeated day/week switches and forward/backward scrolls keep the resource DOM and raw heap within the same budgets')
 }
 
 try {
@@ -302,7 +314,7 @@ try {
    console.log('HEAP DIAGNOSTIC', JSON.stringify(heapDiagnostic))
   } finally { await session.detach() }
  }
- console.log(JSON.stringify({ cases: report.length, renderer: sourceURL ? 'source Vite, no build' : 'existing compiled web and ASAR', budget, size, report, budgetFailures }))
+ console.log(JSON.stringify({ cases: report.length, renderer: sourceURL ? 'source Vite, no build' : 'existing compiled web and ASAR', budget, size, report, budgetFailures, measurements }))
  expect(budgetFailures, 'predeclared performance ceilings').toEqual([])
 } finally {
  const cleanupErrors = []
@@ -316,6 +328,6 @@ try {
  if (state) await remove('/timesheet/states/' + state.id)
  if (profile) rmSync(profile, { recursive: true, force: true })
  await new Promise(resolve => { server.close(resolve); server.closeAllConnections() })
- if (process.env.ERP_TEST_REPORT) writeFileSync(process.env.ERP_TEST_REPORT, JSON.stringify({ cases: report.length, functionalComplete, renderer: sourceURL ? 'source Vite, no build' : 'existing compiled web and ASAR', budget, size, report, budgetFailures, heapDiagnostic, cleanupErrors }, null, 2) + '\n', { mode: 0o600 })
+ if (process.env.ERP_TEST_REPORT) writeFileSync(process.env.ERP_TEST_REPORT, JSON.stringify({ cases: report.length, functionalComplete, renderer: sourceURL ? 'source Vite, no build' : 'existing compiled web and ASAR', budget, size, report, budgetFailures, measurements, heapDiagnostic, cleanupErrors }, null, 2) + '\n', { mode: 0o600 })
  expect(cleanupErrors, 'all owned API fixtures are cleaned up').toEqual([])
 }

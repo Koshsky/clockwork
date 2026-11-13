@@ -8,6 +8,7 @@ The web app and the desktop wrapper are versioned together.
 
 ## [Unreleased]
 
+- Large diagrams use indexed permissions, reusable resource cells and scoped desktop refreshes to reduce memory pressure.
 - Large task diagrams recalculate resource headers faster in days and weeks.
 
 - Complete resource headers stay visible during refresh and clear when access changes.

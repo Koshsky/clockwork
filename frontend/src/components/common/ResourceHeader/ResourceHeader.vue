@@ -35,20 +35,25 @@ function cellAbsentees(resourceId: number, start: Date, end: Date): DtoResourceA
   return resourceAbsencesInRange(list, start, end)
 }
 
-function cellUsage(resourceId: number, idx: number): CellUsage {
-  const start = props.t.cellStart(idx)
-  const end = props.t.cellEnd(idx)
+function cellUsage(resourceId: number, start: Date, end: Date): CellUsage {
   return {
     ...resourceCellUsage(resourceId, start, end, props.usageFn, props.availableFn),
     absentees: cellAbsentees(resourceId, start, end),
   }
 }
 
+// Dates and geometry belong to a column, not to each resource in that column.
+const visibleCells = computed(() => props.t.visibleIndices.map((index) => {
+  const start = props.t.cellStart(index)
+  const date = fmtDate(start)
+  return { start, end: props.t.cellEnd(index), date, left: props.t.cellLeft(index) + 'px', contextKey: props.t.unit + ':' + date }
+}))
+
 /** Usage per resource and visible cell (peak daily load inside a cell) */
 const resourceCells = computed(() =>
   props.resources.map((res) => ({
     res,
-    cells: props.t.visibleIndices.map((i) => cellUsage(res.id, i)),
+    cells: visibleCells.value.map((cell) => cellUsage(res.id, cell.start, cell.end)),
   })),
 )
 
@@ -95,13 +100,13 @@ const labelsH = computed(() => resourceCells.value.length * rowH.value)
       <div class="rs-row" :class="{ 'rs-row--compact': !showText }">
         <div
           v-for="(u, k) in rc.cells"
-          :key="'rc' + t.visibleIndices[k]"
+          :key="k"
           class="rs-cell"
           :data-resource-id="rc.res.id"
-          :data-date="fmtDate(t.cellStart(t.visibleIndices[k]))"
-          :style="{ left: t.cellLeft(t.visibleIndices[k]) + 'px', width: t.cellPx + 'px' }"
+          :data-date="visibleCells[k].date"
+          :style="{ left: visibleCells[k].left, width: t.cellPx + 'px' }"
         >
-          <UsageCell :used="u.used" :available="u.available" :isWeekend="u.isWeekend" :show-text="showText" :absentees="u.absentees" />
+          <UsageCell :used="u.used" :available="u.available" :isWeekend="u.isWeekend" :show-text="showText" :absentees="u.absentees" :context-key="visibleCells[k].contextKey" />
         </div>
       </div>
     </template>
