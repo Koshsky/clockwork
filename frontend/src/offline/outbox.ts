@@ -309,7 +309,7 @@ watch(appLocale, () => {
  *  entries (!quarantined), in send order (FIFO). Quarantined ones are visible in the errors block. */
 export async function refreshQueue(): Promise<void> {
   if (nativeQueue) {
-    queueItems.value = (await nativeCommands()).map(row => nativeEntry(row) as OutboxEntry).filter(row => !row.quarantined).map(toViewItem)
+    await refreshPendingCount()
     return
   }
   if (platformCapabilities.kind === 'web') return
@@ -321,15 +321,26 @@ export async function refreshQueue(): Promise<void> {
     .map(toViewItem)
 }
 
+let nativePendingRead = 0
+let nativePendingApplied = 0
+let nativePendingContext: string | undefined
 export async function refreshPendingCount(): Promise<void> {
   if (nativeQueue) {
+    const own = desktopSessionState.value?.contextId, read = ++nativePendingRead
+    if (nativePendingContext !== own) {
+      nativePendingContext = own
+      pendingCount.value = 0; pendingRefs.value = new Set(); queueItems.value = []
+    }
+    const current = () => read >= nativePendingApplied && own === desktopSessionState.value?.contextId
     try {
       const entries = (await nativeCommands()).map(row => nativeEntry(row) as OutboxEntry)
+      if (!current()) return
+      nativePendingApplied = read
       pendingCount.value = entries.filter(row => !row.quarantined).length
       pendingRefs.value = new Set(entries.flatMap(row => { const id = entryIdOf(row); return id == null ? [] : [`${row.entity}:${id}`] }))
       queueItems.value = entries.filter(row => !row.quarantined).map(toViewItem)
       legacyQueueAvailability.value = entries.length ? 'pending' : 'empty'
-    } catch { pendingCount.value = 0; pendingRefs.value = new Set(); queueItems.value = []; legacyQueueAvailability.value = 'unavailable' }
+    } catch { if (current()) { nativePendingApplied = read; legacyQueueAvailability.value = 'unavailable' } }
     return
   }
   if (platformCapabilities.kind === 'web') return

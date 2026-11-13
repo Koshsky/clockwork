@@ -61,7 +61,10 @@
       "command-periodAvailability.cjs",
       "command-calendar.cjs",
       "command-date.cjs",
-      "command-clamp.cjs"
+      "command-clamp.cjs",
+      "business-adapters.cjs",
+      "business-request.cjs",
+      "business-bindings.json"
     ],
     "extraResources": [
       {
@@ -131,7 +134,10 @@
       "command-periodAvailability.cjs",
       "command-calendar.cjs",
       "command-date.cjs",
-      "command-clamp.cjs"
+      "command-clamp.cjs",
+      "business-adapters.cjs",
+      "business-request.cjs",
+      "business-bindings.json"
     ]
   }
 }

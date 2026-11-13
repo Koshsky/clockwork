@@ -81,6 +81,7 @@ contextBridge.exposeInMainWorld('erpDesktop', {
     },
   },
   service: {
+    businessProtocol: 1,
     status: () => invoke({ kind: 'status' }),
     read: async request => {
       if (!bounded(request)) return { status: 'failed', error: invalid() }

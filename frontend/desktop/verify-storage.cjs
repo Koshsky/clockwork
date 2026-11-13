@@ -3,7 +3,7 @@
 const fs = require('node:fs')
 const path = require('node:path')
 const { spawnSync } = require('node:child_process')
-const payload = ['sync-service.cjs', 'command-periodAvailability.cjs', 'command-calendar.cjs', 'command-date.cjs', 'command-clamp.cjs', 'command-revisions.cjs', 'command-baseline.cjs', 'command-request.cjs', 'command-queue.cjs', 'command-cacheProjection.cjs', 'command-planning.cjs', 'command-timesheet.cjs', 'storage.cjs', 'storage-worker.cjs', 'storage-db.cjs', 'storage-schema.cjs', 'storage-validation.cjs', 'protocol.cjs', 'protocol-operations.json', 'session-service.cjs', 'api-routes.json']
+const payload = ['business-adapters.cjs', 'business-request.cjs', 'business-bindings.json', 'sync-service.cjs', 'command-periodAvailability.cjs', 'command-calendar.cjs', 'command-date.cjs', 'command-clamp.cjs', 'command-revisions.cjs', 'command-baseline.cjs', 'command-request.cjs', 'command-queue.cjs', 'command-cacheProjection.cjs', 'command-planning.cjs', 'command-timesheet.cjs', 'storage.cjs', 'storage-worker.cjs', 'storage-db.cjs', 'storage-schema.cjs', 'storage-validation.cjs', 'protocol.cjs', 'protocol-operations.json', 'session-service.cjs', 'api-routes.json']
 function verifyStoragePayload(source, resources) {
   const directory = path.join(resources, 'app.asar.unpacked')
   for (const name of payload) {

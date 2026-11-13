@@ -24,15 +24,16 @@ const okRead = { status: 'ok', data: { processes: [] }, source: 'refresh' }
 const okCommand = { status: 'confirmed', data: { id: 1, title: 'Saved' } }
 
 const validInputs = {
+  'resource.header': {}, 'account.detail': { userId: 1 }, 'timesheet.employeePeriods': { userId: 1, start: '2026-11-01', end: '2026-11-30' }, 'assignment.catalog': {},
   'project.list': {}, 'resource.list': { ownerId: 7 }, 'resource.members': { resourceId: -1 }, 'resource.calendar': { start: '2026-11-01', end: '2026-11-30' },
   'resource.absences': { resourceId: 1, start: '2026-11-01', end: '2026-11-30' }, 'employee.list': { staffOnly: true },
   'timesheet.periods': { employeeIds: [7], start: '2026-11-01', end: '2026-11-30' }, 'account.list': { limit: 500 }, 'rbac.user': { userId: 7 }, 'comment.list': { taskId: 1 }, 'assignment.list': { taskId: 1 }, 'audit.events': { search: 'fixture' },
   'task.move': { id: 1, start: '2026-11-01', end: '2026-11-30' }, 'dependency.create': { taskId: 1, dependency: { depends_on_task_id: 2, type: 'fs' } },
-  'dependency.update': { id: 1, patch: { type: 'ss' } }, 'dependency.delete': { id: 1 }, 'assignment.create': { task_id: 1, resource_id: 2, quantity: 3 }, 'assignment.delete': { id: 1 },
+  'dependency.update': { taskId: 1, id: 1, patch: { type: 'ss' } }, 'dependency.delete': { taskId: 1, id: 1 }, 'assignment.create': { task_id: 1, resource_id: 2, quantity: 3 }, 'assignment.delete': { id: 1 },
   'resource.addMember': { resourceId: 1, userId: 7 }, 'resource.removeMember': { resourceId: 1, userId: 7 },
   'timesheet.assignRange': { userId: 7, stateId: 1, start: '2026-11-01', end: '2026-11-30' }, 'timesheet.clearRange': { userId: 7, start: '2026-11-01', end: '2026-11-30' },
   'project.reorder': { ids: [1, 2] }, 'process.reorder': { projectId: 1, ids: [1, 2] }, 'task.reorder': { processId: 1, ids: [1, 2] },
-  'comment.create': { taskId: 1, comment: { content: 'Stored text', parent_id: 2 } }, 'comment.delete': { id: 1 },
+  'comment.create': { taskId: 1, comment: { content: 'Stored text', parent_id: 2 } }, 'comment.delete': { taskId: 1, id: 1 },
   'account.create': { username: 'fixture', permissions: [{ resource: 'task', action: 'view', granted: false }] }, 'account.update': { id: 7, patch: { first_name: 'Fixture' } },
   'account.delete': { id: 7 }, 'account.setManager': { id: 7, managerId: null }, 'rbac.upsertRule': { preset: 'vp', resource: 'task', action: 'view', scope: 'all' },
   'rbac.deleteRule': { id: 1 }, 'rbac.createPreset': { tag: 'fixture', name: 'Fixture' }, 'rbac.updatePreset': { tag: 'fixture', patch: { description: 'Fixture' } }, 'rbac.deletePreset': { tag: 'fixture' },
@@ -44,7 +45,7 @@ for (const entity of ['project', 'process', 'task', 'milestone', 'resource', 'st
   validInputs[entity + '.update'] = { id: -1, patch: {} }
   validInputs[entity + '.delete'] = { id: -1 }
 }
-test('all 67 declared read/command operations have usable bounded schemas', () => {
+test('all declared read/command operations have usable bounded schemas', () => {
   for (const [kind, names] of [['read', readOperations], ['command', commandOperations]]) for (const operation of names) {
     const request = { protocol: 1, kind, requestId: 'request', contextId: 'context', operation, input: validInputs[operation], ...(kind === 'read' ? { source: 'snapshot' } : { operationId: 'operation' }) }
     assert.equal(validate(request), true, operation)
@@ -271,7 +272,7 @@ function preloadFixture() {
 test('preload exposes only narrow bridge methods, never Electron events or raw invocation', () => {
   const f = preloadFixture()
   assert.deepEqual(Object.keys(f.context.bridge).sort(), ['appVersion', 'isElectron', 'queue', 'service', 'session'])
-  assert.deepEqual(Object.keys(f.context.bridge.service).sort(), ['cancel', 'execute', 'read', 'status', 'subscribe'])
+  assert.deepEqual(Object.keys(f.context.bridge.service).sort(), ['businessProtocol', 'cancel', 'execute', 'read', 'status', 'subscribe'])
 })
 test('preload rejects oversized trees before serializing IPC to main', async () => {
   const f = preloadFixture(), result = await f.evaluate("bridge.service.execute({ operation:'task.update', input: { id:1, patch:{title:'x'.repeat(65537)} } })")
@@ -358,4 +359,14 @@ test('a real document navigation still releases subscriptions and ignores its ol
   f.contents.emit('did-start-navigation', {}, 'https://other.example', false, true)
   f.service.setScope(null); await f.send({ kind: 'ack', subscriptionId: 'old-document', revision: first })
   assert.equal(f.contents.sent.length, 1); f.host.dispose()
+})
+test('language changes do not alter command identity, while revision and temporary-ID reuse are rejected', async () => {
+  let calls = 0
+  const service = fixture({ commands: { 'task.update': () => { calls++; return okCommand } } })
+  const request = { ...command(service), locale: 'ru', preconditions: { 'process:1': 'loaded' }, temporaryId: -1 }
+  assert.equal((await service.execute('owner', request)).status, 'confirmed')
+  assert.equal((await service.execute('owner', { ...request, locale: 'en' })).status, 'confirmed')
+  assert.equal(calls, 1)
+  assert.equal((await service.execute('owner', { ...request, preconditions: { 'process:1': 'different' } })).status, 'conflict')
+  assert.equal((await service.execute('owner', { ...request, temporaryId: -2 })).status, 'conflict')
 })

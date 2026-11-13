@@ -14,7 +14,7 @@ import type {
   DtoUpdateProcessRequest, DtoUpdateProjectRequest, DtoUpdateResourceRequest,
   DtoUpdateStateRequest, DtoUpdateTaskRequest, DtoUpdateUserRequest,
   DtoUserInfo, DtoUserPermissionsInput, DtoUserPermissionsView, DtoUserResponse,
-  DtoUserStatesResponse, EngineKindInfo,
+  DtoUserStatesResponse, DtoUserStateResponse, EngineKindInfo,
 } from '@/api'
 
 export interface DataFailure {
@@ -25,7 +25,7 @@ export interface DataFailure {
 }
 
 export type ReadResult<T> =
-  | { status: 'ok'; data: T; source: 'snapshot' | 'refresh'; coverage?: SnapshotCoverage }
+  | { status: 'ok'; data: T; source: 'snapshot' | 'refresh'; coverage?: SnapshotCoverage; baseline?: Record<string, string> }
   | { status: 'missing' }
   | { status: 'cancelled' }
   | { status: 'failed'; error: DataFailure }
@@ -36,7 +36,7 @@ export type CommandResult<T> = (
   | { status: 'confirmed'; data: T }
   | { status: 'queued' }
   | { status: 'rejected' | 'conflict' | 'unknown'; error: DataFailure }
-) & { operationId?: string; steps?: CommandStep[] }
+) & { operationId?: string; steps?: CommandStep[]; baseline?: Record<string, string>; sessionContextId?: string }
 
 export interface CommandStep {
   operationId: string
@@ -50,12 +50,17 @@ export interface SnapshotCoverage {
 }
 
 export interface ReadOptions {
+  locale?: 'ru' | 'en'
   source: 'snapshot' | 'refresh'
   signal?: AbortSignal
 }
 
 export interface CommandOptions {
+  locale?: 'ru' | 'en'
   operationId?: string
+  preconditions?: Record<string, string>
+  temporaryId?: number
+  signal?: AbortSignal
 }
 
 export interface PageQuery {
@@ -84,21 +89,31 @@ interface Operation<Input, Output> {
 // Generated DTOs remain the shared business shapes; HTTP envelopes and client
 // classes are deliberately absent from these ports.
 export interface ReadOperations {
-  'project.list': Operation<PageQuery, Page<DtoProject>>
+  'project.list': Operation<PageQuery & { ownerId?: number }, Page<DtoProject>>
   'planning.projects': Operation<void, DtoProjectPlanning>
   'planning.processes': Operation<void, DtoProcessPlanning>
   'planning.tasks': Operation<void, DtoTaskPlanning>
   'resource.list': Operation<PageQuery & { ownerId?: number }, Page<DtoResourceResponse>>
+  'resource.header': Operation<{ ownerId?: number }, DtoResourceResponse[]>
   'resource.members': Operation<{ resourceId: number }, DtoResourceMemberResponse[]>
   'resource.calendar': Operation<DateRange, DtoResourceCalendar[]>
   'resource.absences': Operation<DateRange & { resourceId: number }, DtoResourceAbsenceResponse[]>
-  'employee.list': Operation<PageQuery & { terminated?: boolean; staffOnly?: boolean }, Page<DtoUserResponse>>
+  'employee.list': Operation<PageQuery & { terminated?: boolean; staffOnly?: boolean; preset?: string; managerId?: number; includeHash?: boolean }, Page<DtoUserResponse>>
   'timesheet.periods': Operation<DateRange & { employeeIds: number[] }, DtoUserStatesResponse[]>
   'timesheet.states': Operation<void, DtoStateResponse[]>
   'permissions.current': Operation<void, DtoPermission[]>
-  'account.list': Operation<PageQuery, Page<DtoAdminUserResponse>>
+  'account.list': Operation<PageQuery & { preset?: string; managerId?: number; includeHash?: boolean }, Page<DtoAdminUserResponse>>
   'account.structure': Operation<void, DtoStructureUserResponse[]>
-  'account.profile': Operation<void, DtoUserInfo>
+  'account.profile': Operation<{ userId?: number } | void, DtoUserInfo>
+  'account.detail': Operation<{ userId: number }, DtoAdminUserResponse>
+  'users.directory': Operation<void, DtoUserInfo[]>
+  'timesheet.employeePeriods': Operation<DateRange & { userId: number }, DtoUserStateResponse[]>
+  'assignment.catalog': Operation<PageQuery & { ownerId?: number }, Page<DtoAssignmentResponse>>
+  'rbac.presets': Operation<void, DtoPresetView[]>
+  'rbac.rules': Operation<void, DtoPresetRuleView[]>
+  'rbac.matrix': Operation<void, DtoMatrixCell[]>
+  'rbac.policies': Operation<void, DtoRoutePolicyView[]>
+  'rbac.kinds': Operation<void, EngineKindInfo[]>
   'rbac.configuration': Operation<void, {
     presets: DtoPresetView[]; rules: DtoPresetRuleView[]; matrix: DtoMatrixCell[]
     routePolicies: DtoRoutePolicyView[]; kinds: EngineKindInfo[]
@@ -141,19 +156,19 @@ export type CommandOperations =
   CrudOperations<'state', DtoCreateStateRequest, DtoUpdateStateRequest, DtoStateResponse> & {
     'task.move': Operation<{ id: number; start: string; end: string }, DtoTaskPlanning>
     'dependency.create': Operation<{ taskId: number; dependency: DtoCreateDependencyRequest }, DtoDependencyResponse>
-    'dependency.update': Operation<{ id: number; patch: DtoUpdateDependencyRequest }, DtoDependencyResponse>
-    'dependency.delete': Operation<{ id: number }, null>
+    'dependency.update': Operation<{ taskId: number; id: number; patch: DtoUpdateDependencyRequest }, DtoDependencyResponse>
+    'dependency.delete': Operation<{ taskId: number; id: number }, null>
     'assignment.create': Operation<DtoCreateAssignmentRequest, DtoAssignmentResponse>
     'assignment.delete': Operation<{ id: number }, null>
     'resource.addMember': Operation<{ resourceId: number; userId: number }, null>
     'resource.removeMember': Operation<{ resourceId: number; userId: number }, null>
     'timesheet.assignRange': Operation<DateRange & { userId: number; stateId: number }, null>
-    'timesheet.clearRange': Operation<DateRange & { userId: number }, null>
+    'timesheet.clearRange': Operation<DateRange & { userId: number; stateId?: number }, null>
     'project.reorder': Operation<{ ids: number[] }, null>
     'process.reorder': Operation<{ projectId: number; ids: number[] }, null>
     'task.reorder': Operation<{ processId: number; ids: number[] }, null>
     'comment.create': Operation<{ taskId: number; comment: DtoCreateCommentRequest }, DtoCommentResponse>
-    'comment.delete': Operation<{ id: number }, null>
+    'comment.delete': Operation<{ taskId: number; id: number }, null>
     'account.create': Operation<DtoCreateUserRequest, DtoCreateUserResult>
     'account.update': Operation<{ id: number; patch: DtoUpdateUserRequest }, DtoAdminUserResponse>
     'account.delete': Operation<{ id: number }, null>
@@ -194,7 +209,7 @@ export interface SessionState {
 export interface SessionPort extends Subscription<SessionState> {
   current(): SessionState
   login(username: string, password: string): Promise<ReadResult<SessionState>>
-  enterOffline(): Promise<ReadResult<SessionState>>
+  enterOffline(username?: string): Promise<ReadResult<SessionState>>
   refresh(): Promise<ReadResult<SessionState>>
   logout(): Promise<void>
   changePassword(oldPassword: string, newPassword: string): Promise<CommandResult<null>>

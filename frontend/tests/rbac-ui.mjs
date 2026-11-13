@@ -1,4 +1,5 @@
 import { chromium, expect, request } from 'playwright/test'
+import { launchElectronFixture } from './helpers/electron.mjs'
 
 const apiURL = process.env.RBAC_TEST_API_URL ?? 'http://127.0.0.1:8080/api/v1'
 const webURL = process.env.RBAC_TEST_WEB_URL ?? 'http://127.0.0.1:5173'
@@ -7,10 +8,11 @@ for (const value of [apiURL, webURL]) {
 }
 if (!process.env.RBAC_TEST_ADMIN_PASSWORD) throw new Error('Set RBAC_TEST_ADMIN_PASSWORD for the local administrator')
 const http = await request.newContext({ baseURL: apiURL.replace(/\/?$/, '/') })
-const browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL ?? 'chrome', headless: true })
-const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
+const native = process.env.ERP_TEST_DESKTOP === '1' ? await launchElectronFixture() : null
+const browser = native ? null : await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL ?? 'chrome', headless: true })
+const context = native ? native.app.context() : await browser.newContext({ viewport: { width: 1440, height: 1000 } })
 if (process.env.ERP_TEST_BLOCK_IDB === '1') await context.addInitScript(() => Object.defineProperty(window, 'indexedDB', { value: undefined }))
-const page = await context.newPage()
+const page = native ? await native.app.firstWindow() : await context.newPage()
 const cleanup = [], errors = []
 page.on('pageerror', error => errors.push(error.message))
 let checks = 0, admin, uid
@@ -36,6 +38,7 @@ async function create(path, body) {
 }
 async function rights(rules) {
   check((await call(admin, 'PUT', `rbac/users/${uid}/permissions`, { overrides: rules })).status, 200, 'save backend permissions')
+  if (native) await page.evaluate(async () => window.erpDesktop.queue.request({ action: 'sync', force: true, pullOnly: true, contextId: (await window.erpDesktop.session.status()).contextId }))
   await expect.poll(() => page.evaluate(async () => (await import('/src/store/index.ts')).useRbacStore().refreshPermissions()), { message: 'refresh real /permissions/me', timeout: 15_000, intervals: [1000] }).toBe(true)
   checks++
 }
@@ -190,7 +193,8 @@ try {
   check(errors, [], 'no browser runtime errors')
   console.log(`PASS RBAC UI: ${checks} checks; real backend grants, complete pages, direct URLs, inherited view, independent actions, object owners and live revocation`)
 } finally {
-  await browser.close()
+  if (native) await native.close()
+  else await browser.close()
   for (const remove of cleanup.reverse()) await remove()
   await http.dispose()
 }

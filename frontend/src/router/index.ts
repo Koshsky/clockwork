@@ -1,7 +1,7 @@
 import { PAGE_PERMISSIONS, pageAllowed } from '@/utils/pageAccess'
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore, useRbacStore } from '../store'
-import { isOffline } from '../offline/state'
+import { isOffline } from '@/store/data/uiServices'
 import { platformCapabilities } from '@/platform/context'
 import { platformPageAvailable } from '@/platform/capabilities'
 import { isLoggedOut } from '../loggedOut'

@@ -12,7 +12,7 @@ export async function launchElectronFixture() {
   try {
     app = await _electron.launch({
       executablePath: process.env.ELECTRON_EXECUTABLE,
-      args: [fileURLToPath(new URL('../electron-main.cjs', import.meta.url))],
+      args: ['--force-color-profile=srgb', ...(process.env.ERP_TEST_DEVICE_SCALE ? ['--force-device-scale-factor=' + process.env.ERP_TEST_DEVICE_SCALE] : []), fileURLToPath(new URL('../electron-main.cjs', import.meta.url))],
       env,
     })
     await app.firstWindow({ timeout: 15000 })

@@ -1,0 +1,1323 @@
+[
+  {
+    "kind": "read",
+    "operation": "project.list",
+    "service": "projects",
+    "name": "list",
+    "client": "ProjectsApi",
+    "method": "projectGet",
+    "input": "{ limit, ownerId, offset }",
+    "arguments": [
+      "input.limit",
+      "input.ownerId",
+      "input.offset"
+    ],
+    "request": {
+      "route": "GET /project",
+      "query": {
+        "limit": "limit",
+        "owner_id": "ownerId",
+        "offset": "offset"
+      }
+    },
+    "page": true
+  },
+  {
+    "kind": "command",
+    "operation": "project.create",
+    "service": "projects",
+    "name": "create",
+    "client": "ProjectsApi",
+    "method": "projectPost",
+    "input": "project",
+    "arguments": [
+      "input"
+    ],
+    "request": {
+      "route": "POST /project",
+      "body": "$"
+    }
+  },
+  {
+    "kind": "command",
+    "operation": "project.update",
+    "service": "projects",
+    "name": "update",
+    "client": "ProjectsApi",
+    "method": "projectIdPut",
+    "input": "{ id, patch: body }",
+    "arguments": [
+      "input.id",
+      "input.patch"
+    ],
+    "request": {
+      "route": "PUT /project/{id}",
+      "path": {
+        "id": "id"
+      },
+      "body": "patch"
+    }
+  },
+  {
+    "kind": "command",
+    "operation": "project.delete",
+    "service": "projects",
+    "name": "remove",
+    "client": "ProjectsApi",
+    "method": "projectIdDelete",
+    "input": "{ id }",
+    "arguments": [
+      "input.id"
+    ],
+    "request": {
+      "route": "DELETE /project/{id}",
+      "path": {
+        "id": "id"
+      }
+    }
+  },
+  {
+    "kind": "command",
+    "operation": "process.create",
+    "service": "processes",
+    "name": "create",
+    "client": "ProcessesApi",
+    "method": "processPost",
+    "input": "process",
+    "arguments": [
+      "input"
+    ],
+    "request": {
+      "route": "POST /process",
+      "body": "$"
+    }
+  },
+  {
+    "kind": "command",
+    "operation": "process.update",
+    "service": "processes",
+    "name": "update",
+    "client": "ProcessesApi",
+    "method": "processIdPut",
+    "input": "{ id, patch: body }",
+    "arguments": [
+      "input.id",
+      "input.patch"
+    ],
+    "request": {
+      "route": "PUT /process/{id}",
+      "path": {
+        "id": "id"
+      },
+      "body": "patch"
+    }
+  },
+  {
+    "kind": "command",
+    "operation": "process.delete",
+    "service": "processes",
+    "name": "remove",
+    "client": "ProcessesApi",
+    "method": "processIdDelete",
+    "input": "{ id }",
+    "arguments": [
+      "input.id"
+    ],
+    "request": {
+      "route": "DELETE /process/{id}",
+      "path": {
+        "id": "id"
+      }
+    }
+  },
+  {
+    "kind": "command",
+    "operation": "task.create",
+    "service": "tasks",
+    "name": "create",
+    "client": "TasksApi",
+    "method": "taskPost",
+    "input": "task",
+    "arguments": [
+      "input"
+    ],
+    "request": {
+      "route": "POST /task",
+      "body": "$"
+    }
+  },
+  {
+    "kind": "command",
+    "operation": "task.update",
+    "service": "tasks",
+    "name": "update",
+    "client": "TasksApi",
+    "method": "taskIdPut",
+    "input": "{ id, patch: task }",
+    "arguments": [
+      "input.id",
+      "input.patch"
+    ],
+    "request": {
+      "route": "PUT /task/{id}",
+      "path": {
+        "id": "id"
+      },
+      "body": "patch"
+    }
+  },
+  {
+    "kind": "command",
+    "operation": "task.delete",
+    "service": "tasks",
+    "name": "remove",
+    "client": "TasksApi",
+    "method": "taskIdDelete",
+    "input": "{ id }",
+    "arguments": [
+      "input.id"
+    ],
+    "request": {
+      "route": "DELETE /task/{id}",
+      "path": {
+        "id": "id"
+      }
+    }
+  },
+  {
+    "kind": "command",
+    "operation": "milestone.create",
+    "service": "milestones",
+    "name": "create",
+    "client": "MilestonesApi",
+    "method": "milestonePost",
+    "input": "request",
+    "arguments": [
+      "input"
+    ],
+    "request": {
+      "route": "POST /milestone",
+      "body": "$"
+    }
+  },
+  {
+    "kind": "command",
+    "operation": "milestone.update",
+    "service": "milestones",
+    "name": "update",
+    "client": "MilestonesApi",
+    "method": "milestoneIdPut",
+    "input": "{ id, patch: body }",
+    "arguments": [
+      "input.id",
+      "input.patch"
+    ],
+    "request": {
+      "route": "PUT /milestone/{id}",
+      "path": {
+        "id": "id"
+      },
+      "body": "patch"
+    }
+  },
+  {
+    "kind": "command",
+    "operation": "milestone.delete",
+    "service": "milestones",
+    "name": "remove",
+    "client": "MilestonesApi",
+    "method": "milestoneIdDelete",
+    "input": "{ id }",
+    "arguments": [
+      "input.id"
+    ],
+    "request": {
+      "route": "DELETE /milestone/{id}",
+      "path": {
+        "id": "id"
+      }
+    }
+  },
+  {
+    "kind": "command",
+    "operation": "resource.create",
+    "service": "resources",
+    "name": "create",
+    "client": "TimesheetResourcesApi",
+    "method": "resourcesPost",
+    "input": "resource",
+    "arguments": [
+      "input"
+    ],
+    "request": {
+      "route": "POST /resources",
+      "body": "$"
+    }
+  },
+  {
+    "kind": "command",
+    "operation": "resource.update",
+    "service": "resources",
+    "name": "update",
+    "client": "TimesheetResourcesApi",
+    "method": "resourcesIdPut",
+    "input": "{ id, patch: resource }",
+    "arguments": [
+      "input.id",
+      "input.patch"
+    ],
+    "request": {
+      "route": "PUT /resources/{id}",
+      "path": {
+        "id": "id"
+      },
+      "body": "patch"
+    }
+  },
+  {
+    "kind": "command",
+    "operation": "resource.delete",
+    "service": "resources",
+    "name": "remove",
+    "client": "TimesheetResourcesApi",
+    "method": "resourcesIdDelete",
+    "input": "{ id }",
+    "arguments": [
+      "input.id"
+    ],
+    "request": {
+      "route": "DELETE /resources/{id}",
+      "path": {
+        "id": "id"
+      }
+    }
+  },
+  {
+    "kind": "command",
+    "operation": "state.create",
+    "service": "states",
+    "name": "create",
+    "client": "TimesheetStatesApi",
+    "method": "timesheetStatesPost",
+    "input": "state",
+    "arguments": [
+      "input"
+    ],
+    "request": {
+      "route": "POST /timesheet/states",
+      "body": "$"
+    }
+  },
+  {
+    "kind": "command",
+    "operation": "state.update",
+    "service": "states",
+    "name": "update",
+    "client": "TimesheetStatesApi",
+    "method": "timesheetStatesIdPut",
+    "input": "{ id, patch: state }",
+    "arguments": [
+      "input.id",
+      "input.patch"
+    ],
+    "request": {
+      "route": "PUT /timesheet/states/{id}",
+      "path": {
+        "id": "id"
+      },
+      "body": "patch"
+    }
+  },
+  {
+    "kind": "command",
+    "operation": "state.delete",
+    "service": "states",
+    "name": "remove",
+    "client": "TimesheetStatesApi",
+    "method": "timesheetStatesIdDelete",
+    "input": "{ id }",
+    "arguments": [
+      "input.id"
+    ],
+    "request": {
+      "route": "DELETE /timesheet/states/{id}",
+      "path": {
+        "id": "id"
+      }
+    }
+  },
+  {
+    "kind": "read",
+    "operation": "planning.projects",
+    "service": "planning",
+    "name": "projects",
+    "client": "PlanningApi",
+    "method": "planningProjectsGet",
+    "input": "undefined",
+    "arguments": [],
+    "request": {
+      "route": "GET /planning/projects"
+    }
+  },
+  {
+    "kind": "read",
+    "operation": "planning.processes",
+    "service": "planning",
+    "name": "processes",
+    "client": "PlanningApi",
+    "method": "planningProcessesGet",
+    "input": "undefined",
+    "arguments": [],
+    "request": {
+      "route": "GET /planning/processes"
+    }
+  },
+  {
+    "kind": "read",
+    "operation": "planning.tasks",
+    "service": "planning",
+    "name": "tasks",
+    "client": "PlanningApi",
+    "method": "planningTasksGet",
+    "input": "undefined",
+    "arguments": [],
+    "request": {
+      "route": "GET /planning/tasks"
+    }
+  },
+  {
+    "kind": "read",
+    "operation": "resource.list",
+    "service": "resources",
+    "name": "list",
+    "client": "TimesheetResourcesApi",
+    "method": "resourcesGet",
+    "input": "{ limit, ownerId, offset }",
+    "arguments": [
+      "input.limit",
+      "input.ownerId",
+      "input.offset"
+    ],
+    "request": {
+      "route": "GET /resources",
+      "query": {
+        "limit": "limit",
+        "owner_id": "ownerId",
+        "offset": "offset"
+      }
+    },
+    "page": true
+  },
+  {
+    "kind": "read",
+    "operation": "resource.members",
+    "service": "resources",
+    "name": "members",
+    "client": "TimesheetResourcesApi",
+    "method": "resourcesIdMembersGet",
+    "input": "{ resourceId: id }",
+    "arguments": [
+      "input.resourceId"
+    ],
+    "request": {
+      "route": "GET /resources/{id}/members",
+      "path": {
+        "id": "resourceId"
+      }
+    }
+  },
+  {
+    "kind": "read",
+    "operation": "resource.absences",
+    "service": "resources",
+    "name": "absences",
+    "client": "TimesheetResourcesApi",
+    "method": "resourcesIdAbsenceGet",
+    "input": "{ resourceId: id, start: startDate, end: endDate }",
+    "arguments": [
+      "input.resourceId",
+      "input.start",
+      "input.end"
+    ],
+    "request": {
+      "route": "GET /resources/{id}/absence",
+      "path": {
+        "id": "resourceId"
+      },
+      "query": {
+        "start_date": "start",
+        "end_date": "end"
+      }
+    }
+  },
+  {
+    "kind": "command",
+    "operation": "resource.addMember",
+    "service": "resources",
+    "name": "addMember",
+    "client": "TimesheetResourcesApi",
+    "method": "resourcesIdMembersPost",
+    "input": "{ resourceId: id, userId: body.user_id! }",
+    "arguments": [
+      "input.resourceId",
+      "{ user_id: input.userId }"
+    ],
+    "request": {
+      "route": "POST /resources/{id}/members",
+      "path": {
+        "id": "resourceId"
+      },
+      "bodyFields": {
+        "user_id": "userId"
+      }
+    }
+  },
+  {
+    "kind": "command",
+    "operation": "resource.removeMember",
+    "service": "resources",
+    "name": "removeMember",
+    "client": "TimesheetResourcesApi",
+    "method": "resourcesIdMembersUserIdDelete",
+    "input": "{ resourceId: id, userId }",
+    "arguments": [
+      "input.resourceId",
+      "input.userId"
+    ],
+    "request": {
+      "route": "DELETE /resources/{id}/members/{userId}",
+      "path": {
+        "id": "resourceId",
+        "userId": "userId"
+      }
+    }
+  },
+  {
+    "kind": "read",
+    "operation": "resource.calendar",
+    "service": "calendar",
+    "name": "list",
+    "client": "TimesheetCalendarApi",
+    "method": "timesheetCalendarGet",
+    "input": "{ start: startDate, end: endDate }",
+    "arguments": [
+      "input.start",
+      "input.end"
+    ],
+    "request": {
+      "route": "GET /timesheet/calendar",
+      "query": {
+        "start_date": "start",
+        "end_date": "end"
+      }
+    },
+    "unwrap": "resources"
+  },
+  {
+    "kind": "read",
+    "operation": "timesheet.states",
+    "service": "states",
+    "name": "list",
+    "client": "TimesheetStatesApi",
+    "method": "timesheetStatesGet",
+    "input": "undefined",
+    "arguments": [],
+    "request": {
+      "route": "GET /timesheet/states"
+    }
+  },
+  {
+    "kind": "read",
+    "operation": "users.directory",
+    "service": "users",
+    "name": "directory",
+    "client": "UsersApi",
+    "method": "userAllGet",
+    "input": "undefined",
+    "arguments": [],
+    "request": {
+      "route": "GET /user/all"
+    }
+  },
+  {
+    "kind": "read",
+    "operation": "account.profile",
+    "service": "users",
+    "name": "profile",
+    "client": "UsersApi",
+    "method": "userIdGet",
+    "input": "{ userId: id }",
+    "arguments": [
+      "input?.userId ?? currentUserId() ?? 0"
+    ],
+    "request": {
+      "route": "GET /user/{id}",
+      "path": {
+        "id": "userId"
+      }
+    }
+  },
+  {
+    "kind": "read",
+    "operation": "account.structure",
+    "service": "users",
+    "name": "structure",
+    "client": "UsersApi",
+    "method": "userStructureGet",
+    "input": "undefined",
+    "arguments": [],
+    "request": {
+      "route": "GET /user/structure"
+    }
+  },
+  {
+    "kind": "read",
+    "operation": "employee.list",
+    "service": "users",
+    "name": "employees",
+    "client": "UsersApi",
+    "method": "userGet",
+    "input": "{ limit, preset, managerId, includeHash, search, offset }",
+    "arguments": [
+      "input.limit",
+      "input.preset",
+      "input.managerId",
+      "input.includeHash",
+      "input.search",
+      "input.offset"
+    ],
+    "request": {
+      "route": "GET /user",
+      "query": {
+        "limit": "limit",
+        "preset": "preset",
+        "manager_id": "managerId",
+        "include_hash": "includeHash",
+        "search": "search",
+        "offset": "offset"
+      }
+    },
+    "page": true
+  },
+  {
+    "kind": "read",
+    "operation": "account.list",
+    "service": "users",
+    "name": "accounts",
+    "client": "UsersApi",
+    "method": "userAccountsGet",
+    "input": "{ limit, preset, managerId, includeHash, search, offset }",
+    "arguments": [
+      "input.limit",
+      "input.preset",
+      "input.managerId",
+      "input.includeHash",
+      "input.search",
+      "input.offset"
+    ],
+    "request": {
+      "route": "GET /user/accounts",
+      "query": {
+        "limit": "limit",
+        "preset": "preset",
+        "manager_id": "managerId",
+        "include_hash": "includeHash",
+        "search": "search",
+        "offset": "offset"
+      }
+    },
+    "page": true
+  },
+  {
+    "kind": "read",
+    "operation": "account.detail",
+    "service": "users",
+    "name": "account",
+    "client": "UsersApi",
+    "method": "userAccountsIdGet",
+    "input": "{ userId: id }",
+    "arguments": [
+      "input.userId"
+    ],
+    "request": {
+      "route": "GET /user/accounts/{id}",
+      "path": {
+        "id": "userId"
+      }
+    }
+  },
+  {
+    "kind": "command",
+    "operation": "account.create",
+    "service": "users",
+    "name": "create",
+    "client": "UsersApi",
+    "method": "userPost",
+    "input": "user",
+    "arguments": [
+      "input"
+    ],
+    "request": {
+      "route": "POST /user",
+      "body": "$"
+    }
+  },
+  {
+    "kind": "command",
+    "operation": "account.update",
+    "service": "users",
+    "name": "update",
+    "client": "UsersApi",
+    "method": "userIdPut",
+    "input": "{ id, patch: body }",
+    "arguments": [
+      "input.id",
+      "input.patch"
+    ],
+    "request": {
+      "route": "PUT /user/{id}",
+      "path": {
+        "id": "id"
+      },
+      "body": "patch"
+    }
+  },
+  {
+    "kind": "command",
+    "operation": "account.delete",
+    "service": "users",
+    "name": "remove",
+    "client": "UsersApi",
+    "method": "userIdDelete",
+    "input": "{ id }",
+    "arguments": [
+      "input.id"
+    ],
+    "request": {
+      "route": "DELETE /user/{id}",
+      "path": {
+        "id": "id"
+      }
+    }
+  },
+  {
+    "kind": "command",
+    "operation": "account.setManager",
+    "service": "users",
+    "name": "setManager",
+    "client": "UsersApi",
+    "method": "userIdManagerPut",
+    "input": "{ id, managerId: body.manager_id ?? null }",
+    "arguments": [
+      "input.id",
+      "{ manager_id: input.managerId ?? undefined }"
+    ],
+    "request": {
+      "route": "PUT /user/{id}/manager",
+      "path": {
+        "id": "id"
+      },
+      "bodyFields": {
+        "manager_id": "managerId"
+      }
+    }
+  },
+  {
+    "kind": "read",
+    "operation": "timesheet.periods",
+    "service": "users",
+    "name": "periods",
+    "client": "UsersApi",
+    "method": "userDaysGet",
+    "input": "{ employeeIds: ids.split(',').map(Number), start: startDate, end: endDate }",
+    "arguments": [
+      "input.employeeIds.join(',')",
+      "input.start",
+      "input.end"
+    ],
+    "request": {
+      "route": "GET /user/days",
+      "query": {
+        "ids": "employeeIds",
+        "start_date": "start",
+        "end_date": "end"
+      }
+    }
+  },
+  {
+    "kind": "read",
+    "operation": "timesheet.employeePeriods",
+    "service": "users",
+    "name": "employeePeriods",
+    "client": "UsersApi",
+    "method": "userIdDaysGet",
+    "input": "{ userId: id, start: startDate, end: endDate }",
+    "arguments": [
+      "input.userId",
+      "input.start",
+      "input.end"
+    ],
+    "request": {
+      "route": "GET /user/{id}/days",
+      "path": {
+        "id": "userId"
+      },
+      "query": {
+        "start_date": "start",
+        "end_date": "end"
+      }
+    }
+  },
+  {
+    "kind": "command",
+    "operation": "timesheet.assignRange",
+    "service": "users",
+    "name": "assignPeriod",
+    "client": "UsersApi",
+    "method": "userIdDaysPut",
+    "input": "{ userId: id, stateId: body.state_id!, start: body.start_date!, end: body.end_date! }",
+    "arguments": [
+      "input.userId",
+      "{ state_id: input.stateId, start_date: input.start, end_date: input.end }"
+    ],
+    "request": {
+      "route": "PUT /user/{id}/days",
+      "path": {
+        "id": "userId"
+      },
+      "bodyFields": {
+        "state_id": "stateId",
+        "start_date": "start",
+        "end_date": "end"
+      }
+    }
+  },
+  {
+    "kind": "command",
+    "operation": "timesheet.clearRange",
+    "service": "users",
+    "name": "clearPeriod",
+    "client": "UsersApi",
+    "method": "userIdDaysDelete",
+    "input": "{ userId: id, start: startDate, end: endDate, stateId }",
+    "arguments": [
+      "input.userId",
+      "input.start",
+      "input.end",
+      "input.stateId"
+    ],
+    "request": {
+      "route": "DELETE /user/{id}/days",
+      "path": {
+        "id": "userId"
+      },
+      "query": {
+        "start_date": "start",
+        "end_date": "end",
+        "state_id": "stateId"
+      }
+    }
+  },
+  {
+    "kind": "command",
+    "operation": "dependency.create",
+    "service": "tasks",
+    "name": "createDependency",
+    "client": "TasksApi",
+    "method": "taskIdDependenciesPost",
+    "input": "{ taskId: id, dependency }",
+    "arguments": [
+      "input.taskId",
+      "input.dependency"
+    ],
+    "request": {
+      "route": "POST /task/{id}/dependencies",
+      "path": {
+        "id": "taskId"
+      },
+      "body": "dependency"
+    }
+  },
+  {
+    "kind": "command",
+    "operation": "dependency.update",
+    "service": "tasks",
+    "name": "updateDependency",
+    "client": "TasksApi",
+    "method": "taskIdDependenciesDepIdPut",
+    "input": "{ taskId: id, id: depId, patch: dependency }",
+    "arguments": [
+      "input.taskId",
+      "input.id",
+      "input.patch"
+    ],
+    "request": {
+      "route": "PUT /task/{id}/dependencies/{dep_id}",
+      "path": {
+        "id": "taskId",
+        "dep_id": "id"
+      },
+      "body": "patch"
+    }
+  },
+  {
+    "kind": "command",
+    "operation": "dependency.delete",
+    "service": "tasks",
+    "name": "removeDependency",
+    "client": "TasksApi",
+    "method": "taskIdDependenciesDepIdDelete",
+    "input": "{ taskId: id, id: depId }",
+    "arguments": [
+      "input.taskId",
+      "input.id"
+    ],
+    "request": {
+      "route": "DELETE /task/{id}/dependencies/{dep_id}",
+      "path": {
+        "id": "taskId",
+        "dep_id": "id"
+      }
+    }
+  },
+  {
+    "kind": "read",
+    "operation": "comment.list",
+    "service": "tasks",
+    "name": "comments",
+    "client": "TasksApi",
+    "method": "taskIdCommentsGet",
+    "input": "{ taskId: id }",
+    "arguments": [
+      "input.taskId"
+    ],
+    "request": {
+      "route": "GET /task/{id}/comments",
+      "path": {
+        "id": "taskId"
+      }
+    }
+  },
+  {
+    "kind": "command",
+    "operation": "comment.create",
+    "service": "tasks",
+    "name": "createComment",
+    "client": "TasksApi",
+    "method": "taskIdCommentsPost",
+    "input": "{ taskId: id, comment }",
+    "arguments": [
+      "input.taskId",
+      "input.comment"
+    ],
+    "request": {
+      "route": "POST /task/{id}/comments",
+      "path": {
+        "id": "taskId"
+      },
+      "body": "comment"
+    }
+  },
+  {
+    "kind": "command",
+    "operation": "comment.delete",
+    "service": "tasks",
+    "name": "removeComment",
+    "client": "TasksApi",
+    "method": "taskIdCommentsCommentIdDelete",
+    "input": "{ taskId: id, id: commentId }",
+    "arguments": [
+      "input.taskId",
+      "input.id"
+    ],
+    "request": {
+      "route": "DELETE /task/{id}/comments/{comment_id}",
+      "path": {
+        "id": "taskId",
+        "comment_id": "id"
+      }
+    }
+  },
+  {
+    "kind": "command",
+    "operation": "process.reorder",
+    "service": "processes",
+    "name": "reorder",
+    "client": "ProcessesApi",
+    "method": "processOrderPut",
+    "input": "{ projectId: order.project_id!, ids: order.ids ?? [] }",
+    "arguments": [
+      "{ project_id: input.projectId, ids: input.ids }"
+    ],
+    "request": {
+      "route": "PUT /process/order",
+      "bodyFields": {
+        "project_id": "projectId",
+        "ids": "ids"
+      }
+    }
+  },
+  {
+    "kind": "command",
+    "operation": "task.reorder",
+    "service": "tasks",
+    "name": "reorder",
+    "client": "TasksApi",
+    "method": "taskOrderPut",
+    "input": "{ processId: order.process_id!, ids: order.ids ?? [] }",
+    "arguments": [
+      "{ process_id: input.processId, ids: input.ids }"
+    ],
+    "request": {
+      "route": "PUT /task/order",
+      "bodyFields": {
+        "process_id": "processId",
+        "ids": "ids"
+      }
+    }
+  },
+  {
+    "kind": "read",
+    "operation": "assignment.catalog",
+    "service": "assignments",
+    "name": "list",
+    "client": "AssignmentsApi",
+    "method": "assignmentGet",
+    "input": "{ limit, ownerId, offset }",
+    "arguments": [
+      "input.limit",
+      "input.ownerId",
+      "input.offset"
+    ],
+    "request": {
+      "route": "GET /assignment",
+      "query": {
+        "limit": "limit",
+        "owner_id": "ownerId",
+        "offset": "offset"
+      }
+    },
+    "page": true
+  },
+  {
+    "kind": "command",
+    "operation": "assignment.create",
+    "service": "assignments",
+    "name": "create",
+    "client": "AssignmentsApi",
+    "method": "assignmentPost",
+    "input": "request",
+    "arguments": [
+      "input"
+    ],
+    "request": {
+      "route": "POST /assignment",
+      "body": "$"
+    }
+  },
+  {
+    "kind": "command",
+    "operation": "assignment.delete",
+    "service": "assignments",
+    "name": "remove",
+    "client": "AssignmentsApi",
+    "method": "assignmentIdDelete",
+    "input": "{ id }",
+    "arguments": [
+      "input.id"
+    ],
+    "request": {
+      "route": "DELETE /assignment/{id}",
+      "path": {
+        "id": "id"
+      }
+    }
+  },
+  {
+    "kind": "read",
+    "operation": "permissions.current",
+    "service": "permissions",
+    "name": "current",
+    "client": "PermissionsApi",
+    "method": "permissionsMeGet",
+    "input": "undefined",
+    "arguments": [],
+    "request": {
+      "route": "GET /permissions/me"
+    }
+  },
+  {
+    "kind": "read",
+    "operation": "rbac.presets",
+    "service": "rbac",
+    "name": "presets",
+    "client": "RBACApi",
+    "method": "rbacPresetsGet",
+    "input": "undefined",
+    "arguments": [],
+    "request": {
+      "route": "GET /rbac/presets"
+    }
+  },
+  {
+    "kind": "read",
+    "operation": "rbac.rules",
+    "service": "rbac",
+    "name": "rules",
+    "client": "RBACApi",
+    "method": "rbacPresetRulesGet",
+    "input": "undefined",
+    "arguments": [],
+    "request": {
+      "route": "GET /rbac/preset-rules"
+    }
+  },
+  {
+    "kind": "read",
+    "operation": "rbac.matrix",
+    "service": "rbac",
+    "name": "matrix",
+    "client": "RBACApi",
+    "method": "rbacMatrixGet",
+    "input": "undefined",
+    "arguments": [],
+    "request": {
+      "route": "GET /rbac/matrix"
+    }
+  },
+  {
+    "kind": "read",
+    "operation": "rbac.policies",
+    "service": "rbac",
+    "name": "policies",
+    "client": "RBACApi",
+    "method": "rbacPoliciesGet",
+    "input": "undefined",
+    "arguments": [],
+    "request": {
+      "route": "GET /rbac/policies"
+    }
+  },
+  {
+    "kind": "read",
+    "operation": "rbac.kinds",
+    "service": "rbac",
+    "name": "kinds",
+    "client": "RBACApi",
+    "method": "rbacKindsGet",
+    "input": "undefined",
+    "arguments": [],
+    "request": {
+      "route": "GET /rbac/kinds"
+    }
+  },
+  {
+    "kind": "read",
+    "operation": "rbac.user",
+    "service": "rbac",
+    "name": "user",
+    "client": "RBACApi",
+    "method": "rbacUsersIdPermissionsGet",
+    "input": "{ userId: id }",
+    "arguments": [
+      "input.userId"
+    ],
+    "request": {
+      "route": "GET /rbac/users/{id}/permissions",
+      "path": {
+        "id": "userId"
+      }
+    }
+  },
+  {
+    "kind": "command",
+    "operation": "rbac.upsertRule",
+    "service": "rbac",
+    "name": "upsertRule",
+    "client": "RBACApi",
+    "method": "rbacPresetRulesPut",
+    "input": "rule",
+    "arguments": [
+      "input"
+    ],
+    "request": {
+      "route": "PUT /rbac/preset-rules",
+      "body": "$"
+    }
+  },
+  {
+    "kind": "command",
+    "operation": "rbac.deleteRule",
+    "service": "rbac",
+    "name": "removeRule",
+    "client": "RBACApi",
+    "method": "rbacPresetRulesIdDelete",
+    "input": "{ id }",
+    "arguments": [
+      "input.id"
+    ],
+    "request": {
+      "route": "DELETE /rbac/preset-rules/{id}",
+      "path": {
+        "id": "id"
+      }
+    }
+  },
+  {
+    "kind": "command",
+    "operation": "rbac.createPreset",
+    "service": "rbac",
+    "name": "createPreset",
+    "client": "RBACApi",
+    "method": "rbacPresetsPost",
+    "input": "preset",
+    "arguments": [
+      "input"
+    ],
+    "request": {
+      "route": "POST /rbac/presets",
+      "body": "$"
+    }
+  },
+  {
+    "kind": "command",
+    "operation": "rbac.updatePreset",
+    "service": "rbac",
+    "name": "updatePreset",
+    "client": "RBACApi",
+    "method": "rbacPresetsTagPut",
+    "input": "{ tag, patch: preset }",
+    "arguments": [
+      "input.tag",
+      "input.patch"
+    ],
+    "request": {
+      "route": "PUT /rbac/presets/{tag}",
+      "path": {
+        "tag": "tag"
+      },
+      "body": "patch"
+    }
+  },
+  {
+    "kind": "command",
+    "operation": "rbac.deletePreset",
+    "service": "rbac",
+    "name": "removePreset",
+    "client": "RBACApi",
+    "method": "rbacPresetsTagDelete",
+    "input": "{ tag }",
+    "arguments": [
+      "input.tag"
+    ],
+    "request": {
+      "route": "DELETE /rbac/presets/{tag}",
+      "path": {
+        "tag": "tag"
+      }
+    }
+  },
+  {
+    "kind": "command",
+    "operation": "rbac.saveUser",
+    "service": "rbac",
+    "name": "saveUser",
+    "client": "RBACApi",
+    "method": "rbacUsersIdPermissionsPut",
+    "input": "{ userId: id, permissions: perms }",
+    "arguments": [
+      "input.userId",
+      "input.permissions"
+    ],
+    "request": {
+      "route": "PUT /rbac/users/{id}/permissions",
+      "path": {
+        "id": "userId"
+      },
+      "body": "permissions"
+    }
+  },
+  {
+    "kind": "command",
+    "operation": "rbac.reset",
+    "service": "rbac",
+    "name": "reset",
+    "client": "RBACApi",
+    "method": "rbacResetPost",
+    "input": "undefined",
+    "arguments": [],
+    "request": {
+      "route": "POST /rbac/reset"
+    }
+  },
+  {
+    "kind": "read",
+    "operation": "template.configuration",
+    "service": "template",
+    "name": "get",
+    "client": "AutoCreateApi",
+    "method": "autoCreateConfigGet",
+    "input": "undefined",
+    "arguments": [],
+    "request": {
+      "route": "GET /auto-create/config"
+    }
+  },
+  {
+    "kind": "command",
+    "operation": "template.save",
+    "service": "template",
+    "name": "save",
+    "client": "AutoCreateApi",
+    "method": "autoCreateConfigPut",
+    "input": "config",
+    "arguments": [
+      "input"
+    ],
+    "request": {
+      "route": "PUT /auto-create/config",
+      "body": "$"
+    }
+  },
+  {
+    "kind": "read",
+    "operation": "audit.events",
+    "service": "audit",
+    "name": "events",
+    "client": "AuditApi",
+    "method": "auditEventsGet",
+    "input": "{ limit, offset, userId, user, entity, action, status, from, to, search, id, ip }",
+    "arguments": [
+      "input.limit",
+      "input.offset",
+      "input.userId",
+      "input.user",
+      "input.entity",
+      "input.action",
+      "input.status",
+      "input.from",
+      "input.to",
+      "input.search",
+      "input.id",
+      "input.ip"
+    ],
+    "request": {
+      "route": "GET /audit/events",
+      "query": {
+        "limit": "limit",
+        "offset": "offset",
+        "user_id": "userId",
+        "user": "user",
+        "entity": "entity",
+        "action": "action",
+        "status": "status",
+        "from": "from",
+        "to": "to",
+        "search": "search",
+        "id": "id",
+        "ip": "ip"
+      }
+    },
+    "page": true
+  }
+]

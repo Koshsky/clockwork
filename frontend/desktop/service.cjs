@@ -13,8 +13,7 @@ const aborted = signal => new Promise(resolve => {
   else signal.addEventListener('abort', () => resolve(null), { once: true })
 })
 
-// Typed business ports remain opt-in while the native HTTP queue is installed
-// independently, so empty ports cannot pretend that renderer migration is complete.
+// Only installed adapters are advertised; unavailable domains cannot masquerade as empty data.
 function createDesktopService({ profileId, version, electron, reads = {}, commands = {}, storage, maxPending = 32, maxPerOwner = 8, readTimeoutMs = 10000, commandTimeoutMs = 10000 }) {
   const instanceId = randomUUID()
   let phase = 'starting', revision = 0, scope = null, epoch = 0, stopping = null
@@ -68,7 +67,7 @@ function createDesktopService({ profileId, version, electron, reads = {}, comman
     pending.set(key, item); changed()
     const timer = setTimeout(() => controller.abort(), readTimeoutMs)
     const scopeSnapshot = clone(scope)
-    const response = Promise.resolve().then(() => reads[request.operation](clone(request.input), { source: request.source, signal: controller.signal, scope: scopeSnapshot }))
+    const response = Promise.resolve().then(() => reads[request.operation](clone(request.input), { source: request.source, locale: request.locale, signal: controller.signal, scope: scopeSnapshot }))
     return Promise.race([response, aborted(controller.signal)]).then(result => {
       if (controller.signal.aborted || ownEpoch !== epoch || !current(request.contextId)) return { status: 'cancelled' }
       if (!validResult(result, 'read')) return { status: 'failed', error: failure('unexpected', 'DESKTOP_INVALID_RESULT') }
@@ -80,7 +79,7 @@ function createDesktopService({ profileId, version, electron, reads = {}, comman
     if (!current(request.contextId)) return Promise.resolve(identified({ status: 'rejected', error: contextError(request.contextId) }))
     if (!Object.prototype.hasOwnProperty.call(commands, request.operation)) return Promise.resolve(identified({ status: 'rejected', error: unavailable('DESKTOP_ADAPTER_UNAVAILABLE') }))
     const key = request.contextId + ':' + request.operationId
-    const digest = createHash('sha256').update(canonical([request.operation, request.input])).digest('hex')
+    const digest = createHash('sha256').update(canonical([request.operation, request.input, request.preconditions, request.temporaryId])).digest('hex')
     const existing = receipts.get(key)
     if (existing) return existing.digest === digest ? waitForReceipt(existing, request.operationId, request.contextId) : Promise.resolve(identified({ status: 'conflict', error: failure('conflict', 'DESKTOP_OPERATION_ID_REUSED') }))
     if (full(owner)) return Promise.resolve(identified({ status: 'rejected', error: unavailable('DESKTOP_BUSY') }))
@@ -90,7 +89,7 @@ function createDesktopService({ profileId, version, electron, reads = {}, comman
     const item = { kind: 'command', owner, contextId: request.contextId, controller }
     pending.set(pendingKey, item); changed()
     const receipt = { digest, promise: null, finished: false }
-    receipt.promise = Promise.resolve().then(() => commands[request.operation](clone(request.input), { operationId: request.operationId, signal: controller.signal, scope: scopeSnapshot })).then(result => {
+    receipt.promise = Promise.resolve().then(() => commands[request.operation](clone(request.input), { operationId: request.operationId, signal: controller.signal, scope: scopeSnapshot, preconditions: clone(request.preconditions), temporaryId: request.temporaryId, locale: request.locale })).then(result => {
       if (ownEpoch !== epoch || controller.signal.aborted) return identified({ status: 'unknown', error: unavailable('DESKTOP_CONTEXT_CHANGED') })
       if (!validResult(result, 'command')) return identified({ status: 'unknown', error: failure('unexpected', 'DESKTOP_INVALID_RESULT') })
       return identified(clone(result))
@@ -141,6 +140,7 @@ function createDesktopService({ profileId, version, electron, reads = {}, comman
   }
   return {
     status, setScope, read, execute, detach, cancel, stop,
+    installAdapters(adapters) { if (phase !== 'starting') throw new Error('Desktop adapters must be installed before startup'); Object.assign(reads, adapters.reads); Object.assign(commands, adapters.commands); changed() },
     installSync(sync) { if (syncService) throw new Error('Desktop sync already installed'); syncService = sync; unsubscribeSync = sync.subscribe(changed); changed() },
     sync: request => request.action === 'syncConfigure' ? syncService.configure(request.enabled) : syncService.run(request.force === true, request.pullOnly === true),
     installQueue(queue) { if (commandQueue) throw new Error('Desktop queue already installed'); commandQueue = queue; unsubscribeQueue = queue.subscribe(changed); changed() },

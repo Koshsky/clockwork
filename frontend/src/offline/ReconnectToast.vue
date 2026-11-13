@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { t } from '../i18n'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { isOffline, reconnectDeadline } from './state'
-import { retryPlatformConnection } from '@/platform/current'
+import { isOffline, reconnectDeadline } from '@/store/data/uiServices'
+import { retryPlatformConnection } from '@/store/data/uiServices'
 
 const busy = ref(false)
 

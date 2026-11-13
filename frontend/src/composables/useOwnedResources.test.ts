@@ -54,7 +54,8 @@ describe('administrator whole-system resource header', () => {
     const result = scope.run(() => useOwnedResources(ref<DtoResourceResponse[]>([]), ref(7), ref(true), ref(true)))!
     await vi.waitFor(() => expect(calls.write).toHaveBeenCalled())
     expect(result.value).toEqual([])
-    expect(calls.get).toHaveBeenCalledExactlyOnceWith(500, undefined, 0)
+    expect(calls.get).toHaveBeenCalledOnce()
+    expect(calls.get.mock.calls[0].slice(0, 3)).toEqual([500, undefined, 0])
   })
 
   it('restores all owners offline and merges local resource changes by id', async () => {

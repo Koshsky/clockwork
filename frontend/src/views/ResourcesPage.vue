@@ -15,8 +15,7 @@ import { useRoleAccess } from '../composables/useRoleAccess'
 import { useAppStore, useTimesheetStore, useAuthStore, useRbacStore, usePlanningStore } from '../store'
 import { compareByName } from '../utils'
 import { useColumnWidths } from '../composables/useColumnWidths'
-import { isOffline } from '../offline/state'
-import { scheduleNamedRefresh } from '../offline/sync'
+import { isOffline, scheduleNamedRefresh } from '@/store/data/uiServices'
 import type { DtoResourceMemberResponse, DtoResourceResponse } from '@/api'
 
 const store = useAppStore()

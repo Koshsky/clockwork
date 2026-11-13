@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { applicationData } from '@/store/data/uiServices'
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
@@ -255,7 +256,8 @@ async function onResetPassword() {
   if (id == null) return
   resetBusy.value = true
   try {
-    const password = await app.resetPassword(id)
+    const result = await applicationData.session.resetPassword(id)
+    const password = result.status === 'confirmed' ? result.data.password : null
     // The generated password comes back from the backend once — show it.
     if (password) {
       resetPasswordModal.value = {

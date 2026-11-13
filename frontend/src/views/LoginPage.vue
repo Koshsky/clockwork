@@ -3,7 +3,7 @@ import { ref, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../store'
 import { PasswordField } from '../components/common'
-import { isOffline, probeBackend } from '../offline/state'
+import { applicationData, isOffline, probeBackend } from '@/store/data/uiServices'
 import { platformCapabilities } from '@/platform/context'
 import { getServerBase } from '../config'
 import { t } from '../i18n'
@@ -78,7 +78,7 @@ async function enterOffline() {
     localError.value = t('auth.noSession')
     return
   }
-  if (await auth.enterOffline(identity)) goToRedirect()
+  if ((await applicationData.session.enterOffline(identity)).status === 'ok') goToRedirect()
   else localError.value = t('auth.noSession')
 }
 
@@ -88,7 +88,7 @@ async function onSubmit() {
     localError.value = t('auth.fillAll')
     return
   }
-  const ok = await auth.login(username.value, password.value)
+  const ok = (await applicationData.session.login(username.value, password.value)).status === 'ok'
   if (ok) {
     goToRedirect()
   }

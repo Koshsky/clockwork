@@ -1,3 +1,4 @@
+import { stopApplicationPorts } from './store/data/applicationPorts'
 import { createApp, watch } from 'vue'
 import { createPinia, setActivePinia, disposePinia } from 'pinia'
 import App from './App.vue'
@@ -37,8 +38,12 @@ let stopSessionRedirect: (() => void) | undefined
   stopSessionRedirect = watch(
     () => [auth.isAuthenticated, auth.sessionMode] as const,
     ([authenticated, sessionMode]) => {
-      if (!authenticated || sessionMode !== 'online') return
       const current = router.currentRoute.value
+      if (platformCapabilities.kind === 'desktop' && !authenticated && current.meta.requiresAuth) {
+        void router.replace({ name: 'login', query: { redirect: current.fullPath } })
+        return
+      }
+      if (!authenticated || sessionMode !== 'online') return
       if (current.name !== 'login') return
       const redirect = typeof current.query.redirect === 'string' ? current.query.redirect : '/'
       void router.push(redirect)
@@ -65,6 +70,7 @@ function disposeApplication() {
   if (disposed) return
   disposed = true
   runtimeHost.stop()
+  stopApplicationPorts()
   stopUiSize()
   stopSessionRedirect?.()
   disposePinia(pinia)

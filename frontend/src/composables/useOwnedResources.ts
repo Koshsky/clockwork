@@ -3,10 +3,10 @@ import { registerActiveRead } from '@/data/activeReads'
 import { platformCapabilities } from '@/platform/context'
 import type { DtoResourceResponse } from '@/api'
 import { apiConfig } from '@/store'
-import { isOffline } from '@/offline/state'
+import { isOffline } from '@/store/data/uiServices'
 import { isReadForbidden } from '@/store/data/apiReads'
 import { loadResourceHeader } from '@/store/data/resourceHeader'
-import { pendingRefs } from '@/offline/outbox'
+import { pendingRefs } from '@/store/data/uiServices'
 import { resourceHeaderRows } from '@/utils/resourceAccess'
 
 /** The planning header must not inherit the resource table's pagination. */

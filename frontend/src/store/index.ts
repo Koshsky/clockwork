@@ -1,7 +1,9 @@
+import { sessionRequests } from './data/adapters/sessionRequests'
+import { createApplicationServices } from './data/applicationClients'
 import { defineStore } from 'pinia'
 import { ref, computed, watch, onScopeDispose, hasInjectionContext, inject } from 'vue'
 import axios, { type AxiosError, type Method } from 'axios'
-import { AuthApi, ProjectsApi, ProcessesApi, TasksApi, TimesheetResourcesApi, TimesheetCalendarApi, TimesheetStatesApi, PlanningApi, MilestonesApi, UsersApi, AssignmentsApi, AutoCreateApi, RBACApi, PermissionsApi, AuditApi, Configuration } from '@/api'
+import { Configuration } from '@/api'
 import type { DtoUserInfo, DtoProject, DtoResourceResponse, DtoResourceCalendar, DtoResourceMemberResponse, DtoResourceAbsenceResponse, DtoUserResponse, DtoUserStateResponse, DtoStateResponse, DtoCreateResourceRequest, DtoUpdateResourceRequest, DtoCreateUserRequest, DtoUpdateUserRequest, DtoAdminUserResponse, DtoCreateUserResult, DtoAutoCreateConfig, DtoAutoCreatedCounts, DtoCommentResponse, DtoPresetView, DtoPresetRuleInput, DtoPresetRuleView, DtoMatrixCell, DtoRoutePolicyView, EngineKindInfo, DtoPermission, DtoUserPermissionsView, DtoUserPermissionsInput, DtoAuditEventView, DtoAssignmentResponse, DtoDetailedProcess, DtoDetailedProject, DtoDetailedTask, DtoTaskResponse, DtoUpdateTaskRequest, DtoMilestone, DtoProcess, DtoProcessPlanning, DtoProjectPlanning, DtoResource, DtoTaskDependency, DtoTaskPlanning } from '@/api'
 import { apiErrorMessage } from '@/utils'
 import { t } from '@/i18n'
@@ -126,6 +128,7 @@ function authApiConfig(): Configuration {
 
 const apiReadsEnabled = platformCapabilities.kind === 'web'
 const readConfig = () => readConfiguration(apiConfig)
+const applicationServices = createApplicationServices(apiConfig, readConfig)
 
 export { apiConfig }
 
@@ -285,7 +288,7 @@ export const useAuthStore = defineStore('auth', () => {
       } else {
         const own = advanceSessionEpoch()
         const accepted = await withSessionLock(async () => {
-          const resp = await new AuthApi(authApiConfig()).authLoginPost({ username: username.trim(), password })
+          const resp = await sessionRequests.login({ username: username.trim(), password }, authApiConfig())
           if (own !== sessionEpoch()) return false
           const body = resp.data
           if ((body?.error as { code?: unknown } | undefined)?.code != null) throw new Error(apiErrorMessage(body.error))
@@ -314,7 +317,7 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       const result = await runOnlineCommand({
         key: ['account.password', user.value?.id], sensitive: true,
-        call: request => new UsersApi(authApiConfig()).userChangePasswordPost({ old_password: oldPassword, new_password: newPassword }, request),
+        call: request => sessionRequests.changePassword({ old_password: oldPassword, new_password: newPassword }, request, authApiConfig()),
         apply: () => {}, onConfirmed: () => { error.value = null },
         onError: message => { error.value = message },
       })
@@ -427,7 +430,7 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       // A lost response may have rotated the cookie; never replay it blindly.
       if (markSessionUncertain(true) === false) { error.value = t('auth.noSession'); return false }
-      const resp = await new AuthApi(authApiConfig()).authRefreshPost()
+      const resp = await sessionRequests.refresh(authApiConfig())
       if (isLoggedOut() || own !== sessionEpoch()) { invalidateOnlineSession(); return false }
       if ((resp.data?.error as { code?: unknown } | undefined)?.code != null) throw new Error(apiErrorMessage(resp.data.error))
       markSessionUncertain(false)
@@ -470,7 +473,7 @@ export const useAuthStore = defineStore('auth', () => {
     else {
       advanceSessionEpoch()
       void withSessionLock(async () => {
-        await new AuthApi(authApiConfig()).authLogoutPost()
+        await sessionRequests.logout(authApiConfig())
         markSessionUncertain(false)
         return true
       }).catch(() => {})
@@ -500,8 +503,8 @@ export const useAuthStore = defineStore('auth', () => {
     if (!apiReadsEnabled && isOffline.value && user.value) return true
     error.value = null
     try {
-      const api = new UsersApi(readConfig())
-      const resp = await readApi('profile', userId, request => api.userIdGet(userId, request), preferCache)
+      const api = applicationServices.users
+      const resp = await readApi('profile', userId, request => api.profile(userId, request), preferCache)
       const body = resp.data
       const errBody = body?.error as { code?: unknown; message?: string } | undefined
       if (errBody && errBody.code != null) throw new Error(apiErrorMessage(errBody))
@@ -622,8 +625,8 @@ export const useAppStore = defineStore('app', () => {
     }
     if (!silent) { projectsLoading.value = true; projectsError.value = null }
     try {
-      const api = new ProjectsApi(readConfig())
-      const resp = await readApi('projects', [tablePageSize.value, 0], request => api.projectGet(tablePageSize.value, undefined, 0, request), preferCache)
+      const api = applicationServices.projects
+      const resp = await readApi('projects', [tablePageSize.value, 0], request => api.list(tablePageSize.value, undefined, 0, request), preferCache)
       const data = resp.data?.data
       projects.value = data?.items ?? []
     } catch (e: unknown) {
@@ -716,8 +719,8 @@ export const useAppStore = defineStore('app', () => {
       resourcesError.value = null
     }
     try {
-      const api = new TimesheetResourcesApi(readConfig())
-      const resp = await readApi('resources', [tablePageSize.value, 0], request => api.resourcesGet(tablePageSize.value, undefined, 0, request), preferCache)
+      const api = applicationServices.resources
+      const resp = await readApi('resources', [tablePageSize.value, 0], request => api.list(tablePageSize.value, undefined, 0, request), preferCache)
       const data = resp.data?.data
       const items = data?.items ?? []
       // The background PULL must not truncate pages already loaded via
@@ -767,8 +770,8 @@ export const useAppStore = defineStore('app', () => {
         if (!merged) resourcesError.value = t('offline.noCachedData')
         return merged
       }
-      const api = new TimesheetResourcesApi(readConfig())
-      const resp = await readApi('resources.more', [tablePageSize.value, resources.value.length], request => api.resourcesGet(tablePageSize.value, undefined, resources.value.length, request))
+      const api = applicationServices.resources
+      const resp = await readApi('resources.more', [tablePageSize.value, resources.value.length], request => api.list(tablePageSize.value, undefined, resources.value.length, request))
       const data = resp.data?.data
       mergeResources(data?.items ?? [])
       resourcesTotal.value = data?.total ?? resourcesTotal.value
@@ -791,7 +794,7 @@ export const useAppStore = defineStore('app', () => {
       key: ['resource.create', payload],
       tempId,
       call: async (request) => {
-        const resp = await new TimesheetResourcesApi(apiConfig()).resourcesPost(payload, request)
+        const resp = await applicationServices.resources.create(payload, request)
         const errBody = resp.data?.error as { code?: unknown; message?: string } | undefined
         if (errBody && errBody.code != null) throw new Error(apiErrorMessage(errBody))
         return resp
@@ -824,7 +827,7 @@ export const useAppStore = defineStore('app', () => {
       key: ['resource.update', id, patch],
       targetId: id,
       call: async (request) => {
-        const resp = await new TimesheetResourcesApi(apiConfig()).resourcesIdPut(id, patch, request)
+        const resp = await applicationServices.resources.update(id, patch, request)
         const errBody = resp.data?.error as { code?: unknown; message?: string } | undefined
         if (errBody && errBody.code != null) throw new Error(apiErrorMessage(errBody))
         return resp
@@ -857,7 +860,7 @@ export const useAppStore = defineStore('app', () => {
       entity: 'resource',
       key: ['resource.delete', id],
       targetId: id,
-      call: (request) => new TimesheetResourcesApi(apiConfig()).resourcesIdDelete(id, request),
+      call: (request) => applicationServices.resources.remove(id, request),
       apply: remove,
       optimistic: remove,
       onConfirmed: () => { resourcesError.value = null },
@@ -888,8 +891,8 @@ export const useAppStore = defineStore('app', () => {
 
   async function refreshResourceMembers(resourceId: number, preferCache = false): Promise<void> {
     try {
-      const api = new TimesheetResourcesApi(readConfig())
-      const resp = await readApi('resource.members:' + resourceId, resourceId, request => api.resourcesIdMembersGet(resourceId, request), preferCache)
+      const api = applicationServices.resources
+      const resp = await readApi('resource.members:' + resourceId, resourceId, request => api.members(resourceId, request), preferCache)
       resourceMembers.value[resourceId] = resp.data?.data ?? []
     } catch (e: unknown) {
       if (isReadCancelled(e) || preferCache && nativeQueue?.mainSync) return
@@ -906,7 +909,7 @@ export const useAppStore = defineStore('app', () => {
       key: ['member.add', resourceId, userId],
       targetId: resourceId,
       tempId,
-      call: (request) => new TimesheetResourcesApi(apiConfig()).resourcesIdMembersPost(resourceId, {
+      call: (request) => applicationServices.resources.addMember(resourceId, {
         user_id: userId,
       }, request),
       apply: async () => {
@@ -948,7 +951,7 @@ export const useAppStore = defineStore('app', () => {
       entity: 'member',
       key: ['member.remove', resourceId, userId],
       targetId: resourceId,
-      call: (request) => new TimesheetResourcesApi(apiConfig()).resourcesIdMembersUserIdDelete(resourceId, userId, request),
+      call: (request) => applicationServices.resources.removeMember(resourceId, userId, request),
       apply: async () => {
         remove()
         await refreshResources()
@@ -1052,10 +1055,10 @@ export const useAppStore = defineStore('app', () => {
     calendarError.value = null
     try {
       const today = new Date()
-      const api = new TimesheetCalendarApi(readConfig())
+      const api = applicationServices.calendar
       const from = calendarDay(today, -CALENDAR_BACK_DAYS)
       const to = calendarDay(today, CALENDAR_FORWARD_DAYS)
-      const resp = await readApi('resource.calendar', [from, to], request => api.timesheetCalendarGet(from, to, request), preferCache)
+      const resp = await readApi('resource.calendar', [from, to], request => api.list(from, to, request), preferCache)
       if (!timesheet.busy && revision === timesheet.periodRevision) calendar.value = resp.data?.data?.resources ?? []
     } catch (e: unknown) {
       if (isReadForbidden(e)) { calendar.value = [] }
@@ -1075,8 +1078,8 @@ export const useAppStore = defineStore('app', () => {
     if (timesheet.busy) return
     const revision = timesheet.periodRevision
     try {
-      const api = new TimesheetResourcesApi(readConfig())
-      const resp = await readApi('resource.absences:' + resourceId, [resourceId, from, to], request => api.resourcesIdAbsenceGet(resourceId, from, to, request), true)
+      const api = applicationServices.resources
+      const resp = await readApi('resource.absences:' + resourceId, [resourceId, from, to], request => api.absences(resourceId, from, to, request), true)
       if (timesheet.busy || revision !== timesheet.periodRevision) return
       absenceByResource.value = { ...absenceByResource.value, [resourceId]: resp.data?.data ?? [] }
     } catch {
@@ -1115,8 +1118,8 @@ export const useAppStore = defineStore('app', () => {
     usersLoading.value = true
     usersError.value = null
     try {
-      const api = new UsersApi(readConfig())
-      const resp = await readApi('users.directory', undefined, request => api.userAllGet(request), preferCache)
+      const api = applicationServices.users
+      const resp = await readApi('users.directory', undefined, request => api.directory(request), preferCache)
       users.value = resp.data?.data ?? []
     } catch (e: unknown) {
       if (isReadForbidden(e)) { users.value = [] }
@@ -1147,8 +1150,8 @@ export const useAppStore = defineStore('app', () => {
   async function refreshMyStaff(preferCache = false): Promise<void> {
     myStaffLoading.value = true
     try {
-      const api = new UsersApi(readConfig())
-      const resp = await readApi('users.staff', [500, 0], request => api.userGet(500, undefined, undefined, undefined, undefined, 0, request), preferCache)
+      const api = applicationServices.users
+      const resp = await readApi('users.staff', [500, 0], request => api.employees(500, undefined, undefined, undefined, undefined, 0, request), preferCache)
       myStaff.value = resp.data?.data?.items ?? []
     } catch {
       // Not critical: the candidate pool stays as is.
@@ -1177,8 +1180,8 @@ export const useAppStore = defineStore('app', () => {
     adminUsersLoading.value = true
     adminUsersError.value = null
     try {
-      const api = new UsersApi(readConfig())
-      const resp = await readApi('users.accounts', search, request => api.userAccountsGet(500, undefined, undefined, false, search || undefined, 0, request))
+      const api = applicationServices.users
+      const resp = await readApi('users.accounts', search, request => api.accounts(500, undefined, undefined, false, search || undefined, 0, request))
       adminUsers.value = resp.data?.data?.items ?? []
     } catch (e: unknown) {
       if (isReadForbidden(e)) { adminUsers.value = [] }
@@ -1192,7 +1195,7 @@ export const useAppStore = defineStore('app', () => {
   async function loadAdminUser(id: number): Promise<DtoAdminUserResponse | null> {
     adminUsersError.value = null
     try {
-      const response = await readApi('account.detail', id, request => new UsersApi(readConfig()).userAccountsIdGet(id, request))
+      const response = await readApi('account.detail', id, request => applicationServices.users.account(id, request))
       return response.data?.data ?? null
     } catch (e) {
       if (!isReadCancelled(e)) adminUsersError.value = apiErrorMessage(e as { message?: string; code?: unknown })
@@ -1205,7 +1208,7 @@ export const useAppStore = defineStore('app', () => {
     payload = { ...payload }
     const result = await runOnlineCommand<DtoCreateUserResult>({
       key: ['account.create', payload.username], sensitive: true,
-      call: request => new UsersApi(apiConfig()).userPost(payload, request),
+      call: request => applicationServices.users.create(payload, request),
       apply: async () => { await loadAdminUsers(); if (!isOffline.value) scheduleDomainRefresh(['user']) },
       onConfirmed: () => { adminUsersError.value = null },
       onError: message => { adminUsersError.value = message },
@@ -1217,7 +1220,7 @@ export const useAppStore = defineStore('app', () => {
   async function resetPassword(id: number): Promise<string | null> {
     const result = await runOnlineCommand<{ password?: string }>({
       key: ['account.resetPassword', id], sensitive: true,
-      call: request => new UsersApi(apiConfig()).userIdResetPasswordPost(id, request),
+      call: request => sessionRequests.resetPassword(id, request, apiConfig()),
       apply: () => {}, onConfirmed: () => { adminUsersError.value = null },
       onError: message => { adminUsersError.value = message },
     })
@@ -1229,7 +1232,7 @@ export const useAppStore = defineStore('app', () => {
     patch = { ...patch }
     const result = await runOnlineCommand({
       key: ['account.update', id, patch],
-      call: request => new UsersApi(apiConfig()).userIdPut(id, patch, request),
+      call: request => applicationServices.users.update(id, patch, request),
       apply: async () => { await loadAdminUsers(); if (!isOffline.value) scheduleDomainRefresh(['user']) },
       onConfirmed: () => { adminUsersError.value = null },
       onError: message => { adminUsersError.value = message },
@@ -1241,7 +1244,7 @@ export const useAppStore = defineStore('app', () => {
   async function updateManager(id: number, managerId: number | null): Promise<boolean> {
     const result = await runOnlineCommand({
       key: ['account.manager', id, managerId],
-      call: request => new UsersApi(apiConfig()).userIdManagerPut(id, { manager_id: managerId ?? undefined }, request),
+      call: request => applicationServices.users.setManager(id, { manager_id: managerId ?? undefined }, request),
       apply: async () => { await loadAdminUsers(); if (!isOffline.value) scheduleDomainRefresh(['user']) },
       onConfirmed: () => { adminUsersError.value = null },
       onError: message => { adminUsersError.value = message },
@@ -1253,7 +1256,7 @@ export const useAppStore = defineStore('app', () => {
   async function deleteUser(id: number): Promise<boolean> {
     const result = await runOnlineCommand({
       key: ['account.delete', id],
-      call: request => new UsersApi(apiConfig()).userIdDelete(id, request),
+      call: request => applicationServices.users.remove(id, request),
       apply: async () => { await loadAdminUsers(); if (!isOffline.value) scheduleDomainRefresh(['user']) },
       onConfirmed: () => { adminUsersError.value = null },
       onError: message => { adminUsersError.value = message },
@@ -1271,8 +1274,8 @@ export const useAppStore = defineStore('app', () => {
     autoCreateLoading.value = true
     autoCreateError.value = null
     try {
-      const api = new AutoCreateApi(readConfig())
-      const resp = await readApi('template.configuration', undefined, request => api.autoCreateConfigGet(request))
+      const api = applicationServices.template
+      const resp = await readApi('template.configuration', undefined, request => api.get(request))
       autoCreateConfig.value = resp.data?.data ?? null
     } catch (e: unknown) {
       if (isReadForbidden(e)) { autoCreateConfig.value = null }
@@ -1288,7 +1291,7 @@ export const useAppStore = defineStore('app', () => {
     cfg = JSON.parse(JSON.stringify(cfg))
     const result = await runOnlineCommand({
       key: ['template.save', cfg],
-      call: request => new AutoCreateApi(apiConfig()).autoCreateConfigPut(cfg, request),
+      call: request => applicationServices.template.save(cfg, request),
       apply: () => { autoCreateConfig.value = cfg }, onConfirmed: () => { autoCreateError.value = null },
       onError: message => { autoCreateError.value = message },
     })
@@ -1472,11 +1475,11 @@ export const useTimesheetStore = defineStore('timesheet', () => {
    */
   async function refreshPeriodsOneByOne(start: string, end: string, read: number, preferCache = false): Promise<boolean> {
     const revision = periodRevision.value
-    const api = new UsersApi(readConfig())
+    const api = applicationServices.users
     let failed: unknown = null
     const results = await Promise.all(
       timesheetRows.value.map((emp) =>
-        readApi('timesheet.periods:' + emp.id, [emp.id, start, end], request => api.userIdDaysGet(emp.id ?? 0, start, end, request), preferCache)
+        readApi('timesheet.periods:' + emp.id, [emp.id, start, end], request => api.employeePeriods(emp.id ?? 0, start, end, request), preferCache)
           .then((r) => ({ id: emp.id, list: r.data?.data ?? [], baseline: (r as { __erpBaseline?: RevisionBaseline }).__erpBaseline }))
           .catch((e: unknown) => {
             failed = failed ?? e
@@ -1512,12 +1515,12 @@ export const useTimesheetStore = defineStore('timesheet', () => {
       .map((e) => e.id)
       .filter((id): id is number => id != null)
     if (ids.length === 0) return true
-    const api = new UsersApi(readConfig())
+    const api = applicationServices.users
     try {
       const chunks: number[][] = []
       for (let i = 0; i < ids.length; i += BATCH_IDS_MAX) chunks.push(ids.slice(i, i + BATCH_IDS_MAX))
       const responses = await Promise.all(
-        chunks.map((chunk) => readApi('timesheet.batch:' + chunk.join(','), [chunk, start, end], request => api.userDaysGet(chunk.join(','), start, end, request), preferCache)),
+        chunks.map((chunk) => readApi('timesheet.batch:' + chunk.join(','), [chunk, start, end], request => api.periods(chunk.join(','), start, end, request), preferCache)),
       )
       if (read !== periodRead || revision !== periodRevision.value) return false
       for (const resp of responses) {
@@ -1640,8 +1643,8 @@ export const useTimesheetStore = defineStore('timesheet', () => {
       error.value = null
     }
     try {
-      const api = new UsersApi(readConfig())
-      const resp = await readApi('employees', [tablePageSize.value, managerId, 0], request => api.userGet(tablePageSize.value, undefined, managerId ?? undefined, undefined, undefined, 0, request), preferCache)
+      const api = applicationServices.users
+      const resp = await readApi('employees', [tablePageSize.value, managerId, 0], request => api.employees(tablePageSize.value, undefined, managerId ?? undefined, undefined, undefined, 0, request), preferCache)
       const data = resp.data?.data
       // Sorting is added by the computed employeesWithTitles.
       //
@@ -1698,8 +1701,8 @@ export const useTimesheetStore = defineStore('timesheet', () => {
         if (!merged) error.value = t('offline.noCachedData')
         return merged
       }
-      const api = new UsersApi(readConfig())
-      const resp = await readApi('employees.more', [tablePageSize.value, employees.value.length], request => api.userGet(tablePageSize.value, undefined, undefined, undefined, undefined, employees.value.length, request))
+      const api = applicationServices.users
+      const resp = await readApi('employees.more', [tablePageSize.value, employees.value.length], request => api.employees(tablePageSize.value, undefined, undefined, undefined, undefined, employees.value.length, request))
       const data = resp.data?.data
       mergeEmployees(data?.items ?? [])
       employeesTotal.value = data?.total ?? employeesTotal.value
@@ -1740,8 +1743,8 @@ export const useTimesheetStore = defineStore('timesheet', () => {
     const rbac = useRbacStore()
     if (rbac.permsLoaded && !rbac.can('state', 'view')) { states.value = []; return }
     try {
-      const api = new TimesheetStatesApi(readConfig())
-      const resp = await readApi('timesheet.states', undefined, request => api.timesheetStatesGet(request), preferCache)
+      const api = applicationServices.states
+      const resp = await readApi('timesheet.states', undefined, request => api.list(request), preferCache)
       states.value = resp.data?.data ?? []
       stateBaseline.value = (resp as { __erpBaseline?: RevisionBaseline }).__erpBaseline
     } catch (e: unknown) {
@@ -1771,7 +1774,7 @@ export const useTimesheetStore = defineStore('timesheet', () => {
         entity: 'state',
         key: ['state.create', payload],
         tempId,
-        call: (request) => new TimesheetStatesApi(apiConfig()).timesheetStatesPost(payload, request),
+        call: (request) => applicationServices.states.create(payload, request),
         apply: async () => {
           await refreshStates()
         },
@@ -1798,7 +1801,7 @@ export const useTimesheetStore = defineStore('timesheet', () => {
         entity: 'state',
         key: ['state.update', id, payload],
         targetId: id,
-        call: (request) => new TimesheetStatesApi(apiConfig()).timesheetStatesIdPut(id, payload, request),
+        call: (request) => applicationServices.states.update(id, payload, request),
         apply: async () => {
           await refreshStates()
         },
@@ -1829,7 +1832,7 @@ export const useTimesheetStore = defineStore('timesheet', () => {
         entity: 'state',
         key: ['state.delete', id],
         targetId: id,
-        call: (request) => new TimesheetStatesApi(apiConfig()).timesheetStatesIdDelete(id, request),
+        call: (request) => applicationServices.states.remove(id, request),
         apply: async () => {
           await refreshStates()
         },
@@ -1910,8 +1913,8 @@ export const useTimesheetStore = defineStore('timesheet', () => {
         key: ['period.' + mode, employeeId, stateId, startDate, endDate],
         targetId: employeeId,
         call: (request) => mode === 'put'
-          ? new UsersApi(apiConfig()).userIdDaysPut(employeeId, { state_id: stateId, start_date: startDate, end_date: endDate }, request)
-          : new UsersApi(apiConfig()).userIdDaysDelete(employeeId, startDate, endDate, stateId, request),
+          ? applicationServices.users.assignPeriod(employeeId, { state_id: stateId, start_date: startDate, end_date: endDate }, request)
+          : applicationServices.users.clearPeriod(employeeId, startDate, endDate, stateId, request),
         apply: () => {},
         optimistic: () => {},
         onConfirmed: () => { error.value = null },
@@ -2086,7 +2089,7 @@ export const usePlanningStore = defineStore('planning', () => {
   async function refreshProjectPlanning(silent = false, preferCache = false): Promise<void> {
     await runLoad(silent, async () => {
       const stamp = readStamp()
-      const resp = await readApi('planning.projects', undefined, request => new PlanningApi(readConfig()).planningProjectsGet(request), preferCache)
+      const resp = await readApi('planning.projects', undefined, request => applicationServices.planning.projects(request), preferCache)
       if (!mayApplyRead(stamp)) return
       if (pendingRefs.value.size === 0 || nativeQueue) projectPlanning.value = resp.data?.data ?? null
       // A durable queue must preserve edits without blocking the first snapshot.
@@ -2097,7 +2100,7 @@ export const usePlanningStore = defineStore('planning', () => {
   async function refreshProcessPlanning(silent = false, preferCache = false): Promise<void> {
     await runLoad(silent, async () => {
       const stamp = readStamp()
-      const resp = await readApi('planning.processes', undefined, request => new PlanningApi(readConfig()).planningProcessesGet(request), preferCache)
+      const resp = await readApi('planning.processes', undefined, request => applicationServices.planning.processes(request), preferCache)
       if (!mayApplyRead(stamp)) return
       if (pendingRefs.value.size === 0 || nativeQueue) processPlanning.value = resp.data?.data ?? null
       // A durable queue must preserve edits without blocking the first snapshot.
@@ -2190,7 +2193,7 @@ export const usePlanningStore = defineStore('planning', () => {
     if (apiReadsEnabled && !injectedTaskData) {
       const result = await runWebCommand<DtoTaskResponse>({
         key: ['task.update', id, patch], entity: 'task', targetId: id,
-        call: request => new TasksApi(apiConfig()).taskIdPut(id, patch, request),
+        call: request => applicationServices.tasks.update(id, patch, request),
         apply: data => { if (context === taskContext) { error.value = null; apply(data) } },
         onError: message => { if (context === taskContext) onError(message) },
       })
@@ -2288,7 +2291,7 @@ export const usePlanningStore = defineStore('planning', () => {
         call: async request => {
           completed = 0
           for (const { id, patch } of steps) {
-            const dto = commandData<{ start_date?: string; end_date?: string }>(await new TasksApi(apiConfig()).taskIdPut(id, patch, {
+            const dto = commandData<{ start_date?: string; end_date?: string }>(await applicationServices.tasks.update(id, patch, {
               ...request, headers: { 'Idempotency-Key': String(request.headers?.['Idempotency-Key']) + ':' + id },
             }))
             const row = findTaskRow(id)
@@ -2318,7 +2321,7 @@ export const usePlanningStore = defineStore('planning', () => {
         key: ['task.dates', tid, patch],
         targetId: tid,
         call: (request) =>
-          new TasksApi(apiConfig()).taskIdPut(tid, {
+          applicationServices.tasks.update(tid, {
             start_date: patch.start_date,
             end_date: patch.end_date,
           }, request),
@@ -2387,7 +2390,7 @@ export const usePlanningStore = defineStore('planning', () => {
       key: ['dependency.create', taskId, dependsOnTaskId, type],
       targetId: taskId,
       call: (request) =>
-        new TasksApi(apiConfig()).taskIdDependenciesPost(taskId, {
+        applicationServices.tasks.createDependency(taskId, {
           depends_on_task_id: dependsOnTaskId,
           type,
         }, request),
@@ -2428,7 +2431,7 @@ export const usePlanningStore = defineStore('planning', () => {
       entity: 'task',
       key: ['dependency.update', taskId, depId, type],
       targetId: taskId,
-      call: (request) => new TasksApi(apiConfig()).taskIdDependenciesDepIdPut(taskId, depId, { type }, request),
+      call: (request) => applicationServices.tasks.updateDependency(taskId, depId, { type }, request),
       apply: async () => {
         await refreshTaskPlanning(true)
       },
@@ -2450,7 +2453,7 @@ export const usePlanningStore = defineStore('planning', () => {
       entity: 'task',
       key: ['dependency.delete', taskId, depId],
       targetId: taskId,
-      call: (request) => new TasksApi(apiConfig()).taskIdDependenciesDepIdDelete(taskId, depId, request),
+      call: (request) => applicationServices.tasks.removeDependency(taskId, depId, request),
       apply: async () => {
         await refreshTaskPlanning(true)
       },
@@ -2475,7 +2478,7 @@ export const usePlanningStore = defineStore('planning', () => {
       entity: 'process',
       key: ['process.dates', id, start_date, end_date],
       targetId: id,
-      call: (request) => new ProcessesApi(apiConfig()).processIdPut(id, { start_date, end_date }, request),
+      call: (request) => applicationServices.processes.update(id, { start_date, end_date }, request),
       // The echoed row (already clamped into the project) lands locally; the
       // aggregate is re-read once by the coalesced refresh below.
       apply: (dto) => {
@@ -2509,7 +2512,7 @@ export const usePlanningStore = defineStore('planning', () => {
       entity: 'project',
       key: ['project.dates', id, start_date, end_date],
       targetId: id,
-      call: (request) => new ProjectsApi(apiConfig()).projectIdPut(id, { start_date, end_date }, request),
+      call: (request) => applicationServices.projects.update(id, { start_date, end_date }, request),
       apply: (dto) => {
         const d = dto as { start_date?: string; end_date?: string } | null
         const patch = { start_date: d?.start_date, end_date: d?.end_date }
@@ -2539,7 +2542,7 @@ export const usePlanningStore = defineStore('planning', () => {
       entity: 'milestone',
       key: ['milestone.date', id, date],
       targetId: id,
-      call: (request) => new MilestonesApi(apiConfig()).milestoneIdPut(id, { date }, request),
+      call: (request) => applicationServices.milestones.update(id, { date }, request),
       // The echoed row lands locally; tasks are re-read once by the coalesced
       // post-mutation refresh (the V4 trigger may shift the process's tasks).
       apply: (dto) => {
@@ -2583,7 +2586,7 @@ export const usePlanningStore = defineStore('planning', () => {
       entity: 'project',
       key: ['project.update', id, patch],
       targetId: id,
-      call: (request) => new ProjectsApi(apiConfig()).projectIdPut(id, patch, request),
+      call: (request) => applicationServices.projects.update(id, patch, request),
       apply: applyLocally,
       optimistic: applyLocally,
       onConfirmed: () => { error.value = null },
@@ -2611,7 +2614,7 @@ export const usePlanningStore = defineStore('planning', () => {
       entity: 'process',
       key: ['process.update', id, patch],
       targetId: id,
-      call: (request) => new ProcessesApi(apiConfig()).processIdPut(id, patch, request),
+      call: (request) => applicationServices.processes.update(id, patch, request),
       apply: applyLocally,
       optimistic: applyLocally,
       onConfirmed: () => { error.value = null },
@@ -2642,7 +2645,7 @@ export const usePlanningStore = defineStore('planning', () => {
       entity: 'milestone',
       key: ['milestone.update', id, patch],
       targetId: id,
-      call: (request) => new MilestonesApi(apiConfig()).milestoneIdPut(id, patch, request),
+      call: (request) => applicationServices.milestones.update(id, patch, request),
       apply: applyLocally,
       optimistic: applyLocally,
       onConfirmed: () => { error.value = null },
@@ -2681,7 +2684,7 @@ export const usePlanningStore = defineStore('planning', () => {
       key: ['project.create', payload],
       tempId,
       call: async (request) => {
-        const resp = await new ProjectsApi(apiConfig()).projectPost({ ...payload, priority: 100 }, request)
+        const resp = await applicationServices.projects.create({ ...payload, priority: 100 }, request)
         const errBody = resp.data?.error as { code?: unknown; message?: string } | undefined
         if (errBody && errBody.code != null) throw new Error(apiErrorMessage(errBody))
         return resp
@@ -2771,7 +2774,7 @@ export const usePlanningStore = defineStore('planning', () => {
       key: ['process.create', payload],
       tempId,
       call: async (request) => {
-        const resp = await new ProcessesApi(apiConfig()).processPost(payload, request)
+        const resp = await applicationServices.processes.create(payload, request)
         const errBody = resp.data?.error as { code?: unknown; message?: string } | undefined
         if (errBody && errBody.code != null) throw new Error(apiErrorMessage(errBody))
         return resp
@@ -2825,7 +2828,7 @@ export const usePlanningStore = defineStore('planning', () => {
       key: ['task.create', payload],
       tempId,
       call: async (request) => {
-        const resp = await new TasksApi(apiConfig()).taskPost(payload, request)
+        const resp = await applicationServices.tasks.create(payload, request)
         const errBody = resp.data?.error as { code?: unknown; message?: string } | undefined
         if (errBody && errBody.code != null) throw new Error(apiErrorMessage(errBody))
         return resp
@@ -2879,7 +2882,7 @@ export const usePlanningStore = defineStore('planning', () => {
       key: ['subtask.create', parentId, payload],
       tempId,
       call: async (request) => {
-        const resp = await new TasksApi(apiConfig()).taskPost({
+        const resp = await applicationServices.tasks.create({
           parent_id: parentId,
           // The RBAC middleware authorizes task.create by the process from the
           // body; a subtask always lives in its parent's process.
@@ -2947,7 +2950,7 @@ export const usePlanningStore = defineStore('planning', () => {
       entity: 'task',
       key: ['task.delete', id],
       targetId: id,
-      call: (request) => new TasksApi(apiConfig()).taskIdDelete(id, request),
+      call: (request) => applicationServices.tasks.remove(id, request),
       apply: remove,
       optimistic: remove,
       onConfirmed: () => { error.value = null },
@@ -2971,7 +2974,7 @@ export const usePlanningStore = defineStore('planning', () => {
       key: ['milestone.create', payload],
       tempId,
       call: async (request) => {
-        const resp = await new MilestonesApi(apiConfig()).milestonePost(payload, request)
+        const resp = await applicationServices.milestones.create(payload, request)
         const errBody = resp.data?.error as { code?: unknown; message?: string } | undefined
         if (errBody && errBody.code != null) throw new Error(apiErrorMessage(errBody))
         return resp
@@ -3031,7 +3034,7 @@ export const usePlanningStore = defineStore('planning', () => {
       entity: 'project',
       key: ['project.delete', id],
       targetId: id,
-      call: (request) => new ProjectsApi(apiConfig()).projectIdDelete(id, request),
+      call: (request) => applicationServices.projects.remove(id, request),
       apply: remove,
       optimistic: remove,
       onConfirmed: () => { error.value = null },
@@ -3049,7 +3052,7 @@ export const usePlanningStore = defineStore('planning', () => {
       entity: 'process',
       key: ['process.delete', id],
       targetId: id,
-      call: (request) => new ProcessesApi(apiConfig()).processIdDelete(id, request),
+      call: (request) => applicationServices.processes.remove(id, request),
       apply: remove,
       optimistic: remove,
       onConfirmed: () => { error.value = null },
@@ -3069,7 +3072,7 @@ export const usePlanningStore = defineStore('planning', () => {
       entity: 'task',
       key: ['task.delete', id],
       targetId: id,
-      call: (request) => new TasksApi(apiConfig()).taskIdDelete(id, request),
+      call: (request) => applicationServices.tasks.remove(id, request),
       apply: remove,
       optimistic: remove,
       onConfirmed: () => { error.value = null },
@@ -3087,7 +3090,7 @@ export const usePlanningStore = defineStore('planning', () => {
       entity: 'milestone',
       key: ['milestone.delete', id],
       targetId: id,
-      call: (request) => new MilestonesApi(apiConfig()).milestoneIdDelete(id, request),
+      call: (request) => applicationServices.milestones.remove(id, request),
       apply: remove,
       optimistic: remove,
       onConfirmed: () => { error.value = null },
@@ -3168,7 +3171,7 @@ export const usePlanningStore = defineStore('planning', () => {
       targetId: taskId,
       target: ['assignment', taskId, resourceId],
       tempId,
-      call: (request) => new AssignmentsApi(apiConfig()).assignmentPost({ task_id: taskId, resource_id: resourceId, quantity }, request),
+      call: (request) => applicationServices.assignments.create({ task_id: taskId, resource_id: resourceId, quantity }, request),
       apply: async (dto) => {
         const assignment = dto as DtoAssignmentResponse | null
         const row = findTaskRow(taskId)?.resources?.find((r) => r.assignment_id === tempId)
@@ -3195,7 +3198,7 @@ export const usePlanningStore = defineStore('planning', () => {
       assignmentId = found.assignment_id
     } else {
       try {
-        const resp = await new AssignmentsApi(apiConfig()).assignmentGet(500, undefined, 0)
+        const resp = await applicationServices.assignments.list(500, undefined, 0)
         const data = resp.data?.data
         const list = data?.items ?? []
         const a = list.find((x: DtoAssignmentResponse) => x.task_id === taskId && x.resource_id === resourceId)
@@ -3221,7 +3224,7 @@ export const usePlanningStore = defineStore('planning', () => {
       key: ['assignment.delete', assignmentId],
       targetId: taskId,
       target: ['assignment', taskId, resourceId],
-      call: (request) => new AssignmentsApi(apiConfig()).assignmentIdDelete(assignmentId!, request),
+      call: (request) => applicationServices.assignments.remove(assignmentId!, request),
       apply: async () => {
         await refreshTaskPlanning(true)
       },
@@ -3258,7 +3261,7 @@ export const usePlanningStore = defineStore('planning', () => {
         key: ['project.order', changes], target: ['project.order'], entity: 'project', replayBatch: true,
         call: async request => {
           for (const change of changes) {
-            commandData(await new ProjectsApi(apiConfig()).projectIdPut(change.id, { priority: change.priority }, {
+            commandData(await applicationServices.projects.update(change.id, { priority: change.priority }, {
               ...request, headers: { 'Idempotency-Key': String(request.headers?.['Idempotency-Key']) + ':' + change.id },
             }))
           }
@@ -3276,7 +3279,7 @@ export const usePlanningStore = defineStore('planning', () => {
 
     try {
       await Promise.all(
-        changes.map((c) => new ProjectsApi(apiConfig()).projectIdPut(c.id, { priority: c.priority })),
+        changes.map((c) => applicationServices.projects.update(c.id, { priority: c.priority })),
       )
     } catch (e: unknown) {
       const err = e as AxiosError
@@ -3336,7 +3339,7 @@ export const usePlanningStore = defineStore('planning', () => {
     if (apiReadsEnabled) return runMutation({
       key: ['process.order', projectId, ids], entity: 'reorder', targetId: projectId,
       target: ['process.order', projectId],
-      call: request => new ProcessesApi(apiConfig()).processOrderPut({ project_id: projectId, ids }, request),
+      call: request => applicationServices.processes.reorder({ project_id: projectId, ids }, request),
       apply: async () => { await refreshProcessPlanning(true) }, optimistic: () => {},
       onConfirmed: () => { error.value = null },
       onError: message => {
@@ -3346,7 +3349,7 @@ export const usePlanningStore = defineStore('planning', () => {
     })
 
     try {
-      await new ProcessesApi(apiConfig()).processOrderPut({ project_id: projectId, ids })
+      await applicationServices.processes.reorder({ project_id: projectId, ids })
     } catch (e: unknown) {
       const err = e as AxiosError
       if (!nativeQueue && err?.config && isNetworkError(e)) {
@@ -3391,7 +3394,7 @@ export const usePlanningStore = defineStore('planning', () => {
     if (apiReadsEnabled) return runMutation({
       key: ['task.order', processId, ids], entity: 'reorder', targetId: processId,
       target: ['task.order', processId],
-      call: request => new TasksApi(apiConfig()).taskOrderPut({ process_id: processId, ids }, request),
+      call: request => applicationServices.tasks.reorder({ process_id: processId, ids }, request),
       apply: async () => { await refreshTaskPlanning(true) }, optimistic: () => {},
       onConfirmed: () => { error.value = null },
       onError: message => {
@@ -3401,7 +3404,7 @@ export const usePlanningStore = defineStore('planning', () => {
     })
 
     try {
-      await new TasksApi(apiConfig()).taskOrderPut({ process_id: processId, ids })
+      await applicationServices.tasks.reorder({ process_id: processId, ids })
     } catch (e: unknown) {
       const err = e as AxiosError
       if (!nativeQueue && err?.config && isNetworkError(e)) {
@@ -3437,7 +3440,7 @@ export const usePlanningStore = defineStore('planning', () => {
     commentsLoading.value = true
     commentsError.value = null
     try {
-      const resp = await readApi('task.comments:' + taskId, taskId, request => new TasksApi(readConfig()).taskIdCommentsGet(taskId, request), !opts?.fresh)
+      const resp = await readApi('task.comments:' + taskId, taskId, request => applicationServices.tasks.comments(taskId, request), !opts?.fresh)
       commentsByTask.value[taskId] = (resp.data?.data as DtoCommentResponse[] | undefined) ?? []
     } catch (e: unknown) {
       if (isReadCancelled(e)) return
@@ -3455,7 +3458,7 @@ export const usePlanningStore = defineStore('planning', () => {
   ): Promise<boolean> {
     const result = await runOnlineCommand({
       key: ['comment.create', taskId, content, parentId],
-      call: request => new TasksApi(apiConfig()).taskIdCommentsPost(taskId, { content, parent_id: parentId }, request),
+      call: request => applicationServices.tasks.createComment(taskId, { content, parent_id: parentId }, request),
       apply: async () => { await loadTaskComments(taskId, { fresh: true }); await refreshTaskPlanning(true) },
       onConfirmed: () => { commentsError.value = null },
       onError: message => { commentsError.value = message },
@@ -3467,7 +3470,7 @@ export const usePlanningStore = defineStore('planning', () => {
   async function deleteTaskComment(taskId: number, commentId: number): Promise<boolean> {
     const result = await runOnlineCommand({
       key: ['comment.delete', taskId, commentId],
-      call: request => new TasksApi(apiConfig()).taskIdCommentsCommentIdDelete(taskId, commentId, request),
+      call: request => applicationServices.tasks.removeComment(taskId, commentId, request),
       apply: async () => { await loadTaskComments(taskId, { fresh: true }); await refreshTaskPlanning(true) },
       onConfirmed: () => { commentsError.value = null },
       onError: message => { commentsError.value = message },
@@ -3572,13 +3575,13 @@ export const useRbacStore = defineStore('rbac', () => {
     loading.value = true
     error.value = null
     try {
-      const api = new RBACApi(readConfig())
+      const api = applicationServices.rbac
       const [presetsR, rulesR, matrixR, routesR, kindsR] = await Promise.all([
-        readApi('rbac.presets', undefined, request => api.rbacPresetsGet(request)),
-        readApi('rbac.rules', undefined, request => api.rbacPresetRulesGet(request)),
-        readApi('rbac.matrix', undefined, request => api.rbacMatrixGet(request)),
-        readApi('rbac.routes', undefined, request => api.rbacPoliciesGet(request)),
-        readApi('rbac.kinds', undefined, request => api.rbacKindsGet(request)),
+        readApi('rbac.presets', undefined, request => api.presets(request)),
+        readApi('rbac.rules', undefined, request => api.rules(request)),
+        readApi('rbac.matrix', undefined, request => api.matrix(request)),
+        readApi('rbac.routes', undefined, request => api.policies(request)),
+        readApi('rbac.kinds', undefined, request => api.kinds(request)),
       ])
       presets.value = presetsR.data?.data ?? []
       presetRules.value = rulesR.data?.data ?? []
@@ -3665,7 +3668,7 @@ export const useRbacStore = defineStore('rbac', () => {
   async function refreshPermissions(preferCache = false): Promise<boolean> {
     if (!apiReadsEnabled && isOffline.value) return loadMyPermissions()
     try {
-      const resp = await readApi('permissions.current', undefined, request => new PermissionsApi(readConfig()).permissionsMeGet(request), preferCache)
+      const resp = await readApi('permissions.current', undefined, request => applicationServices.permissions.current(request), preferCache)
       const next = resp.data?.data ?? []
       const signature = (rules: DtoPermission[]) => JSON.stringify(rules.map(rule => JSON.stringify([rule.resource, rule.action, rule.scope, !!rule.inherited])).sort())
       if (permsLoaded.value && signature(next) !== signature(myPermissions.value)) {
@@ -3747,7 +3750,7 @@ export const useRbacStore = defineStore('rbac', () => {
   async function ensurePresets(): Promise<void> {
     if (presets.value.length) return
     try {
-      const presetsR = await readApi('rbac.presets', undefined, request => new RBACApi(readConfig()).rbacPresetsGet(request), true)
+      const presetsR = await readApi('rbac.presets', undefined, request => applicationServices.rbac.presets(request), true)
       presets.value = presetsR.data?.data ?? []
     } catch {
       // catalog unavailable — the UI works off a static preset list
@@ -3757,8 +3760,8 @@ export const useRbacStore = defineStore('rbac', () => {
   /** Re-reads the preset rules and matrix after a change (an "immediate" effect). */
   async function reloadRules(): Promise<boolean> {
     try {
-      const api = new RBACApi(apiConfig())
-      const [rulesR, matrixR] = await Promise.all([readApi('rbac.rules', undefined, request => api.rbacPresetRulesGet(request)), readApi('rbac.matrix', undefined, request => api.rbacMatrixGet(request))])
+      const api = applicationServices.rbac
+      const [rulesR, matrixR] = await Promise.all([readApi('rbac.rules', undefined, request => api.rules(request)), readApi('rbac.matrix', undefined, request => api.matrix(request))])
       presetRules.value = rulesR.data?.data ?? []
       matrix.value = matrixR.data?.data ?? []
       return true
@@ -3772,7 +3775,7 @@ export const useRbacStore = defineStore('rbac', () => {
   async function upsertRule(input: DtoPresetRuleInput): Promise<boolean> {
     input = { ...input }
     const result = await runOnlineCommand({
-      key: ['rbac.rule', input], call: request => new RBACApi(apiConfig()).rbacPresetRulesPut(input, request),
+      key: ['rbac.rule', input], call: request => applicationServices.rbac.upsertRule(input, request),
       apply: () => {}, onConfirmed: () => { error.value = null }, onError: setError,
     })
     return result.status === 'confirmed'
@@ -3781,7 +3784,7 @@ export const useRbacStore = defineStore('rbac', () => {
   /** Soft deletion of a preset rule (the "no access" zone). */
   async function deleteRule(id: number): Promise<boolean> {
     const result = await runOnlineCommand({
-      key: ['rbac.deleteRule', id], call: request => new RBACApi(apiConfig()).rbacPresetRulesIdDelete(id, request),
+      key: ['rbac.deleteRule', id], call: request => applicationServices.rbac.removeRule(id, request),
       apply: () => {}, onConfirmed: () => { error.value = null }, onError: setError,
     })
     return result.status === 'confirmed'
@@ -3792,7 +3795,7 @@ export const useRbacStore = defineStore('rbac', () => {
     input = { ...input }
     const result = await runOnlineCommand<DtoPresetView>({
       key: ['rbac.createPreset', input],
-      call: request => new RBACApi(apiConfig()).rbacPresetsPost({ ...input, description: input.description ?? '' }, request),
+      call: request => applicationServices.rbac.createPreset({ ...input, description: input.description ?? '' }, request),
       apply: dto => { if (dto) presets.value = [...presets.value.filter(row => row.tag !== dto.tag), dto] },
       onConfirmed: () => { error.value = null }, onError: setError,
     })
@@ -3807,7 +3810,7 @@ export const useRbacStore = defineStore('rbac', () => {
     patch = { ...patch }
     const result = await runOnlineCommand<DtoPresetView>({
       key: ['rbac.updatePreset', tag, patch],
-      call: request => new RBACApi(apiConfig()).rbacPresetsTagPut(tag, patch, request),
+      call: request => applicationServices.rbac.updatePreset(tag, patch, request),
       apply: saved => { if (saved) presets.value = presets.value.filter(row => row.tag !== tag).concat({ tag: saved.tag ?? tag, name: saved.name ?? '', description: saved.description ?? '' }) },
       onConfirmed: () => { error.value = null }, onError: setError,
     })
@@ -3817,7 +3820,7 @@ export const useRbacStore = defineStore('rbac', () => {
   /** Softly deletes a preset (and its rules) and removes it from the local catalog. */
   async function deletePreset(tag: string): Promise<boolean> {
     const result = await runOnlineCommand({
-      key: ['rbac.deletePreset', tag], call: request => new RBACApi(apiConfig()).rbacPresetsTagDelete(tag, request),
+      key: ['rbac.deletePreset', tag], call: request => applicationServices.rbac.removePreset(tag, request),
       apply: () => { presets.value = presets.value.filter(row => row.tag !== tag) }, onConfirmed: () => { error.value = null }, onError: setError,
     })
     return result.status === 'confirmed'
@@ -3835,7 +3838,7 @@ export const useRbacStore = defineStore('rbac', () => {
     // Keep same-user refreshes usable while concealing another user's snapshot.
     if (userPermissions.value?.user_id !== id) userPermissions.value = null
     try {
-      const resp = await readApi('permissions.user', id, request => new RBACApi(readConfig()).rbacUsersIdPermissionsGet(id, request))
+      const resp = await readApi('permissions.user', id, request => applicationServices.rbac.user(id, request))
       if (read !== userPermissionRead) return false
       userPermissions.value = resp.data?.data ?? null
       return true
@@ -3853,7 +3856,7 @@ export const useRbacStore = defineStore('rbac', () => {
     const body: DtoUserPermissionsInput = { overrides: (overrides ?? []).map(rule => ({ ...rule })) }
     const result = await runOnlineCommand({
       key: ['rbac.user', id, body],
-      call: request => new RBACApi(apiConfig()).rbacUsersIdPermissionsPut(id, body, request),
+      call: request => applicationServices.rbac.saveUser(id, body, request),
       apply: () => {
         if (userPermissionReadId === id) { userPermissionRead++; userPermissionsLoading.value = false }
         if (userPermissions.value?.user_id === id) userPermissions.value = { ...userPermissions.value, overrides: body.overrides }
@@ -3867,7 +3870,7 @@ export const useRbacStore = defineStore('rbac', () => {
   /** Resets the rules and route checks to the backend defaults. */
   async function resetRbac(): Promise<boolean> {
     const result = await runOnlineCommand({
-      key: ['rbac.reset'], call: request => new RBACApi(apiConfig()).rbacResetPost(request),
+      key: ['rbac.reset'], call: request => applicationServices.rbac.reset(request),
       apply: async () => { await reloadRules() }, onConfirmed: () => { error.value = null }, onError: setError,
     })
     return result.status === 'confirmed'
@@ -3948,7 +3951,7 @@ export const useAuditStore = defineStore('audit', () => {
     loading.value = true
     error.value = null
     try {
-      const resp = await readApi('audit.events', filters, request => new AuditApi(readConfig()).auditEventsGet(
+      const resp = await readApi('audit.events', filters, request => applicationServices.audit.events(
         filters.limit,
         filters.offset,
         filters.userId,

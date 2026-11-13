@@ -1,11 +1,13 @@
+import { createApplicationServices } from './applicationClients'
 import { desktopSession, prepareDesktopSession } from '@/session/desktop'
-import { UsersApi, type Configuration } from '@/api'
+import { type Configuration } from '@/api'
 import { readApi } from './apiReads'
 import { readConfiguration } from './readConfiguration'
 
 export function loadStructure(configuration: () => Configuration, signal?: AbortSignal) {
+  const applicationServices = createApplicationServices(configuration, () => readConfiguration(configuration))
   return readApi('account.structure', undefined,
-    request => new UsersApi(readConfiguration(configuration)).userStructureGet(request), false, signal)
+    request => applicationServices.users.structure(request), false, signal)
 }
 
 export async function loadAppManifest(): Promise<{ version?: string } | null> {

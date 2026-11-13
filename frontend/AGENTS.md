@@ -92,7 +92,21 @@ sleep/wake and on manual sync; renderers hydrate committed projections without
 background GET loops. Permission revocation invalidates cached access while
 retaining queued intents. Conflict review never rebases an old intent onto a
 fresh token; choosing the server version explicitly cancels unsent dependents.
-Typed business ports remain a later stage; future SQLite updates must preserve snapshots and unsynchronized commands.
+Views and widgets share the application services in `src/store/data/`; they do not
+select transports. Native business ports use typed, bounded IPC and the same
+main-owned queue; web adapters use generated HTTP clients. Credentials and
+passwords remain separate online-only session operations. Missing snapshots are
+unavailable data, not empty successful lists. Future SQLite updates must preserve
+snapshots and unsynchronized commands.
+
+`src/data/business-bindings.json` declares the UI business operations. After
+changing a binding or `src/data/businessRequest.ts`, run
+`node scripts/application-services.cjs` and verify `--check`. The generator emits
+the shared UI facade, HTTP senders and main request descriptors. Never edit these
+generated outputs manually or construct generated API clients outside
+`src/store/data/adapters/`. Keep the native descriptors in the package and ASAR
+verification. Session/queue context IDs must stay bound to the session in which
+the request began, including same-account re-login.
 
 The deterministic `scripts/desktop-domain.cjs` generator shares the pure cache,
 planning and timesheet transforms with main. Edit their TypeScript sources, run
@@ -116,7 +130,7 @@ For GUI integration, set `ELECTRON_EXECUTABLE` and run
 - Docker build bakes `VITE_API_BASE` in as a build-arg (Dockerfile); `.env` is gitignored.
 
 ## Architecture rules (repo conventions, keep them)
-- API calls are allowed **only** in `views/`, `composables/`, and `store/`. Components under `src/components/` must never import `@/api` or fetch; they receive data via props/emit or read Pinia. Views load via stores and pass down props (see `views/PlannerPage.vue`).
+- Generated HTTP clients are instantiated **only** in `src/store/data/adapters/`. Views and composables use application services or stores. Components under `src/components/` must never import runtime clients from `@/api` or fetch; they receive data via props/emit or read Pinia. Views load via stores and pass down props (see `views/PlannerPage.vue`).
 - Backend always returns `{ data, error }`; unwrap the payload via `data` and never read other top-level fields. `data` is an object/list container, not a bare array.
 - Auth: web access tokens stay in memory and refresh uses the same-origin HttpOnly cookie. Electron owns all tokens and API authorization in main, with OS-protected persistence; renderer session state contains no tokens. Public identity metadata may be cached in localStorage. The router guard redirects unauthenticated users to `/login` (add `meta: { requiresAuth: true }` on protected routes).
 

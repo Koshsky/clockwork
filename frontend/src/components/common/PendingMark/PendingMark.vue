@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import AppIcon from '../AppIcon/AppIcon.vue'
 import { usePendingMark } from '@/composables/usePendingMark'
-import type { MutationEntity } from '@/offline/outbox'
+import type { MutationEntity } from '@/store/data/uiServices'
 import { t } from '../../../i18n'
 
 /**

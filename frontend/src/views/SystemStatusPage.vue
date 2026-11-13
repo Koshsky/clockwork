@@ -3,11 +3,11 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { loadAppManifest } from '@/store/data/pageReads'
 import { t } from '@/i18n'
 import { fmtDateTime } from '@/i18n/date'
-import { lastPullAt } from '../offline/connection'
-import { lastPushAt } from '../offline/sync'
-import { pendingCount, refreshPendingCount } from '../offline/outbox'
+import { lastPullAt } from '@/store/data/uiServices'
+import { lastPushAt } from '@/store/data/uiServices'
+import { pendingCount, refreshPendingCount } from '@/store/data/uiServices'
 import { optionalCacheKeys } from '@/platform/cacheStore'
-import { isOffline } from '../offline/state'
+import { isOffline } from '@/store/data/uiServices'
 
 // === App / offline ===
 const appVersion = ref('—')

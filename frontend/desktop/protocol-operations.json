@@ -21,7 +21,17 @@
     "comment.list": true,
     "assignment.list": true,
     "sync.queue": true,
-    "audit.events": true
+    "audit.events": true,
+    "account.detail": true,
+    "users.directory": true,
+    "timesheet.employeePeriods": true,
+    "assignment.catalog": true,
+    "rbac.presets": true,
+    "rbac.rules": true,
+    "rbac.matrix": true,
+    "rbac.policies": true,
+    "rbac.kinds": true,
+    "resource.header": true
   },
   "command": {
     "project.create": true,

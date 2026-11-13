@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { useAuthStore } from '../../../store'
+import { applicationData } from '@/store/data/uiServices'
 import { resolvedScheme, toggleScheme } from '../../../theme'
 import { isNavOpen, toggleNav } from '../../../composables/useNavDrawer'
 import { AppIcon } from '../AppIcon'
@@ -11,7 +11,6 @@ import { uiLanguage } from '../../../settings'
 
 const router = useRouter()
 const route = useRoute()
-const authStore = useAuthStore()
 
 // Theme toggle label (the switch shows the scheme it will move to)
 const themeLabel = computed(() => t(resolvedScheme.value === 'dark' ? 'header.themeDark' : 'header.themeLight'))
@@ -33,9 +32,9 @@ function toggleLanguage(): void {
 /** Whether the centered changelog dialog is visible (header icon) */
 const changelogOpen = ref(false)
 
-function onLogout(): void {
-  authStore.logout()
-  router.push('/login')
+async function onLogout(): Promise<void> {
+  await applicationData.session.logout()
+  void router.push('/login')
 }
 
 const burgerTitle = computed(() => t('header.menuShortcut'))

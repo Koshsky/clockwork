@@ -8,6 +8,8 @@ The web app and the desktop wrapper are versioned together.
 
 ## [Unreleased]
 
+- Web and Electron share typed application services, session actions and capability-driven queue controls while preserving native offline delivery and diagram export.
+
 - Electron shares minute synchronization, resource snapshots and explicit conflict review across windows.
 
 - Electron persists and delivers offline changes from SQLite in the main process with durable replay and explicit conflicts.

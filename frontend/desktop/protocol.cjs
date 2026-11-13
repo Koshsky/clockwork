@@ -20,22 +20,29 @@ const voidInput = value => value === undefined || value === null
 const page = { limit: optional(positive), offset: optional(value => Number.isSafeInteger(value) && value >= 0), search: optional(shortText) }
 const range = { start: date, end: date }
 const read = {
-  'project.list': shape(page),
+  'project.list': shape({ ...page, ownerId: optional(positive) }),
   'resource.list': shape({ ...page, ownerId: optional(positive) }),
+  'resource.header': shape({ ownerId: optional(positive) }),
   'resource.members': shape({ resourceId: id }),
   'resource.calendar': shape(range),
   'resource.absences': shape({ ...range, resourceId: id }),
-  'employee.list': shape({ ...page, terminated: optional(boolean), staffOnly: optional(boolean) }),
+  'employee.list': shape({ ...page, terminated: optional(boolean), staffOnly: optional(boolean), preset: optional(shortText), managerId: optional(positive), includeHash: optional(boolean) }),
   'timesheet.periods': shape({ ...range, employeeIds: list(id) }),
-  'account.list': shape(page),
+  'account.list': shape({ ...page, preset: optional(shortText), managerId: optional(positive), includeHash: optional(boolean) }),
   'rbac.user': shape({ userId: positive }),
   'comment.list': shape({ taskId: id }),
   'assignment.list': shape({ taskId: id }),
   'audit.events': shape({ ...page, ...optionalFields({ userId: positive, user: shortText, entity: shortText, action: shortText, status: shortText, from: shortText, to: shortText, id: shortText, ip: shortText }) }),
 }
-for (const name of ['planning.projects', 'planning.processes', 'planning.tasks', 'timesheet.states', 'permissions.current', 'account.structure', 'account.profile', 'rbac.configuration', 'template.configuration', 'sync.queue']) read[name] = voidInput
+for (const name of ['planning.projects', 'planning.processes', 'planning.tasks', 'timesheet.states', 'permissions.current', 'account.structure', 'rbac.configuration', 'template.configuration', 'sync.queue']) read[name] = voidInput
+read['account.profile'] = value => voidInput(value) || shape({ userId: optional(positive) })(value)
+read['account.detail'] = shape({ userId: positive })
+read['users.directory'] = voidInput
+read['timesheet.employeePeriods'] = shape({ ...range, userId: positive })
+read['assignment.catalog'] = shape({ ...page, ownerId: optional(positive) })
+for (const name of ['rbac.presets', 'rbac.rules', 'rbac.matrix', 'rbac.policies', 'rbac.kinds']) read[name] = voidInput
 const command = {}
-const common = { owner_id: positive, responsible_id: positive, color: shortText }
+const common = { owner_id: positive, responsible_id: nullable(positive), color: shortText }
 const dates = { start_date: date, end_date: date }
 const entities = {
   project: { code: shortText, priority: number, ...common, ...dates },
@@ -56,19 +63,19 @@ const userFields = { username: shortText, first_name: shortText, last_name: shor
 Object.assign(command, {
   'task.move': shape({ id, ...range }),
   'dependency.create': shape({ taskId: id, dependency: shape({ depends_on_task_id: optional(id), type: optional(shortText) }) }),
-  'dependency.update': shape({ id, patch: shape({ type: optional(shortText) }) }),
-  'dependency.delete': shape({ id }),
+  'dependency.update': shape({ taskId: id, id, patch: shape({ type: optional(shortText) }) }),
+  'dependency.delete': shape({ taskId: id, id }),
   'assignment.create': shape({ task_id: optional(id), resource_id: optional(id), quantity: optional(number) }),
   'assignment.delete': shape({ id }),
   'resource.addMember': shape({ resourceId: id, userId: positive }),
   'resource.removeMember': shape({ resourceId: id, userId: positive }),
   'timesheet.assignRange': shape({ ...range, userId: positive, stateId: id }),
-  'timesheet.clearRange': shape({ ...range, userId: positive }),
+  'timesheet.clearRange': shape({ ...range, userId: positive, stateId: optional(id) }),
   'project.reorder': shape({ ids: list(id) }),
   'process.reorder': shape({ projectId: id, ids: list(id) }),
   'task.reorder': shape({ processId: id, ids: list(id) }),
   'comment.create': shape({ taskId: id, comment: shape({ content: optional(text), parent_id: optional(id) }) }),
-  'comment.delete': shape({ id }),
+  'comment.delete': shape({ taskId: id, id }),
   'account.create': shape(optionalFields(userFields)),
   'account.update': shape({ id: positive, patch: shape(optionalFields(Object.fromEntries(Object.entries(userFields).filter(([key]) => !['password_hash', 'permissions'].includes(key))))) }),
   'account.delete': shape({ id: positive }),
@@ -110,7 +117,7 @@ function validate(request) {
   if (request.kind === 'cancel') return shape({ protocol: value => value === 1, kind: value => value === 'cancel', requestId: identifier })(request)
   const definitions = request.kind === 'read' ? read : request.kind === 'command' ? command : null
   if (!definitions || !own(definitions, request.operation)) return false
-  const valid = shape({ protocol: value => value === 1, kind: value => value === request.kind, requestId: identifier, contextId: identifier, operation: shortText, input: definitions[request.operation], ...(request.kind === 'read' ? { source: value => ['snapshot', 'refresh'].includes(value) } : { operationId: identifier }) })
+  const valid = shape({ protocol: value => value === 1, kind: value => value === request.kind, requestId: identifier, contextId: identifier, operation: shortText, locale: optional(value => ['ru', 'en'].includes(value)), input: definitions[request.operation], ...(request.kind === 'read' ? { source: value => ['snapshot', 'refresh'].includes(value) } : { operationId: identifier, preconditions: optional(value => record(value) && Object.keys(value).length <= 128 && Object.entries(value).every(([key, token]) => /^(states|(?:project|process|resource|user_days):-?[1-9]\d*)$/.test(key) && typeof token === 'string' && token.length > 0 && token.length <= 256)), temporaryId: optional(value => Number.isSafeInteger(value) && value < 0) }) })
   try { return valid(request) } catch { return false }
 }
 

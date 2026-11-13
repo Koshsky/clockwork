@@ -1,5 +1,6 @@
 'use strict'
 
+const { createBusinessAdapters } = require('./business-adapters.cjs')
 const { createSyncService } = require('./sync-service.cjs')
 const { createCommandQueue } = require('./command-queue.cjs')
 const { createStorage } = require('./storage.cjs')
@@ -143,6 +144,7 @@ function startDesktop({ app, BrowserWindow, ipcMain, dialog, session, safeStorag
         auth = createSessionService({ vault, interceptApi: (request, send) => commandQueue.api(request, send), fetch: (url, options) => net.fetch(url, options), onIdentity: state => service.setScope(state.user && state.mode !== 'signedOut' ? { server: state.server, accountId: state.user.id } : null) })
         commandQueue = createCommandQueue({ storage, session: auth })
         service.installQueue(commandQueue)
+        service.installAdapters(createBusinessAdapters({ session: auth, queue: commandQueue }))
         service.installSync(createSyncService({ storage, session: auth, queue: commandQueue, powerMonitor }))
         authTimer = setInterval(() => { void auth.tick().catch(() => {}) }, 30000)
         resumeAuth = () => { void auth.tick().catch(() => {}) }

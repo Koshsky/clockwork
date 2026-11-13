@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue'
-import { isOffline } from '../offline/state'
-import { pendingCount } from '../offline/outbox'
-import { lastPullAt } from '../offline/connection'
+import { isOffline } from '@/store/data/uiServices'
+import { pendingCount } from '@/store/data/uiServices'
+import { lastPullAt } from '@/store/data/uiServices'
 import { t } from '../i18n'
 import { platformCapabilities } from '@/platform/context'
 

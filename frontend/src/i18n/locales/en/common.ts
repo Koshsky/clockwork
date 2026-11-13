@@ -2,6 +2,7 @@ import type ru from '../ru/common'
 import type { Translation } from '../types'
 
 export default {
+  localDataMissing: 'These data are not saved on this device yet. Connect to the server and refresh the data.',
   save: 'Save',
   cancel: 'Cancel',
   close: 'Close',

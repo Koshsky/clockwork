@@ -1,9 +1,9 @@
+import { applicationServices } from '@/store/data/applicationClients'
 import { ref } from 'vue'
 import { nativeSync, queueRequest } from './desktopQueue'
 import { hasActiveMutations } from './mutationGuard'
 import { pendingCount, pendingRefs } from './outbox'
-import { AssignmentsApi } from '@/api'
-import { apiConfig, useAppStore, useAuthStore, usePlanningStore, useRbacStore, useTimesheetStore } from '@/store'
+import { useAppStore, useAuthStore, usePlanningStore, useRbacStore, useTimesheetStore } from '@/store'
 import { isOffline } from './state'
 import { cacheGetFresh } from './cache'
 import { apiPath } from './hydrate'
@@ -182,7 +182,7 @@ export function buildPullSteps(): PullStep[] {
     steps.push({
       name: 'assignments',
       path: apiPath('/assignment'),
-      refresh: () => new AssignmentsApi(apiConfig()).assignmentGet(500, undefined, 0),
+      refresh: () => applicationServices.assignments.list(500, undefined, 0),
     })
   }
   if (planningData) {

@@ -1,15 +1,19 @@
+import { applicationPorts, nativeBusinessPorts } from './applicationPorts'
+import { createApplicationServices } from './applicationClients'
 import axios from 'axios'
-import { PlanningApi, TasksApi, type Configuration, type DtoTaskPlanning, type DtoTaskResponse } from '@/api'
+import { type Configuration, type DtoTaskPlanning, type DtoTaskResponse } from '@/api'
 import type { TaskDataPort } from '@/data/contracts'
 import { hydrateFromCache, apiPath } from '@/offline/hydrate'
 import { LegacyDomainError, legacyFailure } from './legacyErrors'
 import { runLegacyMutation } from './legacyMutation'
 
 export function createLegacyTaskData(configuration: () => Configuration): TaskDataPort {
+  const applicationServices = createApplicationServices(configuration)
   return {
     async readPlanning(options) {
       if (options.signal?.aborted) return { status: 'cancelled' }
       try {
+        if (nativeBusinessPorts()) return (await applicationPorts()).reads.read('planning.tasks', undefined, options)
         let data: DtoTaskPlanning | null = null
         let source = options.source
         if (options.source === 'snapshot') {
@@ -19,10 +23,10 @@ export function createLegacyTaskData(configuration: () => Configuration): TaskDa
             apply: (body) => { data = (body as { data?: DtoTaskPlanning } | undefined)?.data ?? null },
           }])
         } else {
-          const client = new PlanningApi(configuration())
+          const client = applicationServices.planning
           const resp = options.signal
-            ? await client.planningTasksGet({ signal: options.signal })
-            : await client.planningTasksGet()
+            ? await client.tasks({ signal: options.signal })
+            : await client.tasks()
           const body = resp.data
           const error = body?.error as { code?: unknown; message?: string } | undefined
           if (error && (error.code != null || error.message)) throw new LegacyDomainError(error)
@@ -41,10 +45,10 @@ export function createLegacyTaskData(configuration: () => Configuration): TaskDa
         entity: 'task',
         operationId: options?.operationId,
         call: () => {
-          const client = new TasksApi(configuration())
+          const client = applicationServices.tasks
           return options?.operationId
-            ? client.taskIdPut(id, patch, { headers: { 'Idempotency-Key': options.operationId } })
-            : client.taskIdPut(id, patch)
+            ? client.update(id, patch, { headers: { 'Idempotency-Key': options.operationId } })
+            : client.update(id, patch)
         },
         apply: () => {},
         optimistic: () => {},

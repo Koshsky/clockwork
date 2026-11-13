@@ -1,5 +1,5 @@
 import { computed, type ComputedRef } from 'vue'
-import { pendingRefs, type MutationEntity } from '@/offline/outbox'
+import { pendingRefs, type MutationEntity } from '@/store/data/uiServices'
 import { webPendingRefs } from '@/store/data/webCommands'
 
 /** Both transports keep the pending mark visible until their own confirmation. */

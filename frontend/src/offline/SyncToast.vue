@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { dismissSyncNotice, syncNotice, retryFailed, discardFailed } from './sync'
+import { dismissSyncNotice, syncNotice, retryFailed, discardFailed } from '@/store/data/uiServices'
 import { t } from '../i18n'
 
 const visible = ref(false)

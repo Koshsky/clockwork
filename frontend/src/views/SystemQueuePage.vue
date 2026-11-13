@@ -1,15 +1,14 @@
 <script setup lang="ts">
 import { ConfirmDialog } from '../components/common'
 import { useConfirm } from '../composables/useConfirm'
-import { nativeQueue, nativeCommands, nativeDiscardPlan, queueRequest } from '../offline/desktopQueue'
-import { prepareDesktopSession } from '../session/desktop'
+import { queueService } from '@/store/data/uiServices'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { t } from '@/i18n'
 import { fmtDateTime } from '@/i18n/date'
-import { queueItems, refreshPendingCount, getFailedEntries } from '../offline/outbox'
-import { retryFailed, discardFailed, syncNotice, dismissSyncNotice } from '../offline/sync'
+import { queueItems, refreshPendingCount, getFailedEntries } from '@/store/data/uiServices'
+import { retryFailed, discardFailed, syncNotice, dismissSyncNotice } from '@/store/data/uiServices'
 import { legacyQueueAvailability } from '@/platform/state'
-import { isOffline } from '../offline/state'
+import { isOffline } from '@/store/data/uiServices'
 import { notifyError, notifySuccess } from '../notify/state'
 
 const failedEntries = ref<Array<{ method: string; url: string; message: string }>>([])
@@ -20,8 +19,8 @@ async function reviewConflict(operationId: string) {
   if (busy.value) return
   busy.value = true
   try {
-    const contextId = (await prepareDesktopSession()).contextId
-    const review = await queueRequest<Omit<NonNullable<typeof conflictReview.value>, 'contextId'>>({ action: 'reviewConflict', operationId, contextId })
+    const contextId = await queueService.context()
+    const review = await queueService.review(operationId, contextId)
     conflictReview.value = { ...review, contextId }
   } catch (error) { notifyError(error instanceof Error ? error.message : t('offline.queue.storageUnavailable')) }
   finally { busy.value = false }
@@ -74,8 +73,8 @@ function shortUrl(url: string): string {
 
 async function refreshStatus() {
   await refreshPendingCount().catch(() => {})
-  if (nativeQueue) {
-    try { conflicts.value = (await nativeCommands()).filter(row => row.status === 'conflict').map(row => row.operationId) } catch { /* A leaving session cannot populate another account's review. */ }
+  if (queueService.native) {
+    try { conflicts.value = (await queueService.list()).filter(row => row.status === 'conflict').map(row => row.operationId) } catch { /* A leaving session cannot populate another account's review. */ }
   }
   failedEntries.value = (await getFailedEntries().catch(() => [])).map((e) => ({
     method: e.method,
@@ -102,7 +101,7 @@ async function onRetry() {
 async function discardSelected(operationIds?: string[], contextId?: string) {
   busy.value = true
   try {
-    if (operationIds) await queueRequest({ action: 'discard', operationIds, contextId })
+    if (operationIds) await queueService.discard(operationIds, contextId)
     else await discardFailed()
     dismissSyncNotice()
     notifySuccess(t('adminSystem.queue.messages.discarded'))
@@ -113,9 +112,9 @@ async function discardSelected(operationIds?: string[], contextId?: string) {
 
 async function onDiscard() {
   if (busy.value || !queueKnown.value) return
-  if (nativeQueue) {
-    const contextId = (await prepareDesktopSession()).contextId
-    const ids = nativeDiscardPlan(await nativeCommands())
+  if (queueService.native) {
+    const contextId = await queueService.context()
+    const ids = queueService.discardPlan(await queueService.list())
     if (!ids.length) { notifyError(t('offline.queue.unknownOutcome')); return }
     ask(t('adminSystem.queue.messages.discardConfirm', { count: ids.length }), () => { void discardSelected(ids, contextId) }, t('adminSystem.queue.messages.discardConfirmLabel'))
   } else await discardSelected()
