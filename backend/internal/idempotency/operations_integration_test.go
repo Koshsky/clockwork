@@ -86,13 +86,25 @@ func newOperationFixture(t *testing.T) *operationFixture {
 	if !found {
 		t.Fatal("legacy schema is incomplete")
 	}
-	ddl, err := fs.ReadFile(migrations.Files(), "V15__durable_operation_receipts.sql")
+	ddl, err := fs.ReadFile(migrations.Files(), "V15__durable_operations.sql")
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, err = pool.Exec(
 		t.Context(),
-		"CREATE TABLE idempotency_keys ("+legacy+");"+string(
+		"CREATE TABLE idempotency_keys ("+legacy+");"+`
+ CREATE TABLE projects(id bigint PRIMARY KEY, code text);
+ CREATE TABLE processes(id bigint PRIMARY KEY, project_id bigint, title text);
+ CREATE TABLE tasks(id bigint PRIMARY KEY, process_id bigint, title text);
+ CREATE TABLE milestones(id bigint PRIMARY KEY, process_id bigint, title text);
+ CREATE TABLE assignments(id bigint PRIMARY KEY, task_id bigint, resource_id bigint, quantity int);
+ CREATE TABLE task_dependencies(id bigint PRIMARY KEY, task_id bigint, depends_on_task_id bigint, type text);
+ CREATE TABLE resources(id bigint PRIMARY KEY, title text);
+ CREATE TABLE resource_members(resource_id bigint, user_id bigint);
+ CREATE TABLE user_states(id bigint PRIMARY KEY, user_id bigint, state_id bigint);
+ CREATE TABLE states(id bigint PRIMARY KEY, name text);
+ CREATE TABLE users(id bigint PRIMARY KEY);
+`+string(
 			ddl,
 		)+"CREATE TABLE business_rows(id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL);",
 	)

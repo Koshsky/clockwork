@@ -1,9 +1,11 @@
 # Database migrations
 
-Core SQL (`V1__*.sql` through `V16__*.sql`) is embedded by `go:embed` into
+Core SQL (`V1__*.sql` through `V15__*.sql`) is embedded by `go:embed` into
 `cmd/service`. The image needs no SQL mount, Flyway installation, Java, or
 network access to fetch migrations. Existing files and their Flyway checksums
 are immutable. Add a new sequential core file for every schema change.
+V1–V14 are the published prefix. V15 combines durable receipts and revision
+guards in a single first-release step.
 The source adapter exposes the original files to golang-migrate as upward-only
 migrations; SQL execution, PostgreSQL locking and dirty/version bookkeeping are
 provided by `github.com/golang-migrate/migrate/v4` (pgx/v5 driver).
@@ -54,7 +56,7 @@ Redis, tracing, JWT or administrator bootstrapping:
 ```
 
 `status` and `--dry-run` create no tables or history records. Adoption itself
-records a baseline but does not apply V10. `up` reports the latest embedded version (currently 16)/dirty false
+records a baseline but does not apply V10. `up` reports the latest embedded version (currently 15)/dirty false
 after a successful upgrade. An already-applied V10 is adopted as 10 and skipped.
 
 V11 enforces matching process/resource owners for assignments and removes
@@ -89,9 +91,9 @@ See [the administration runbook](../docs/operations/migration-upgrade.md).
 
 V13 replaces grants for existing `dp`, `rp`, `vp`, and `worker` tags. Custom presets, renamed/deleted tags and personal overrides survive. Legacy custom project-update grants and personal project-update grants/revokes are copied to the new project-only `prioritize` capability. DP reads all planning and changes only priorities; RP manages owned projects and their contents; VP manages owned processes and resources; worker has no preset rights. Take a database backup before upgrading.
 
-### V15: durable operation acknowledgements
+### V15: durable operations and concurrent-editing guards
 
-V15 adds `operation_receipts` without changing legacy transport keys, Flyway
+V15 adds `operation_receipts`, `operation_revisions` and revision triggers without changing legacy transport keys, Flyway
 history, application data or unknown plugins. Successful `Operation-Id` requests
 commit the receipt in the same PostgreSQL transaction as their business changes.
 Receipts have no TTL; normal key cleanup never deletes them. Backups must include
@@ -121,9 +123,9 @@ existing Idempotency-Key contract. Rollback to an older server must stop durable
 senders, preserve receipts and never fall back to legacy delivery.
 
 
-### V16: opt-in concurrent-editing guards
+#### Opt-in concurrent-editing guards
 
-V16 adds `operation_revisions` and triggers for legacy and guarded planning,
+The same migration adds revision tracking for legacy and guarded planning,
 resource, membership and timesheet writes. Revisions are opaque UUIDs, not client
 clocks or row timestamps; deleted aggregate keys remain as tombstones. The
 migration does not rewrite Flyway history or existing durable receipts.

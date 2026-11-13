@@ -5,7 +5,6 @@ package idempotency_test
 import (
 	"context"
 	"encoding/json"
-	"io/fs"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -18,24 +17,12 @@ import (
 	idem "github.com/Koshsky/erp-backend/internal/idempotency"
 	"github.com/Koshsky/erp-backend/internal/response"
 	"github.com/Koshsky/erp-backend/internal/userctx"
-	"github.com/Koshsky/erp-backend/migrations"
 )
 
 func newRevisionFixture(t *testing.T) *operationFixture {
 	t.Helper()
 	f := newOperationFixture(t)
 	_, err := f.pool.Exec(t.Context(), `
- CREATE TABLE projects(id bigint PRIMARY KEY, code text);
- CREATE TABLE processes(id bigint PRIMARY KEY, project_id bigint, title text);
- CREATE TABLE tasks(id bigint PRIMARY KEY, process_id bigint, title text);
- CREATE TABLE milestones(id bigint PRIMARY KEY, process_id bigint, title text);
- CREATE TABLE assignments(id bigint PRIMARY KEY, task_id bigint, resource_id bigint, quantity int);
- CREATE TABLE task_dependencies(id bigint PRIMARY KEY, task_id bigint, depends_on_task_id bigint, type text);
- CREATE TABLE resources(id bigint PRIMARY KEY, title text);
- CREATE TABLE resource_members(resource_id bigint, user_id bigint);
- CREATE TABLE user_states(id bigint PRIMARY KEY, user_id bigint, state_id bigint);
- CREATE TABLE states(id bigint PRIMARY KEY, name text);
- CREATE TABLE users(id bigint PRIMARY KEY);
  INSERT INTO projects VALUES(1,'initial');
  INSERT INTO processes VALUES(1,1,'initial');
  INSERT INTO tasks VALUES(1,1,'initial');
@@ -43,13 +30,6 @@ func newRevisionFixture(t *testing.T) *operationFixture {
  INSERT INTO users VALUES(1);
  INSERT INTO states VALUES(1,'initial');`)
 	if err != nil {
-		t.Fatal(err)
-	}
-	ddl, err := fs.ReadFile(migrations.Files(), "V16__operation_revision_guards.sql")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = f.pool.Exec(t.Context(), string(ddl)); err != nil {
 		t.Fatal(err)
 	}
 	return f
