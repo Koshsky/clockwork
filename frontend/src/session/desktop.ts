@@ -25,7 +25,7 @@ export interface DesktopSession {
   logout(): Promise<SessionState>
   enterOffline(username: string | null): Promise<SessionState>
   probe(): Promise<boolean>
-  api(request: { operation: string; contextId: string; requestId: string; path?: Record<string, string>; query?: Record<string, string>; body?: unknown; key?: string; locale?: string; viewUser?: number; tempId?: number; preconditions?: Record<string, string> }): Promise<{ status: number; data: unknown; queued?: boolean; localSnapshot?: boolean; baseline?: Record<string, string>; operationId?: string }>
+  api(request: { operation: string; contextId: string; requestId: string; path?: Record<string, string>; query?: Record<string, string>; body?: unknown; key?: string; locale?: string; viewUser?: number; tempId?: number; snapshotOnly?: boolean; preconditions?: Record<string, string> }): Promise<{ status: number; data: unknown; queued?: boolean; localSnapshot?: boolean; baseline?: Record<string, string>; operationId?: string }>
   cancel(requestId: string): Promise<void>
   subscribe(listener: (state: SessionState) => void): () => void
 }
@@ -86,6 +86,7 @@ export const desktopSessionAdapter: AxiosAdapter = async config => {
       operation: route.operation, contextId: state.contextId, requestId, path,
       query: Object.fromEntries(url.searchParams),
       body, preconditions,
+      ...(headers.get('X-Desktop-Read-Source') === 'snapshot' ? { snapshotOnly: true } : {}),
       key: headers.get('Idempotency-Key') as string | undefined,
       locale: headers.get('Accept-Language') as string | undefined,
       tempId,

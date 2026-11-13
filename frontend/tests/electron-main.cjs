@@ -35,6 +35,9 @@ app.whenReady().then(async () => {
   const auth = createSessionService({ vault, interceptApi: (request, send) => queue.api(request, send), fetch: (url, options) => globalThis.sessionFetchOverride ? globalThis.sessionFetchOverride(url, options, net.fetch.bind(net)) : net.fetch(url, options), onIdentity: state => service.setScope(state.user && state.mode !== 'signedOut' ? { server: state.server, accountId: state.user.id } : null) })
   queue = require('../desktop/command-queue.cjs').createCommandQueue({ storage, session: auth })
   service.installQueue(queue)
+  const sync = require('../desktop/sync-service.cjs').createSyncService({ storage, session: auth, queue })
+  service.installSync(sync)
+  globalThis.syncFixture = sync
   globalThis.commandQueueFixture = queue
   globalThis.sessionFixture = auth
   const bridge = createDesktopIpc({ ipcMain, service, session: auth, queue, origin: new URL(process.env.ERP_TEST_URL || process.env.NAV_TEST_WEB_URL || 'http://127.0.0.1:5173').origin })

@@ -30,7 +30,7 @@ import { isLoggedOut, clearLoggedOut, setLoggedOut } from '@/loggedOut'
 import { desktopSession, desktopSessionState, desktopAction, type SessionState } from '@/session/desktop'
 import { createTemporaryId } from '@/offline/temporaryId'
 import { hydrateFromCache, apiPath } from '@/offline/hydrate'
-import { cacheGetAllByPath } from '@/offline/cache'
+import { cacheGet, userCachePrefix, cacheGetAllByPath } from '@/offline/cache'
 import { createReadGuard } from '@/data/readGuard'
 import { createPeriodBaselines, periodRowBaseline, type RevisionBaseline } from '@/data/periodBaselines'
 import { taskDataKey } from '@/data/taskData'
@@ -726,7 +726,10 @@ export const useAppStore = defineStore('app', () => {
       // offline path uses (mergeResources). The array identity is preserved
       // when the merged roster equals the current one, so dependent views do
       // not re-render on every quiet refresh cycle.
-      const merged = mergeResourceLists(resources.value, items)
+      const complete = nativeQueue?.mainSync ? await cacheGet<DtoResourceResponse[]>(userCachePrefix() + '/local/resource-header?owner_id=all') : null
+      const completeById = complete ? new Map(complete.map(row => [row.id, row])) : null
+      const visible = completeById ? resources.value.flatMap(row => completeById.has(row.id) ? [completeById.get(row.id)!] : []) : resources.value
+      const merged = mergeResourceLists(visible, items)
       if (!sameResources(merged, resources.value)) resources.value = merged
       resourcesTotal.value = data?.total ?? 0
     } catch (e: unknown) {
@@ -889,7 +892,7 @@ export const useAppStore = defineStore('app', () => {
       const resp = await readApi('resource.members:' + resourceId, resourceId, request => api.resourcesIdMembersGet(resourceId, request), preferCache)
       resourceMembers.value[resourceId] = resp.data?.data ?? []
     } catch (e: unknown) {
-      if (isReadCancelled(e)) return
+      if (isReadCancelled(e) || preferCache && nativeQueue?.mainSync) return
       resourcesError.value = e instanceof Error ? e.message || String(e) : String(e)
     }
   }
@@ -1467,13 +1470,13 @@ export const useTimesheetStore = defineStore('timesheet', () => {
    * case — the batch is only an optimization. Lenient: a failed row keeps its
    * previous cached data; returns false only when at least one row failed.
    */
-  async function refreshPeriodsOneByOne(start: string, end: string, read: number): Promise<boolean> {
+  async function refreshPeriodsOneByOne(start: string, end: string, read: number, preferCache = false): Promise<boolean> {
     const revision = periodRevision.value
     const api = new UsersApi(readConfig())
     let failed: unknown = null
     const results = await Promise.all(
       timesheetRows.value.map((emp) =>
-        readApi('timesheet.periods:' + emp.id, [emp.id, start, end], request => api.userIdDaysGet(emp.id ?? 0, start, end, request))
+        readApi('timesheet.periods:' + emp.id, [emp.id, start, end], request => api.userIdDaysGet(emp.id ?? 0, start, end, request), preferCache)
           .then((r) => ({ id: emp.id, list: r.data?.data ?? [], baseline: (r as { __erpBaseline?: RevisionBaseline }).__erpBaseline }))
           .catch((e: unknown) => {
             failed = failed ?? e
@@ -1500,7 +1503,9 @@ export const useTimesheetStore = defineStore('timesheet', () => {
    * (unexpected payload shape or a request error), falls back to the
    * per-employee path so the timesheet renders even against an older backend.
    */
-  async function refreshPeriodsBatch(start: string, end: string, read: number): Promise<boolean> {
+  let foregroundPeriodReads = 0
+
+  async function refreshPeriodsBatch(start: string, end: string, read: number, preferCache = false): Promise<boolean> {
     if (busy.value) return false
     const revision = periodRevision.value
     const ids = timesheetRows.value
@@ -1512,7 +1517,7 @@ export const useTimesheetStore = defineStore('timesheet', () => {
       const chunks: number[][] = []
       for (let i = 0; i < ids.length; i += BATCH_IDS_MAX) chunks.push(ids.slice(i, i + BATCH_IDS_MAX))
       const responses = await Promise.all(
-        chunks.map((chunk) => readApi('timesheet.batch:' + chunk.join(','), [chunk, start, end], request => api.userDaysGet(chunk.join(','), start, end, request))),
+        chunks.map((chunk) => readApi('timesheet.batch:' + chunk.join(','), [chunk, start, end], request => api.userDaysGet(chunk.join(','), start, end, request), preferCache)),
       )
       if (read !== periodRead || revision !== periodRevision.value) return false
       for (const resp of responses) {
@@ -1532,9 +1537,10 @@ export const useTimesheetStore = defineStore('timesheet', () => {
       // The batch endpoint may be missing on an older backend — fall back to
       // the per-employee path; surface an error only when the fallback fails too.
       if (read !== periodRead || isReadCancelled(e) || revision !== periodRevision.value || busy.value) return false
+      if (preferCache && nativeQueue?.mainSync) return false
       const status = (e as AxiosError).response?.status
       if (status === 401 || status === 403) { setError(e); return false }
-      const ok = await refreshPeriodsOneByOne(start, end, read)
+      const ok = await refreshPeriodsOneByOne(start, end, read, preferCache)
       if (!ok) setError(e)
       else console.warn('[timesheet] batch days unavailable, fell back to per-employee:', e instanceof Error ? e.message : e)
       return ok
@@ -1542,8 +1548,11 @@ export const useTimesheetStore = defineStore('timesheet', () => {
   }
 
   /** Network refresh (PULL) entry point: keeps the (start, end) signature used by warmup/sync/ensureRange */
-  async function refreshPeriods(start: string, end: string): Promise<boolean> {
-    return refreshPeriodsBatch(start, end, ++periodRead)
+  async function refreshPeriods(start: string, end: string, preferCache = false): Promise<boolean> {
+    if (preferCache && foregroundPeriodReads > 0) return false
+    if (!preferCache) foregroundPeriodReads++
+    try { return await refreshPeriodsBatch(start, end, ++periodRead, preferCache) }
+    finally { if (!preferCache) foregroundPeriodReads-- }
   }
 
   /** An employee's period covering a day (binary search over the sorted periods) */
@@ -3679,6 +3688,13 @@ export const useRbacStore = defineStore('rbac', () => {
       }
       return true
     } catch (e) {
+      if (isReadForbidden(e)) {
+        myPermissions.value = []
+        permsLoaded.value = true
+        resetReadModels()
+        viewRevision.value++
+        try { localStorage.setItem(permsKey(useAuthStore().user?.id), '[]') } catch { /* Persisted rights must not block revocation. */ }
+      }
       if (!isReadCancelled(e)) permissionsError.value = e instanceof Error ? e.message : String(e)
       return false
     }

@@ -1,3 +1,4 @@
+import { nativeSync } from '@/offline/desktopQueue'
 import { TimesheetResourcesApi, type Configuration, type DtoResourceResponse } from '@/api'
 import { cacheGet, cachePut, userCachePrefix } from '@/offline/cache'
 import { isOffline } from '@/offline/state'
@@ -17,6 +18,7 @@ export async function loadResourceHeader(configuration: () => Configuration, own
   const key = userCachePrefix() + '/local/resource-header?owner_id=' + (owner ?? 'all') + (web && !legacy ? '&scope=' + encodeURIComponent(scope) : '')
   const saved = await cacheGet<DtoResourceResponse[]>(key)
   if (signal.aborted) return null
+  if (nativeSync) return saved
   if (web && scope !== apiReadScope()) throw new ReadCancelled()
   if ((isOffline.value && legacy) || pendingRefs.value.size > 0) return saved
   try {

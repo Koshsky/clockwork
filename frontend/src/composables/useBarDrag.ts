@@ -1,3 +1,4 @@
+import { beginMutation } from '@/offline/mutationGuard'
 import { onBeforeUnmount, ref } from 'vue'
 import type { Ref } from 'vue'
 import type { CellSpan } from '../components/planner/calendar'
@@ -45,6 +46,7 @@ export function useBarDrag(options: UseBarDragOptions): BarDrag {
   const previewStyle = ref<Record<string, string | number> | null>(null)
   const dragSpan = ref<CellSpan | null>(null)
 
+  let finishPreview: (() => void) | null = null
   let mode: BarDragMode | null = null
   let startPointerCell = 0
   let startSpan: CellSpan | null = null
@@ -151,6 +153,7 @@ export function useBarDrag(options: UseBarDragOptions): BarDrag {
   })
 
   function endDrag() {
+    finishPreview?.(); finishPreview = null
     stopAutoscroll()
     mode = null
     startSpan = null
@@ -162,10 +165,12 @@ export function useBarDrag(options: UseBarDragOptions): BarDrag {
   }
 
   function startDrag(e: PointerEvent, m: BarDragMode) {
-    if (e.button !== 0 || e.ctrlKey || e.metaKey) return
+    if (isDragging.value || e.button !== 0 || e.ctrlKey || e.metaKey) return
     const span = options.getSpan()
     if (!span) return
     e.preventDefault()
+    // A remote snapshot cannot change the gesture's source data before commit.
+    finishPreview = beginMutation()
     mode = m
     lastClientX = e.clientX
     startPointerCell = currentPointerCell(e.clientX)

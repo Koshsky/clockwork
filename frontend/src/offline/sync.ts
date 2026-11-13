@@ -1,3 +1,4 @@
+import { nativeSync, queueRequest } from './desktopQueue'
 import { ref } from 'vue'
 import { useAppStore, useAuthStore, usePlanningStore, useTimesheetStore, useRbacStore } from '@/store'
 import { shouldAutoSync } from '@/settings'
@@ -224,6 +225,7 @@ async function flushDomainRefresh(): Promise<void> {
  * offline: queued mutations are reconciled by the outbox flush (reconcile).
  */
 export function scheduleDomainRefresh(entities: MutationEntity[]): void {
+  if (nativeSync) return
   if (refreshSuspended || isOffline.value) return
   for (const e of entities) {
     for (const r of reloadDomainsFor(e)) pendingDomains.add(r.name)
@@ -237,6 +239,7 @@ export function scheduleDomainRefresh(entities: MutationEntity[]): void {
  * re-read the domains they display while online.
  */
 export function scheduleNamedRefresh(names: string[]): void {
+  if (nativeSync) return
   if (refreshSuspended || isOffline.value) return
   for (const n of names) pendingDomains.add(n)
   armDomainRefresh()
@@ -265,6 +268,13 @@ function runSync(): Promise<void> {
 }
 
 async function flushAndReconcile(): Promise<void> {
+  if (nativeSync) {
+    const result = await flushOutbox()
+    if (result.ok > 0) noteLastPush()
+    syncNotice.value = { ok: result.ok, failed: result.failed, interrupted: result.interrupted, failedEntries: result.failedEntries }
+    await queueRequest({ action: 'sync', force: true, pullOnly: true })
+    return
+  }
   await refreshPendingCount()
   if (pendingCount.value > 0) {
     const auth = useAuthStore()

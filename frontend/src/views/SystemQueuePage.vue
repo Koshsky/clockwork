@@ -13,7 +13,27 @@ import { isOffline } from '../offline/state'
 import { notifyError, notifySuccess } from '../notify/state'
 
 const failedEntries = ref<Array<{ method: string; url: string; message: string }>>([])
+const conflicts = ref<string[]>([])
+const conflictReview = ref<{ contextId: string; operationId: string; local: unknown; server: unknown; status: number; operationIds: string[] } | null>(null)
 const busy = ref(false)
+async function reviewConflict(operationId: string) {
+  if (busy.value) return
+  busy.value = true
+  try {
+    const contextId = (await prepareDesktopSession()).contextId
+    const review = await queueRequest<Omit<NonNullable<typeof conflictReview.value>, 'contextId'>>({ action: 'reviewConflict', operationId, contextId })
+    conflictReview.value = { ...review, contextId }
+  } catch (error) { notifyError(error instanceof Error ? error.message : t('offline.queue.storageUnavailable')) }
+  finally { busy.value = false }
+}
+function useServerVersion() {
+  const review = conflictReview.value
+  if (!review) return
+  ask(t('adminSystem.queue.messages.discardConfirm', { count: review.operationIds.length }), () => {
+    conflictReview.value = null
+    void discardSelected(review.operationIds, review.contextId)
+  }, t('adminSystem.queue.conflict.useServer'))
+}
 const { confirm: confirmDialog, ask, proceed, cancel } = useConfirm()
 const queueKnown = computed(() => legacyQueueAvailability.value === 'empty' || legacyQueueAvailability.value === 'pending')
 
@@ -54,6 +74,9 @@ function shortUrl(url: string): string {
 
 async function refreshStatus() {
   await refreshPendingCount().catch(() => {})
+  if (nativeQueue) {
+    try { conflicts.value = (await nativeCommands()).filter(row => row.status === 'conflict').map(row => row.operationId) } catch { /* A leaving session cannot populate another account's review. */ }
+  }
   failedEntries.value = (await getFailedEntries().catch(() => [])).map((e) => ({
     method: e.method,
     url: e.url,
@@ -213,6 +236,23 @@ onBeforeUnmount(() => {
           <button type="button" class="sp-btn ghost" :disabled="busy" @click="onDiscard">
             {{ t('adminSystem.queue.errors.discard') }}
           </button>
+        </div>
+      </div>
+    </div>
+    <div v-if="conflicts.length" class="sq-card">
+      <h3 class="sq-card-title">{{ t('adminSystem.queue.conflict.title') }}</h3>
+      <p class="sq-hint">{{ t('adminSystem.queue.conflict.hint') }}</p>
+      <div class="sp-actions">
+        <button v-for="id in conflicts" :key="id" type="button" class="sp-btn" :disabled="busy" @click="reviewConflict(id)">{{ t('adminSystem.queue.conflict.review') }}</button>
+      </div>
+      <div v-if="conflictReview" class="queue-info">
+        <h4>{{ t('adminSystem.queue.conflict.local') }}</h4>
+        <pre class="queue-info-body">{{ jsonBody(conflictReview.local) }}</pre>
+        <h4>{{ t('adminSystem.queue.conflict.server') }}</h4>
+        <pre class="queue-info-body">{{ conflictReview.status === 200 ? jsonBody(conflictReview.server) : t('adminSystem.queue.conflict.unavailable') }}</pre>
+        <div class="sp-actions">
+          <button type="button" class="sp-btn" :disabled="busy" @click="useServerVersion">{{ t('adminSystem.queue.conflict.useServer') }}</button>
+          <button type="button" class="sp-btn ghost" @click="conflictReview = null">{{ t('adminSystem.queue.conflict.keep') }}</button>
         </div>
       </div>
     </div>

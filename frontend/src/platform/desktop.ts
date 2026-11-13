@@ -1,10 +1,10 @@
 import { watch } from 'vue'
-import { autoSync } from '@/settings'
+import { autoSync, warmupEnabled } from '@/settings'
 import { desktopSessionState } from '@/session/desktop'
 import { desktopSession, prepareDesktopSession } from '@/session/desktop'
 import { refreshPendingCount, nativeQueueChanged } from '@/offline/nativeEvents'
 import { localDataAvailability } from './state'
-import { nativeQueue, queueRequest } from '@/offline/desktopQueue'
+import { nativeQueue, nativeSync, queueRequest } from '@/offline/desktopQueue'
 import { ensureCacheVersion } from '@/offline/cache'
 import { initOfflineSync, startSessionMaintenance, stopDomainRefresh, resumeDomainRefresh } from '@/offline/sync'
 import { startConnectionMonitor, retryConnectionNow } from '@/offline/connection'
@@ -35,9 +35,17 @@ export function createDesktopRuntime() {
       const settingsChanged = (event: StorageEvent) => { if (event.key === 'mvs_erp_auto_sync' && event.newValue != null) autoSync.value = event.newValue === '1' }
       window.addEventListener('storage', settingsChanged)
       scope.onStop(() => window.removeEventListener('storage', settingsChanged))
+      if (nativeSync) {
+        const names = ['permissions', 'profile', 'projects', 'users', 'resources', 'members', 'assignments', 'myStaff', 'project-plan', 'process-plan', 'task-plan', 'states', 'employees', 'periods', 'calendar']
+        scope.onStop(watch(() => [desktopSessionState.value?.contextId, ...names.map(name => warmupEnabled[name])], () => {
+          const state = desktopSessionState.value
+          if (state?.user && state.mode !== 'signedOut') void queueRequest({ action: 'syncConfigure', enabled: Object.fromEntries(names.map(name => [name, warmupEnabled[name]])) }).catch(() => {})
+        }, { immediate: true }))
+      }
       await refreshPendingCount()
     } else await ensureCacheVersion()
     if (!scope.active()) return
+    if (nativeSync) return
     await initOfflineSync(scope.active)
     if (!scope.active()) return
     scope.onStop(startConnectionMonitor())

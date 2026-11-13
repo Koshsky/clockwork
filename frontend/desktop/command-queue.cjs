@@ -14,7 +14,7 @@ function createCommandQueue({ storage, session, now = Date.now, retryMs = 60000,
   let acceptingBytes = 0
   let tail = Promise.resolve(), flight = null, stopped = false, revision = 0, timer = null, running = false
   let identity = session.status().contextId
-  let manualFollowUp = null
+  let manualFollowUp = null, pullOwner = false, mutationRevision = 0, snapshotRevision = 0
   const assertCurrent = own => { if (!current(own)) throw new Error('SESSION_CONTEXT_CHANGED') }
   const submissions = new Set()
   const listeners = new Set()
@@ -22,7 +22,7 @@ function createCommandQueue({ storage, session, now = Date.now, retryMs = 60000,
   const current = own => !stopped && own === session.status().contextId && scope() != null
   const repo = () => { const s = scope(); if (!s) throw new Error('COMMAND_SESSION_UNAVAILABLE'); return storage.forScope(s) }
   const exclusive = run => { const result = tail.then(run); tail = result.catch(() => {}); return result }
-  const status = () => ({ revision, running, contextId: session.status().contextId })
+  const status = () => ({ revision, mutationRevision, snapshotRevision, running, contextId: session.status().contextId })
   function emit() { revision++; for (const listener of listeners) { try { listener(status()) } catch { /* A closed view cannot stop delivery. */ } } }
   const unsubscribe = session.subscribe(() => {
     if (identity !== session.status().contextId) { identity = session.status().contextId; emit() }
@@ -54,6 +54,7 @@ function createCommandQueue({ storage, session, now = Date.now, retryMs = 60000,
     return values
   }
   async function overlay(values, entries, mappings, repository) {
+    values = new Map([...values].filter(([, value]) => !value.baseline.status || value.baseline.status < 400))
     const projected = new Map([...values].map(([key, value]) => [key, clone(value.baseline)]))
     const applier = createCacheApplier({ keys: async () => [...projected.keys()], get: async key => projected.get(key), put: async (key, value) => { projected.set(key, value) } })
     for (const row of entries) {
@@ -164,7 +165,7 @@ function createCommandQueue({ storage, session, now = Date.now, retryMs = 60000,
       const entry = { operationId: request.operationId, input, http: { createdAt: now() } }
       const changes = await overlay(values, [...entries, entry], [], repository)
       assertCurrent(own)
-      await repository.commitHttp({ operationId: request.operationId, input, dependencies, changes })
+      await repository.commitHttp({ operationId: request.operationId, input, dependencies, changes }); mutationRevision++
       if (!current(own)) throw new Error('SESSION_CONTEXT_CHANGED')
       emit()
     })
@@ -272,7 +273,7 @@ function createCommandQueue({ storage, session, now = Date.now, retryMs = 60000,
           }
           return true
         }
-        const baselines = new Map([...values].filter(([, value]) => mayConfirm(value)).map(([key, value]) => [key, { ...value, projection: clone(value.baseline) }]))
+        const baselines = new Map([...values].filter(([, value]) => (!value.baseline.status || value.baseline.status < 400) && mayConfirm(value)).map(([key, value]) => [key, { ...value, projection: clone(value.baseline) }]))
         const updates = await overlay(baselines, [{ operationId: entry.operationId, input: confirmed, http: entry.http }], [], repository)
         for (const change of updates) { const value = values.get(change.key); value.baseline = change.projection }
         const changedKeys = new Set(updates.map(change => change.key))
@@ -296,7 +297,7 @@ function createCommandQueue({ storage, session, now = Date.now, retryMs = 60000,
       }
       assertCurrent(own)
       await repository.settle({ operationId: entry.operationId, status, result: { ...unwrapped.result, operationId: entry.operationId, data: accepted ? { ...unwrapped.result.data, data: decorateSnapshot(dto, unwrapped.revisions, entry.input.route) } : unwrapped.result.data, baseline: unwrapped.revisions, revisions: unwrapped.revisions, previousRevisions: wire.body?._preconditions || {}, sequence: entry.sequence }, mappings, cacheChanges })
-      emit()
+      mutationRevision++; snapshotRevision++; emit()
     })
     return true
   }
@@ -364,7 +365,7 @@ function createCommandQueue({ storage, session, now = Date.now, retryMs = 60000,
   function exposed(row, key) {
     if (!row) return undefined
     const local = key.startsWith('/local/resource-header?'), baseline = clone(row.revisions)
-    const data = decorateSnapshot(local ? row.projection.data : row.projection.data?.data, row.revisions, key)
+    const data = decorateSnapshot(local ? (row.projection.status >= 400 ? [] : row.projection.data) : row.projection.data?.data, row.revisions, key)
     const clearPending = node => { if (!node || typeof node !== 'object') return; delete node._pending; for (const child of Object.values(node)) clearPending(child) }
     clearPending(data)
     for (const entry of row.pending || []) {
@@ -397,7 +398,44 @@ function createCommandQueue({ storage, session, now = Date.now, retryMs = 60000,
       if (!changes.length) changes.push({ key, expectedRevision: previous?.revision ?? 0, baseline: value, projection: value, revisions })
       await repository.cacheCommit({ changes })
       assertCurrent(own)
+      if (pullOwner) { snapshotRevision++; emit() }
       return { projection: changes[0].projection, revisions, pending: await visiblePending(repository) }
+    })
+  }
+  // A pull stages related pages together, then replays durable intents in one transaction.
+  async function commitPull(rows, stamp, own = identity) {
+    return exclusive(async () => {
+      assertCurrent(own)
+      if (stamp !== mutationRevision || rows.some(row => row.stamp != null && row.stamp !== revision)) return false
+      const repository = repo(), values = new Map()
+      for (const row of rows) {
+        const previous = await repository.cacheRead({ key: row.key })
+        values.set(row.key, { key: row.key, revision: previous?.revision ?? 0, baseline: row.value, projection: row.value, revisions: row.revisions || {} })
+      }
+      const changes = await overlay(values, await all(repository), [], repository)
+      for (const [key, value] of values) if (!changes.some(change => change.key === key)) changes.push({ key, expectedRevision: value.revision, baseline: value.baseline, projection: value.baseline, revisions: value.revisions })
+      assertCurrent(own)
+      if (stamp !== mutationRevision) return false
+      if (changes.length) await repository.cacheCommit({ changes })
+      assertCurrent(own)
+      snapshotRevision++; emit()
+      return true
+    })
+  }
+  async function invalidateReads(keep, own = identity, stamp) {
+    return exclusive(async () => {
+      assertCurrent(own)
+      if (stamp != null && stamp !== revision) return null
+      const repository = repo(), changes = []
+      for (const [key, value] of await caches(repository)) if (!keep.includes(key)) {
+        const denied = { ts: now(), status: 403, data: { data: null, error: { code: 'FORBIDDEN' } } }
+        changes.push({ key, expectedRevision: value.revision, baseline: denied, projection: denied, revisions: {} })
+      }
+      // Batches are bounded by the storage protocol; each batch only removes access.
+      for (let i = 0; i < changes.length; i += 128) { assertCurrent(own); await repository.cacheCommit({ changes: changes.slice(i, i + 128) }) }
+      assertCurrent(own)
+      snapshotRevision++; emit()
+      return revision
     })
   }
   async function control(request) {
@@ -413,7 +451,26 @@ function createCommandQueue({ storage, session, now = Date.now, retryMs = 60000,
     if (request.action === 'cachePut') {
       if (typeof request.key !== 'string') throw new Error('COMMAND_INVALID_REQUEST')
       if (!request.key.startsWith('/local/resource-header?owner_id=') || !request.value || !Number.isSafeInteger(request.value.ts) || !Array.isArray(request.value.data)) throw new Error('COMMAND_INVALID_REQUEST')
+      if (pullOwner) return null
       await cachePut(request.key, request.value); return null
+    }
+    if (request.action === 'reviewConflict') {
+      const entries = await exclusive(() => all(repo())), entry = entries.find(row => row.operationId === request.operationId)
+      if (entry?.status !== 'conflict') throw new Error('COMMAND_NOT_CONFLICT')
+      const input = entry.input, parts = input.route.split(' '), candidates = require('./api-routes.json')
+      let operation = 'GET ' + parts[1], path = entry.http.wire?.path || input.path || {}
+      if (!candidates.some(row => row.operation === operation)) { operation = 'GET /planning/tasks'; path = {} }
+      const route = candidates.find(row => row.operation === operation)
+      const query = Object.fromEntries(Object.entries(entry.http.wire?.query || input.query || {}).filter(([name]) => route.query.includes(name)))
+      if (operation === 'GET /user/{id}/days') for (const name of ['start_date', 'end_date']) if (input.body?.[name]) query[name] = input.body[name]
+      const server = await session.api('desktop-sync', { operation, path, query, contextId: own, requestId: randomUUID() }, { bypassQueue: true, revisionProtocol: true })
+      assertCurrent(own)
+      if (server.status !== 200 && ![403, 404].includes(server.status)) throw new Error('COMMAND_REVIEW_UNAVAILABLE')
+      const selected = new Set([entry.operationId])
+      let added = true
+      while (added) { added = false; for (const row of entries) if (!selected.has(row.operationId) && row.dependencies.some(id => selected.has(id))) { selected.add(row.operationId); added = true } }
+      const local = clone(input.body); delete local._preconditions
+      return { operationId: entry.operationId, local, server: server.status === 200 ? unwrap(server).result.data?.data : null, status: server.status, operationIds: [...selected] }
     }
     if (request.action === 'push') { await push(true); return null }
     return exclusive(async () => {
@@ -437,18 +494,26 @@ function createCommandQueue({ storage, session, now = Date.now, retryMs = 60000,
         return null
       }
       if (request.action === 'cacheKeys') return repository.cacheKeys()
-      if (request.action === 'cacheGet') { const row = await repository.cacheRead({ key: request.key }); return row ? exposed({ ...row, pending: await visiblePending(repository) }, request.key) : undefined }
+      if (request.action === 'cacheGet') {
+        let row = await repository.cacheRead({ key: request.key })
+        if (!row && /^\/local\/resource-header\?owner_id=[1-9]\d*$/.test(request.key)) {
+          const all = await repository.cacheRead({ key: '/local/resource-header?owner_id=all' })
+          if (all) row = { ...all, projection: { ...all.projection, data: Array.isArray(all.projection.data) ? all.projection.data.filter(resource => resource.owner_id === Number(request.key.split('=').at(-1))) : [] } }
+        }
+        return row ? exposed({ ...row, pending: await visiblePending(repository) }, request.key) : undefined
+      }
       if (request.action === 'retry') { await repository.retryHttp({ operationId: request.operationId }); emit(); schedule(0); return null }
       if (request.action === 'discard') {
         const entries = await all(repository), values = await caches(repository)
         const changes = await overlay(values, entries.filter(row => !request.operationIds.includes(row.operationId)), [], repository)
-        await repository.discardHttp({ operationIds: request.operationIds, changes }); emit(); return null
+        await repository.discardHttp({ operationIds: request.operationIds, changes }); mutationRevision++; snapshotRevision++; emit(); return null
       }
       throw new Error('COMMAND_INVALID_REQUEST')
     })
   }
   return {
-    status, submit, push, control, cacheGet, cachePut,
+    status, submit, push, control, cacheGet, cachePut, commitPull, invalidateReads,
+    installPull(owner) { pullOwner = owner || true },
     async cacheKeys() { return scope() ? repo().cacheKeys() : [] },
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener) },
     async api(request, sendRequest) {
@@ -457,24 +522,41 @@ function createCommandQueue({ storage, session, now = Date.now, retryMs = 60000,
         if (request.preconditions == null) throw new Error('COMMAND_BASELINE_REQUIRED')
         return submit({ operationId: request.key || randomUUID(), input: { route: request.operation, path: request.path || {}, query: request.query || {}, body: request.body, tempId: request.tempId, locale: request.locale, ...(request.preconditions == null ? {} : { preconditions: request.preconditions }) } })
       }
-      if (!request.operation.startsWith('GET ') || request.operation.startsWith('GET /operations') || request.viewUser) return sendRequest()
+      if (!request.operation.startsWith('GET ') || request.operation.startsWith('GET /operations') || request.viewUser) {
+        const own = identity, result = await sendRequest()
+        if (pullOwner && !request.operation.startsWith('GET ') && result.status >= 200 && result.status < 300 && current(own)) { mutationRevision++; emit() }
+        return result
+      }
       const root = session.status().server, route = require('./api-routes.json').find(row => row.operation === request.operation)
       let path = route.path; for (const [name, id] of Object.entries(request.path || {})) path = path.replace('{' + name + '}', encodeURIComponent(String(id)))
       const query = new URLSearchParams(request.query || {}), key = root + path + (query.size ? '?' + query : ''), own = identity, stamp = revision
+      if (request.snapshotOnly) {
+        const cached = await readCache(key, own)
+        if (cached) return { status: cached.projection.status || 200, data: exposed(cached, key).data, baseline: exposed(cached, key).baseline, localSnapshot: true }
+        pullOwner?.observe?.(request)
+        return { status: 503, data: { data: null, error: { code: 'LOCAL_SNAPSHOT_MISSING' } } }
+      }
       try {
         const wrapped = await sendRequest({ revisionProtocol: true }), value = unwrap(wrapped)
         assertCurrent(own)
         if (current(own) && wrapped.status >= 200 && wrapped.status < 300) {
-          const cached = await cachePut(key, { ts: now(), data: value.result.data }, value.revisions, stamp, own)
+          let readStamp = stamp
+          if (path === '/permissions/me') {
+            const previous = await cacheGet(key, own)
+            const signature = rules => JSON.stringify([...(Array.isArray(rules) ? rules : [])].map(rule => JSON.stringify(rule)).sort())
+            if (previous && signature(previous.data?.data) !== signature(value.result.data?.data)) readStamp = await invalidateReads([key], own, stamp) ?? stamp
+          }
+          const cached = await cachePut(key, { ts: now(), data: value.result.data }, value.revisions, readStamp, own)
           assertCurrent(own)
           return cached ? { ...value.result, data: exposed(cached, key).data, baseline: exposed(cached, key).baseline } : value.result
         }
+        if ([403, 404].includes(wrapped.status)) await commitPull([{ key, value: { ts: now(), status: wrapped.status, data: { data: null, error: value.result.data?.error || {} } } }], mutationRevision, own)
         return value.result
       } catch (error) {
         if (!current(own)) throw error
         const cached = await readCache(key, own)
         assertCurrent(own)
-        if (cached) return { status: 200, data: exposed(cached, key).data, baseline: exposed(cached, key).baseline, localSnapshot: true }
+        if (cached) return { status: cached.projection.status || 200, data: exposed(cached, key).data, baseline: exposed(cached, key).baseline, localSnapshot: true }
         throw error
       }
     },

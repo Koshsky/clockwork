@@ -37,6 +37,7 @@ const proxy = createServer(async (request, response) => {
 function kinds(request) { return ['POST','PUT','DELETE'].includes(request.method) && !request.url.includes('/auth/') }
 async function warm(page) {
   await page.evaluate(async () => {
+    if (window.erpDesktop.queue.mainSync) await window.erpDesktop.queue.request({ action: 'sync', force: true, pullOnly: true, contextId: (await window.erpDesktop.session.status()).contextId })
     const store = await import('/src/store/index.ts')
     await store.usePlanningStore().refreshTaskPlanning(true)
     await store.usePlanningStore().refreshProcessPlanning(true)
@@ -148,6 +149,7 @@ try {
   const employee = await direct('POST', '/user', { username: prefix.replace(/-/g, '_') + 'e', first_name: 'Queue', last_name: 'Fixture', preset: 'worker', hire_date: '2026-01-01' }); seedEmployee = employee.user.id
   const absent = await direct('POST', '/timesheet/states', { code: prefix, name: prefix + '-absent', is_available: false }); seedState = absent.id
   await direct('POST', '/resources/' + seedResource + '/members', { user_id: seedEmployee })
+  await warm(page)
   const periodBaseline = await page.evaluate(async id => {
     const timesheet = window.queueStore.useTimesheetStore(), app = window.queueStore.useAppStore()
     await timesheet.refreshStates(); await timesheet.refreshEmployees(); await timesheet.refreshPeriods('2026-11-09', '2026-11-15')

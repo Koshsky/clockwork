@@ -12,6 +12,7 @@ export interface NativeCommand {
   http: { tempId: number | null; createdAt: number; error?: { message: string }; discarded: boolean }
 }
 export interface DesktopQueue {
+  mainSync?: boolean
   request<T = unknown>(request: Record<string, unknown>): Promise<T>
 }
 export function desktopQueueMessage(code: string): string {
@@ -25,6 +26,7 @@ export function desktopQueueMessage(code: string): string {
   return t(keys[code] || 'offline.queue.storageUnavailable')
 }
 export const nativeQueue = typeof window !== 'undefined' ? window.erpDesktop?.queue : undefined
+export const nativeSync = nativeQueue?.mainSync === true
 export async function queueRequest<T>(request: Record<string, unknown>): Promise<T> {
   if (!nativeQueue) throw new Error('COMMAND_UNAVAILABLE')
   const own = await prepareDesktopSession()

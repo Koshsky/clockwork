@@ -99,7 +99,7 @@ function bounded(value, maxBytes = 1024 * 1024) {
     if (typeof item === 'string') { bytes += Buffer.byteLength(item); return item.length <= 65536 && bytes <= maxBytes }
     if (typeof item === 'number') return Number.isFinite(item)
     if (Array.isArray(item)) return item.length <= 5000 * scale && item.every(child => visit(child, depth + 1))
-    return record(item) && Object.keys(item).length <= 256 && Object.entries(item).every(([key, child]) => key.length <= 4096 && !['__proto__', 'constructor', 'prototype'].includes(key) && (bytes += Buffer.byteLength(key)) <= maxBytes && visit(child, depth + 1))
+    return record(item) && Object.keys(item).length <= 256 * scale && Object.entries(item).every(([key, child]) => key.length <= 4096 && !['__proto__', 'constructor', 'prototype'].includes(key) && (bytes += Buffer.byteLength(key)) <= maxBytes && visit(child, depth + 1))
   }
   try { return visit(value, 0) && Buffer.byteLength(JSON.stringify(value) ?? '') <= maxBytes } catch { return false }
 }

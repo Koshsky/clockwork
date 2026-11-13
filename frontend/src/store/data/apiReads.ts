@@ -21,14 +21,15 @@ export function readApi<T extends AxiosResponse>(
   channel: string, query: unknown, send: (options: AxiosRequestConfig) => Promise<T>,
   preferCache = false, signal?: AbortSignal,
 ): Promise<T> {
+  const nativeSnapshot = Boolean(preferCache && typeof window !== 'undefined' && window.erpDesktop?.queue?.mainSync)
   const expected = scope()
   const stamp = readStamp()
-  return requests.read(channel, query, async signal => {
-    const response = await send({ signal })
+  return requests.read(nativeSnapshot ? channel + ':snapshot' : channel, query, async signal => {
+    const response = await send({ signal, ...(nativeSnapshot ? { headers: { 'X-Desktop-Read-Source': 'snapshot' } } : {}) })
     const body = response.data as { error?: { code?: unknown; message?: string } } | undefined
     if (body?.error && (body.error.code != null || body.error.message)) throw new LegacyDomainError(body.error)
     return response
-  }, { preferCache, signal }).then(response => {
+  }, { preferCache: preferCache && !nativeSnapshot, signal }).then(response => {
     const data = response.data == null ? response.data : JSON.parse(JSON.stringify(response.data))
     // A resolved cache hit can cross an account reset at the consumer's await.
     return { ...response, get data() {

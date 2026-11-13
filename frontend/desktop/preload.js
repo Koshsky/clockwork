@@ -72,6 +72,7 @@ contextBridge.exposeInMainWorld('erpDesktop', {
     },
   },
   queue: {
+    mainSync: true,
     request: async request => {
       if (!bounded(request)) throw new Error('COMMAND_INVALID_REQUEST')
       const result = await ipcRenderer.invoke('erp:queue', request)

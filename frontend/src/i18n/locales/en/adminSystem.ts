@@ -168,6 +168,16 @@ export default {
   },
 
   queue: {
+    conflict: {
+      title: 'Conflicting changes',
+      hint: 'The server version changed after your edit. Compare the data. To edit again, cancel this operation and reopen the current object in the editor. Dependent unsent changes must also be cancelled.',
+      review: 'Compare versions',
+      local: 'Your changes',
+      server: 'Current server data',
+      unavailable: 'The object was deleted or is no longer accessible.',
+      useServer: 'Use server data',
+      keep: 'Decide later',
+    },
     storage: {
       title: 'Queue is not available yet',
       hint: 'The local queue could not be read. Saved changes have not been deleted; an empty queue cannot be confirmed yet.',

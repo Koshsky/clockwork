@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { nativeSync, queueRequest } from './desktopQueue'
 import { hasActiveMutations } from './mutationGuard'
 import { pendingCount, pendingRefs } from './outbox'
 import { AssignmentsApi } from '@/api'
@@ -311,6 +312,7 @@ async function runPull(settings: { cycle: boolean; refreshAll?: boolean; generat
  * callers (login, reconnect) leave it false so repeat triggers are cheap.
  */
 export function warmNow(force = false): Promise<boolean> {
+  if (nativeSync) return queueRequest<{ lastPullAt: number | null; reachable: boolean | null; code?: string }>({ action: 'sync', force, pullOnly: true }).then(state => state.lastPullAt != null && state.reachable !== false && !state.code)
   if (suspended || running || isOffline.value) return Promise.resolve(false)
   running = true
   const own = generation
@@ -336,6 +338,7 @@ export function warmNow(force = false): Promise<boolean> {
  * refreshed (0 — everything was already fresh).
  */
 export function pullStaleCycle(): Promise<number> {
+  if (nativeSync) return queueRequest({ action: 'sync', force: false, pullOnly: true }).then(() => 0)
   if (suspended || running) return Promise.resolve(0)
   running = true
   const own = generation
@@ -359,6 +362,7 @@ export function pullStaleCycle(): Promise<number> {
 
 /** Schedules full warmup when idle. Idempotent (one run at a time). */
 export function scheduleWarmup(): void {
+  if (nativeSync) return
   if (suspended || running || scheduled) return
   if (isOffline.value) return
   if (!useAuthStore().isAuthenticated) return

@@ -210,6 +210,7 @@ async function pingBackend(): Promise<void> {
  * online right away; a failure restarts a full countdown.
  */
 export async function retryConnectionNow(): Promise<void> {
+  if (window.erpDesktop?.queue?.mainSync) { await import('./desktopQueue').then(module => module.queueRequest({ action: 'sync', force: true })); return }
   if (recovering || probing) return
   // Set the deadline to now so the UI reads "probing…" while we wait.
   if (reconnectDeadline.value != null) reconnectDeadline.value = Date.now()

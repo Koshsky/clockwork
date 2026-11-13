@@ -87,8 +87,12 @@ receipt; another window cannot borrow that version. Cache confirmation watermark
 are private and never become read baselines. A fresh token fetched just before
 delivery cannot authorize a stale edit. Unknown outcomes require receipt lookup
 and cannot be silently discarded. Explicit cancellation includes unsent dependents.
-The minute pull/reconciliation and typed business ports remain later stages;
-future SQLite updates must preserve snapshots and unsynchronized commands.
+A single main-owned scheduler refreshes scoped snapshots each minute, after
+sleep/wake and on manual sync; renderers hydrate committed projections without
+background GET loops. Permission revocation invalidates cached access while
+retaining queued intents. Conflict review never rebases an old intent onto a
+fresh token; choosing the server version explicitly cancels unsent dependents.
+Typed business ports remain a later stage; future SQLite updates must preserve snapshots and unsynchronized commands.
 
 The deterministic `scripts/desktop-domain.cjs` generator shares the pure cache,
 planning and timesheet transforms with main. Edit their TypeScript sources, run

@@ -4,13 +4,13 @@ const { bounded } = require('./protocol.cjs')
 const CHANNEL = 'erp:session', EVENT = 'erp:session-state'
 const shapes = {
   status: [], selectServer: ['server'], login: ['username', 'password'], refresh: [], logout: [], enterOffline: ['username'], probe: [],
-  ack: ['revision'], api: ['operation', 'contextId', 'requestId', 'path', 'query', 'body', 'key', 'locale', 'viewUser', 'tempId', 'preconditions'], cancel: ['requestId'],
+  ack: ['revision'], api: ['operation', 'contextId', 'requestId', 'path', 'query', 'body', 'key', 'locale', 'viewUser', 'tempId', 'preconditions', 'snapshotOnly'], cancel: ['requestId'],
 }
 function valid(request) {
   if (!bounded(request) || !request || typeof request !== 'object' || !Object.hasOwn(shapes, request.action)) return false
   if (Object.keys(request).some(key => key !== 'action' && !shapes[request.action].includes(key))) return false
   if (request.action === 'ack') return Number.isSafeInteger(request.revision) && request.revision >= 0
-  if (request.action === 'api') return (request.tempId == null || Number.isSafeInteger(request.tempId) && request.tempId < 0) && typeof request.operation === 'string' && typeof request.contextId === 'string' && typeof request.requestId === 'string' && /^[\w:.-]{1,128}$/.test(request.requestId) && (request.path == null || typeof request.path === 'object' && !Array.isArray(request.path)) && (request.query == null || typeof request.query === 'object' && !Array.isArray(request.query)) && (request.viewUser == null || Number.isSafeInteger(request.viewUser) && request.viewUser > 0)
+  if (request.action === 'api') return (request.snapshotOnly == null || typeof request.snapshotOnly === 'boolean' && typeof request.operation === 'string' && request.operation.startsWith('GET ')) && (request.tempId == null || Number.isSafeInteger(request.tempId) && request.tempId < 0) && typeof request.operation === 'string' && typeof request.contextId === 'string' && typeof request.requestId === 'string' && /^[\w:.-]{1,128}$/.test(request.requestId) && (request.path == null || typeof request.path === 'object' && !Array.isArray(request.path)) && (request.query == null || typeof request.query === 'object' && !Array.isArray(request.query)) && (request.viewUser == null || Number.isSafeInteger(request.viewUser) && request.viewUser > 0)
   if (request.action === 'login') return typeof request.username === 'string' && typeof request.password === 'string'
   if (request.action === 'selectServer') return typeof request.server === 'string'
   if (request.action === 'enterOffline') return request.username == null || typeof request.username === 'string'

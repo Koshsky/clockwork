@@ -18,7 +18,7 @@ const aborted = signal => new Promise(resolve => {
 function createDesktopService({ profileId, version, electron, reads = {}, commands = {}, storage, maxPending = 32, maxPerOwner = 8, readTimeoutMs = 10000, commandTimeoutMs = 10000 }) {
   const instanceId = randomUUID()
   let phase = 'starting', revision = 0, scope = null, epoch = 0, stopping = null
-  let commandQueue = null, unsubscribeQueue
+  let commandQueue = null, unsubscribeQueue, syncService = null, unsubscribeSync
   const listeners = new Set(), pending = new Map(), receipts = new Map()
   const status = () => clone({ protocol: 1, profileId, instanceId, version, electron, phase, revision,
     context: scope ? { ...scope } : null,
@@ -26,6 +26,7 @@ function createDesktopService({ profileId, version, electron, reads = {}, comman
     capabilities: { reads: Object.keys(reads), commands: Object.keys(commands) },
     ...(storage ? { storage: storage.status() } : {}),
     ...(commandQueue ? { queue: commandQueue.status() } : {}),
+    ...(syncService ? { sync: syncService.status() } : {}),
   })
   const changed = () => {
     revision++
@@ -128,18 +129,20 @@ function createDesktopService({ profileId, version, electron, reads = {}, comman
     for (const item of pending.values()) if (item.kind === 'read') item.controller.abort()
     let timer
     stopping = Promise.race([
-      Promise.allSettled([...(commandQueue ? [{ promise: commandQueue.stop() }] : []), ...receipts.values()].filter(item => !item.finished).map(item => item.promise)).then(() => true),
+      Promise.allSettled([...(commandQueue ? [{ promise: Promise.resolve(syncService?.stop()).then(() => commandQueue.stop()) }] : []), ...receipts.values()].filter(item => !item.finished).map(item => item.promise)).then(() => true),
       new Promise(resolve => { timer = setTimeout(() => resolve(false), timeoutMs) }),
     ]).then(drained => {
       clearTimeout(timer)
       if (!drained) for (const item of pending.values()) item.controller.abort()
-      phase = drained ? 'stopped' : 'failed'; changed(); unsubscribeStorage?.(); unsubscribeQueue?.()
+      phase = drained ? 'stopped' : 'failed'; changed(); unsubscribeStorage?.(); unsubscribeQueue?.(); unsubscribeSync?.()
       return drained
     })
     return stopping
   }
   return {
     status, setScope, read, execute, detach, cancel, stop,
+    installSync(sync) { if (syncService) throw new Error('Desktop sync already installed'); syncService = sync; unsubscribeSync = sync.subscribe(changed); changed() },
+    sync: request => request.action === 'syncConfigure' ? syncService.configure(request.enabled) : syncService.run(request.force === true, request.pullOnly === true),
     installQueue(queue) { if (commandQueue) throw new Error('Desktop queue already installed'); commandQueue = queue; unsubscribeQueue = queue.subscribe(changed); changed() },
     start() { if (phase !== 'starting') throw new Error('Desktop service cannot start twice'); phase = 'ready'; changed() },
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener) },
