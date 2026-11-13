@@ -8,7 +8,7 @@ const calls = vi.hoisted(() => ({ get: vi.fn(), read: vi.fn(), write: vi.fn() })
 vi.mock('@/api', () => ({ TimesheetResourcesApi: class { resourcesGet(...args: unknown[]) { return calls.get(...args) } } }))
 vi.mock('@/offline/outbox', async () => { const { ref } = await import('vue'); return { pendingRefs: ref(new Set()) } })
 vi.mock('@/store', () => ({ apiConfig: () => ({}) }))
-vi.mock('@/offline/cache', () => ({ cacheGet: calls.read, cachePut: calls.write, userCachePrefix: () => 'u7:' }))
+vi.mock('@/offline/cache', () => ({ cacheGet: calls.read, cachePut: calls.write, userCachePrefix: () => 'u7:', currentUserId: () => 7 }))
 import { useOwnedResources } from './useOwnedResources'
 let scope: ReturnType<typeof effectScope>
 beforeEach(() => { vi.clearAllMocks(); calls.read.mockResolvedValue(null); pendingRefs.value = new Set(); isOffline.value = false; scope = effectScope() })

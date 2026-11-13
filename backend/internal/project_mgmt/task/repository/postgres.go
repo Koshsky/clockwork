@@ -40,7 +40,18 @@ func (r *TaskRepository) q(ctx context.Context) *sqlc.Queries {
 }
 
 func (r *TaskRepository) CreateTask(ctx context.Context, task sqlc.Task) (*sqlc.Task, error) {
-	row, err := r.q(ctx).CreateTask(ctx, sqlc.CreateTaskParams{
+	tx, owned, err := database.BeginOrJoin(ctx, r.pool)
+	if err != nil {
+		return nil, err
+	}
+	if owned {
+		defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	}
+	q := r.db.WithTx(tx)
+	if err = q.LockTaskAppendOrder(ctx); err != nil {
+		return nil, err
+	}
+	row, err := q.CreateTask(ctx, sqlc.CreateTaskParams{
 		ProcessID: task.ProcessID,
 		// 0 means "no parent" (the query NULLIFs it to NULL); the real parent
 		// id for subtasks. Both map to the same NULLIF branch in the INSERT.
@@ -55,6 +66,11 @@ func (r *TaskRepository) CreateTask(ctx context.Context, task sqlc.Task) (*sqlc.
 	})
 	if err != nil {
 		return nil, errapi.MapPgConstraint(errapi.FromPgInvalidParam(err))
+	}
+	if owned {
+		if err = tx.Commit(ctx); err != nil {
+			return nil, err
+		}
 	}
 
 	return &row, nil

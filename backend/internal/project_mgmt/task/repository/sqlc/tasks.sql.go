@@ -481,6 +481,16 @@ func (q *Queries) ListTasks(ctx context.Context, arg ListTasksParams) ([]Task, e
 	return items, nil
 }
 
+const lockTaskAppendOrder = `-- name: LockTaskAppendOrder :exec
+SELECT pg_advisory_xact_lock(718226341)
+`
+
+// A separate command gives the following MAX query a snapshot after prior writers commit.
+func (q *Queries) LockTaskAppendOrder(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, lockTaskAppendOrder)
+	return err
+}
+
 const ownerChain = `-- name: OwnerChain :one
 SELECT COALESCE(pr.owner_id, 0)::bigint AS project_owner,
        COALESCE(p.owner_id, 0)::bigint  AS process_owner,

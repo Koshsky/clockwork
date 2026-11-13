@@ -5,7 +5,7 @@ const fake = vi.hoisted(() => ({ load: vi.fn() }))
 vi.mock('@/store', () => ({ apiConfig: () => ({}) }))
 vi.mock('@/platform/context', () => ({ platformCapabilities: { kind: 'web' } }))
 vi.mock('@/store/data/resourceHeader', () => ({ loadResourceHeader: fake.load }))
-vi.mock('@/store/data/apiReads', () => ({ isReadForbidden: () => false }))
+vi.mock('@/store/data/apiReads', () => ({ apiReadScope: () => 'web-test', isReadForbidden: () => false }))
 import { useOwnedResources } from './useOwnedResources'
 import { pendingRefs } from '@/offline/outbox'
 import { refreshActiveReads, resumeActiveReads, stopActiveReads } from '@/data/activeReads'

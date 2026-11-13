@@ -1,3 +1,7 @@
+-- name: LockTaskAppendOrder :exec
+-- A separate command gives the following MAX query a snapshot after prior writers commit.
+SELECT pg_advisory_xact_lock(718226341);
+
 -- name: CreateTask :one
 INSERT INTO tasks (process_id, parent_id, owner_id, responsible_id, title, color, status, start_date, end_date, sort_order)
 SELECT

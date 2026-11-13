@@ -12,7 +12,7 @@ import type { Resource } from '@/components/common/ResourceHeader/types'
 import type { Process } from './types'
 import type { PlanningUnit } from '../calendar'
 import type { DependencyType } from '../dependencies'
-import { indexResourcePeriods, resourceAvailableForDay, resourceUsageWithPreview } from '@/domain/resourceUsage'
+import { indexResourceDemand, indexedResourceUsage, indexResourcePeriods, resourceAvailableForDay } from '@/domain/resourceUsage'
 import { shortName } from '@/utils'
 
 const props = withDefaults(defineProps<{
@@ -157,13 +157,14 @@ const displayResources = computed<Resource[]>(() =>
 )
 
 const periodByResource = computed(() => indexResourcePeriods(props.calendar ?? []))
+const demandIndex = computed(() => indexResourceDemand(displayProcesses.value))
 
 function availableForDay(resourceId: number, day: Date): number | null {
   return resourceAvailableForDay(periodByResource.value, resourceId, day)
 }
 
 function usageForDayPreview(resourceId: number, day: Date): number {
-  return resourceUsageWithPreview(displayProcesses.value, resourceId, day, dragPreview.value)
+  return indexedResourceUsage(demandIndex.value, resourceId, day, dragPreview.value)
 }
 
 /** Right-click on empty space inside a process group — create a task/milestone in that process */

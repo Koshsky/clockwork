@@ -49,7 +49,18 @@ func (r *ProcessRepository) CreateProcess(
 	responsibleID *int64,
 	startDate, endDate date.Date,
 ) (*sqlc.Process, error) {
-	row, err := r.q(ctx).CreateProcess(ctx, sqlc.CreateProcessParams{
+	tx, owned, err := database.BeginOrJoin(ctx, r.pool)
+	if err != nil {
+		return nil, err
+	}
+	if owned {
+		defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	}
+	q := r.db.WithTx(tx)
+	if err = q.LockProcessAppendOrder(ctx); err != nil {
+		return nil, err
+	}
+	row, err := q.CreateProcess(ctx, sqlc.CreateProcessParams{
 		ProjectID:     projectID,
 		Title:         title,
 		Color:         nullable.ToString(color),
@@ -60,6 +71,11 @@ func (r *ProcessRepository) CreateProcess(
 	})
 	if err != nil {
 		return nil, errapi.MapPgConstraint(errapi.FromPgInvalidParam(err))
+	}
+	if owned {
+		if err = tx.Commit(ctx); err != nil {
+			return nil, err
+		}
 	}
 
 	return &row, nil

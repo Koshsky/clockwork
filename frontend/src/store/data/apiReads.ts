@@ -1,4 +1,5 @@
 import axios, { type AxiosRequestConfig, type AxiosResponse } from 'axios'
+import { ref } from 'vue'
 import { getApiUrl } from '@/config'
 import { currentLocale, t } from '@/i18n'
 import { currentUserId } from '@/offline/cache'
@@ -6,14 +7,14 @@ import { readStamp, mayApplyRead } from '@/offline/mutationGuard'
 import { createRequestCache, ReadCancelled } from '@/data/requestCache'
 import { LegacyDomainError } from './legacyErrors'
 
-let epoch = 0
-export const apiReadScope = () => JSON.stringify([getApiUrl(), currentUserId(), currentLocale(), epoch])
+const epoch = ref(0)
+export const apiReadScope = () => JSON.stringify([getApiUrl(), currentUserId(), currentLocale(), epoch.value])
 const scope = apiReadScope
 const requests = createRequestCache(() => ({ scope: scope(), revision: readStamp() }), context => context.scope === scope() && mayApplyRead(context.revision))
 
 export function isReadCancelled(error: unknown): boolean { return error instanceof ReadCancelled || axios.isCancel(error) }
 export function isReadForbidden(error: unknown): boolean { return axios.isAxiosError(error) && error.response?.status === 403 }
-export function invalidateApiReads(): void { epoch++; requests.invalidate() }
+export function invalidateApiReads(): void { epoch.value++; requests.invalidate() }
 export function cancelApiReads(): void { requests.cancel() }
 export function readPending(channel: string): boolean { return requests.pending(channel) }
 

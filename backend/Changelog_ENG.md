@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Concurrent task and process creation preserves sibling order without false conflicts.
+
 - Offline edits detect newer planning and timesheet changes before confirming a write.
 
 - Durable operation receipts prevent duplicate writes after long offline periods.

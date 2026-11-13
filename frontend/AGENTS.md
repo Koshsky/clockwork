@@ -39,29 +39,63 @@ Frontend service of the MVS ERP monorepo (repo root is `..`, sibling `backend` i
 - When a user-facing change lands, add a **brief, laconic, one-line bullet** (no long descriptions, no examples) under `## [Unreleased]` in BOTH `Changelog_ENG.md` (English) and `Changelog_RU.md` (Russian) in the same commit (see root `AGENTS.md` → Changelog (between releases)).
 - **Notable changes only**: cosmetic polish (spacing, sizes, row or card layout, tab order, hint and label texts) gets no bullet — fold it into the bullet of the feature it belongs to, or skip it. The criteria and examples live in the root `AGENTS.md`.
 
-## Desktop releases — always via `desktop/build-portable.sh`
-- Produce desktop artifacts **only** through `desktop/build-portable.sh` from
-  `desktop/`. It always rebuilds `dist/` from sources (deletes `dist/`, purges
-  the vite caches) and verifies the result, because the Electron wrapper embeds
-  `dist/` into the release as `resources/web` (`extraResources` in
-  `desktop/package.json`).
-- Versioning: web and desktop share ONE version — the single source of truth
-  is this service's `package.json`; `build-portable.sh` always builds that
-  version as is (it never bumps or accepts a version override). Desktop source
-  package metadata has no version; `desktop/build.cjs` injects the canonical
-  version into the packaged app without rewriting tracked manifests. Vite reads
-  the same source; `APP_VERSION`, when supplied, must match it. Use
-  `npm version patch --no-git-tag-version` (or minor/major) to update the source
-  and npm lockfile.
-- **Never** run `electron-builder` / `npm run dist*` by hand against a
-  pre-existing `dist/`: a stale `dist/` gets embedded into a newly versioned
-  release, so the app shows old UI (removed pages still visible) while its
-  version says otherwise. `--build-web` is a deprecated no-op — the web build is
-  unconditional.
-- Diagnosing "the packaged app shows old UI": read
-  `desktop/release/<version>/<app>-unpacked/resources/web/precache-manifest.json`
-  — `version` must equal the release version. A git-hash value
-  (e.g. `1808c37-mtx0hk8x`) means a stale bundle was embedded.
+## Desktop source builds
+
+From the repository root, use:
+
+```sh
+node scripts/build-desktop.cjs --dry-run
+node scripts/build-desktop.cjs
+# Optional explicit architecture for every selected target:
+node scripts/build-desktop.cjs --arch arm64
+```
+
+The script asks about Windows, Linux and macOS before making changes. Only a
+trimmed, case-insensitive `n` skips a target; empty or any other submitted answer
+means yes. EOF before all three answers aborts. Dry-run prints versions, targets,
+architectures and host restrictions without running commands or creating output.
+Windows/Linux default to x64; macOS defaults to the running Node architecture.
+Targets are Windows portable ZIP (containing the EXE), Linux AppImage and macOS
+ZIP (containing the app). The original product name and application/profile IDs
+are preserved. Cross-built files do not establish runtime acceptance on that OS.
+
+Actual builds run `npm ci` once in frontend and desktop, verify generated code
+and the host SQLite runtime, then compile a fresh desktop renderer in a new
+per-run staging directory. They never reuse or delete the existing `dist/`.
+Packaging uses the existing `desktop/build.cjs`, verifies embedded renderer bytes
+and native storage files, and always passes `--publish never`. The script does
+not bump versions or publish. Outputs and SHA256 results are under root
+`bin/vX.Y.Z/<os>-<arch>/`; the per-run manifest is in `bin/vX.Y.Z/.build-*/result.json`.
+Existing selected target directories and output symlinks are rejected before any
+installation/build. Failures stop the run with a nonzero exit, retaining previous
+successful and partial artifacts for inspection; they are never silently skipped
+or automatically deleted. A checkout-wide `bin/.desktop-build.lock` prevents
+concurrent dependency installations/builds. It is released on normal success or
+failure; a crash leaves the lock for inspection. Never automatically clear a
+stale lock or kill its recorded PID; remove it manually only after confirming
+that no build is still running.
+
+macOS targets require a macOS build host. This wrapper builds Linux AppImage on
+Linux/macOS; on Windows use WSL/Linux for that target. Windows ZIP cross-building
+uses the pinned builder's resource tooling; signing credentials/toolchain needs
+remain those of electron-builder and any failure is explicit. See the
+[electron-builder v26 platform guidance](https://www.electron.build/v26/docs/features/multi-platform-build/).
+No TLS or Electron isolation settings are weakened for cross-building.
+
+The older `desktop/build-portable.sh` remains available for its existing
+Windows/Linux targets. It always rebuilds `dist/`, checks the target/version and
+compares embedded payloads; never invoke electron-builder against an old renderer
+by hand. `desktop/build.cjs` accepts `ERP_DESKTOP_RENDERER_DIR` only with one plain
+`--config` JSON file mapping its single absolute `extraResources` entry to the
+same renderer directory as `web`; inherited/platform mappings, CLI config
+overrides and prepackaged inputs are rejected in this custom mode. The root
+wrapper supplies that configuration and its fresh staging path together.
+
+Web and desktop share one version from `frontend/package.json`; neither wrapper
+bumps it or accepts an independent version override. npm manages its lockfile;
+Electron gets the canonical version through generated package metadata. Before
+publishing a future release, finalize its version in both frontend changelogs.
+Published versions remain immutable.
 
 ## Renderer targets and acceptance
 
@@ -77,7 +111,7 @@ Each artifact includes `build-target.json` with the compiled module graph and th
 canonical frontend version. Verify with
 `node scripts/verify-renderer.cjs <directory> web|desktop`. This proves target and
 version consistency, not freshness against source; the mandatory clean build and
-embedded byte comparison in `desktop/build-portable.sh` remain required.
+embedded byte comparison in the root desktop wrapper or `desktop/build-portable.sh` remain required.
 `desktop/build.cjs` refuses missing or wrong-target renderer evidence before
 packaging. Local acceptance uses `scripts/package-acceptance.cjs` with explicit
 `ERP_TEST_ISOLATED=1`, an empty output directory and a verified desktop renderer;

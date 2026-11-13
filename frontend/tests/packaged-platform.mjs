@@ -75,7 +75,7 @@ async function launchNative() {
  page.setDefaultTimeout(20000)
  await expect.poll(() => native.evaluate(() => Boolean(globalThis.artifactFixture))).toBe(true)
  const context = native.context()
- await context.addInitScript(apiURL => { localStorage.setItem('mvs_erp_api_url', apiURL + '/api/v1'); localStorage.setItem('mvs_erp_auto_sync', '0'); Object.defineProperty(window, 'indexedDB', { get() { throw new Error('Renderer IndexedDB must not be used') } }) }, address(proxy))
+ await context.addInitScript(apiURL => { localStorage.setItem('mvs_erp_ui_lang', 'ru'); localStorage.setItem('mvs_erp_api_url', apiURL + '/api/v1'); localStorage.setItem('mvs_erp_auto_sync', '0'); Object.defineProperty(window, 'indexedDB', { get() { throw new Error('Renderer IndexedDB must not be used') } }) }, address(proxy))
  page.on('pageerror', error => errors.push(error.message))
  const origin = await native.evaluate(() => globalThis.artifactFixture.origin)
  await page.goto(origin + '/login')
@@ -92,6 +92,7 @@ try {
  browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || 'chrome', headless: true })
  const context = await browser.newContext()
  await context.addInitScript(() => {
+  localStorage.setItem('mvs_erp_ui_lang', 'ru')
   window.idbTouches = 0
   Object.defineProperty(window, 'indexedDB', { get() { window.idbTouches++; throw new Error('Built web must not use IndexedDB') } })
   window.erpDesktop = { isElectron: true, service: { businessProtocol: 1, status() { throw new Error('Built web used an injected native bridge') } } }

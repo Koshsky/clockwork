@@ -55,6 +55,70 @@ export function resourceUsageForDay(processes: ResourceProcess[], resourceId: nu
   return used
 }
 
+interface ResourceDemandRange {
+  start: number
+  end: number
+  quantity: number
+}
+
+interface IndexedResourceTask {
+  start: number
+  end: number
+  quantities: ReadonlyMap<number, number>
+}
+
+export interface ResourceDemandIndex {
+  ranges: ReadonlyMap<number, readonly ResourceDemandRange[]>
+  tasks: ReadonlyMap<number, IndexedResourceTask>
+}
+
+/** A weekly header otherwise reparses every task's dates for every resource and day. */
+export function indexResourceDemand(processes: ResourceProcess[]): ResourceDemandIndex {
+  const ranges = new Map<number, ResourceDemandRange[]>()
+  const tasks = new Map<number, IndexedResourceTask>()
+  for (const process of processes) {
+    for (const task of process.tasks ?? []) {
+      const start = toDate(task.start_date).getTime()
+      const end = toDate(task.end_date).getTime()
+      const quantities = new Map<number, number>()
+      for (const assignment of task.resources ?? []) {
+        // The reference lookup uses find: duplicate assignments keep their first quantity.
+        if (Number.isNaN(assignment.resource_id) || quantities.has(assignment.resource_id)) continue
+        quantities.set(assignment.resource_id, assignment.quantity)
+        const resource = ranges.get(assignment.resource_id) ?? []
+        resource.push({ start, end, quantity: assignment.quantity })
+        ranges.set(assignment.resource_id, resource)
+      }
+      // Preview also uses the first matching task when a malformed payload repeats an id.
+      if (!tasks.has(task.id)) tasks.set(task.id, { start, end, quantities })
+    }
+  }
+  return { ranges, tasks }
+}
+
+function previewUsage(used: number, day: Date, preview: TaskPreview, quantity: number, start: number, end: number): number {
+  const dayT = day.getTime()
+  const inNew = dayT >= toDate(preview.startDate!).getTime() && dayT <= toDate(preview.endDate!).getTime()
+  const inOld = dayT >= start && dayT <= end
+  if (inNew === inOld) return used
+  return inNew ? used + quantity : used - quantity
+}
+
+export function indexedResourceUsage(index: ResourceDemandIndex, resourceId: number, day: Date, preview: TaskPreview): number {
+  let used = 0
+  const dayT = day.getTime()
+  for (const range of index.ranges.get(resourceId) ?? []) {
+    if (dayT < range.start || dayT > range.end) continue
+    used += range.quantity
+  }
+  if (!preview.active || preview.taskId == null || preview.startDate == null || preview.endDate == null || Number.isNaN(preview.taskId)) return used
+  const task = index.tasks.get(preview.taskId)
+  if (!task?.quantities.has(resourceId)) return used
+  const quantity = task.quantities.get(resourceId)!
+  if (quantity === 0) return used
+  return previewUsage(used, day, preview, quantity, task.start, task.end)
+}
+
 /** The held gesture changes demand without changing the saved task or sending a command. */
 export function resourceUsageWithPreview(processes: ResourceProcess[], resourceId: number, day: Date, preview: TaskPreview): number {
   const used = resourceUsageForDay(processes, resourceId, day)
@@ -67,11 +131,7 @@ export function resourceUsageWithPreview(processes: ResourceProcess[], resourceI
   if (!task) return used
   const assignment = (task.resources ?? []).find((r) => r.resource_id === resourceId)
   if (!assignment || assignment.quantity === 0) return used
-  const dayT = day.getTime()
-  const inNew = dayT >= toDate(preview.startDate).getTime() && dayT <= toDate(preview.endDate).getTime()
-  const inOld = dayT >= toDate(task.start_date).getTime() && dayT <= toDate(task.end_date).getTime()
-  if (inNew === inOld) return used
-  return inNew ? used + assignment.quantity : used - assignment.quantity
+  return previewUsage(used, day, preview, assignment.quantity, toDate(task.start_date).getTime(), toDate(task.end_date).getTime())
 }
 
 /** The peak and minimum may fall on different days; Monday alone is not representative. */

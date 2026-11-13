@@ -78,9 +78,45 @@ test('cross-platform build wrapper pins target and source directory without inde
 })
 test('desktop builder refuses unverified renderers before invoking packaging', async () => {
   const source = await fs.readFile(path.join(__dirname, '../desktop/build.cjs'), 'utf8')
-  assert(source.indexOf("verifyRenderer(path.join(__dirname, '../dist'), 'desktop')") < source.indexOf('const result = spawnSync'))
+  const gate = source.indexOf("verifyRenderer(rendererDirectory(input), 'desktop')")
+  assert(gate >= 0)
+  assert(gate < source.indexOf('const result = spawnSync'))
   const metadata = JSON.parse(await fs.readFile(path.join(__dirname, '../desktop/package.json'), 'utf8'))
   assert.match(metadata.scripts['build:renderer'], /build-renderer.cjs desktop/)
+})
+test('desktop default packaging keeps the legacy renderer location without custom mode restrictions', () => {
+  const { rendererDirectory } = require('../desktop/build.cjs')
+  assert.equal(rendererDirectory(['--win', '-c.win.target=zip'], ''), path.join(__dirname, '../dist'))
+})
+test('custom renderer packaging binds its absolute JSON web resource to the verified real directory', async t => {
+  const { rendererDirectory } = require('../desktop/build.cjs'), f = await desktopArtifact(t)
+  const config = path.join(f.directory, 'builder.json')
+  await fs.writeFile(config, JSON.stringify({ extraResources: [{ from: f.directory, to: 'web', filter: ['**/*'] }] }))
+  assert.equal(rendererDirectory(['--win', 'zip', '--config', config, '--publish', 'never'], f.directory), f.directory)
+  const alias = path.join(f.directory, 'renderer-link')
+  await fs.symlink(f.directory, alias, process.platform === 'win32' ? 'junction' : 'dir')
+  assert.equal(rendererDirectory(['--config', config], alias), alias)
+})
+test('custom renderer rejects missing, different, duplicate, relative and inherited web resource mappings', async t => {
+  const { rendererDirectory } = require('../desktop/build.cjs'), f = await desktopArtifact(t)
+  const config = path.join(f.directory, 'builder.json'), web = { from: f.directory, to: 'web' }
+  for (const metadata of [{}, { extraResources: [] }, { extraResources: [{ ...web, to: 'other' }] }, { extraResources: [{ ...web, from: path.dirname(f.directory) }] }, { extraResources: [{ ...web, from: '../dist' }] }, { extraResources: [web, web] }, { extends: 'base.json', extraResources: [web] }, ...['win', 'linux', 'mac'].map(platform => ({ extraResources: [web], [platform]: { extraResources: [] } }))]) {
+    await fs.writeFile(config, JSON.stringify(metadata))
+    assert.throws(() => rendererDirectory(['--config', config], f.directory), /Custom renderer/)
+  }
+})
+test('custom renderer rejects absent, conflicting and prepackaged CLI configurations', async t => {
+  const { rendererDirectory } = require('../desktop/build.cjs'), f = await desktopArtifact(t)
+  const config = path.join(f.directory, 'builder.json')
+  await fs.writeFile(config, JSON.stringify({ extraResources: [{ from: f.directory, to: 'web' }] }))
+  for (const args of [[], ['--config'], ['--config', 'config.yml'], ['--config=' + config], ['-c', config], ['--config', config, '--config', config], ...['-c.extraResources=[]', '--config.extraResources=[]', '--config={}', '--prepackaged', '--prepackaged=old'].map(arg => ['--config', config, arg])]) assert.throws(() => rendererDirectory(args, f.directory), /Custom renderer/)
+})
+test('standalone custom renderer invocation fails before starting any packager when its mapping is absent', async t => {
+  const { spawnSync } = require('node:child_process'), f = await desktopArtifact(t)
+  const result = spawnSync(process.execPath, [path.join(__dirname, '../desktop/build.cjs'), '--win', 'zip'], { env: { ...process.env, ERP_DESKTOP_RENDERER_DIR: f.directory }, encoding: 'utf8' })
+  assert.equal(result.status, 1)
+  assert.match(result.stderr, /Custom renderer requires one --config/)
+  assert.doesNotMatch(result.stderr, /Cannot find module|electron-builder/)
 })
 test('clean web builds use the same-origin API and reject cross-origin cookie sessions', async () => {
   const { webApiPath } = await composition

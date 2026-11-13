@@ -8,6 +8,10 @@ The web app and the desktop wrapper are versioned together.
 
 ## [Unreleased]
 
+- Large task diagrams recalculate resource headers faster in days and weeks.
+
+- Complete resource headers stay visible during refresh and clear when access changes.
+
 - Web and Electron artifacts use explicit platform compositions with verified package targets.
 
 - Electron keeps normal TLS trust and restricts privileged documents, popups and renderer network access.
