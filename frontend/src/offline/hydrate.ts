@@ -21,7 +21,7 @@ export interface HydrateTarget {
   /** Whether the local state is already filled (skip) */
   filled: () => boolean
   /** Apply the cached axios body ({ data, error } envelope) to the store */
-  apply: (body: unknown) => void
+  apply: (body: unknown, metadata?: { key?: string; baseline?: Record<string, string> }) => void
   /**
    * Optional key filter for endpoints shared by several queries
    * (e.g. /user with role/limit params). Default — any key on the path.
@@ -39,6 +39,6 @@ export async function hydrateFromCache(targets: HydrateTarget[]): Promise<void> 
     if (t.filled()) continue
     const entry = await cacheGetFresh<unknown>(t.path, t.keyPredicate)
     if (!entry) continue
-    t.apply(entry.data)
+    t.apply(entry.data, { key: entry.key, baseline: entry.baseline })
   }
 }

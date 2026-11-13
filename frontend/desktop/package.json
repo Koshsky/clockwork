@@ -1,6 +1,6 @@
 {
   "name": "mvs-erp-desktop",
-  "description": "Настольная обвязка MVS ERP (Electron) вокруг собранного vite-фронтенда",
+  "description": "\u041d\u0430\u0441\u0442\u043e\u043b\u044c\u043d\u0430\u044f \u043e\u0431\u0432\u044f\u0437\u043a\u0430 MVS ERP (Electron) \u0432\u043e\u043a\u0440\u0443\u0433 \u0441\u043e\u0431\u0440\u0430\u043d\u043d\u043e\u0433\u043e vite-\u0444\u0440\u043e\u043d\u0442\u0435\u043d\u0434\u0430",
   "main": "main.js",
   "author": {
     "name": "MVS ERP",
@@ -49,7 +49,18 @@
       "preload.js",
       "security.cjs",
       "static-server.cjs",
-      "package.json"
+      "package.json",
+      "command-request.cjs",
+      "command-queue.cjs",
+      "command-cacheProjection.cjs",
+      "command-planning.cjs",
+      "command-timesheet.cjs",
+      "command-revisions.cjs",
+      "command-baseline.cjs",
+      "command-periodAvailability.cjs",
+      "command-calendar.cjs",
+      "command-date.cjs",
+      "command-clamp.cjs"
     ],
     "extraResources": [
       {
@@ -107,7 +118,18 @@
       "protocol.cjs",
       "protocol-operations.json",
       "session-service.cjs",
-      "api-routes.json"
+      "api-routes.json",
+      "command-request.cjs",
+      "command-queue.cjs",
+      "command-cacheProjection.cjs",
+      "command-planning.cjs",
+      "command-timesheet.cjs",
+      "command-revisions.cjs",
+      "command-baseline.cjs",
+      "command-periodAvailability.cjs",
+      "command-calendar.cjs",
+      "command-date.cjs",
+      "command-clamp.cjs"
     ]
   }
 }

@@ -4,7 +4,7 @@ const { parentPort, workerData } = require('node:worker_threads')
 const { openStorage } = require('./storage-db.cjs')
 const { storageFailure, requireValue } = require('./storage-validation.cjs')
 const { bounded } = require('./protocol.cjs')
-const methods = ['snapshot', 'saveSnapshot', 'commitLocal', 'queue', 'receipt', 'markAttempt', 'settle', 'resolveId', 'setting', 'saveSetting']
+const methods = ['snapshot', 'saveSnapshot', 'commitLocal', 'queue', 'receipt', 'markAttempt', 'settle', 'resolveId', 'setting', 'saveSetting', 'commitHttp', 'httpIntent', 'httpHistory', 'cacheRead', 'cacheKeys', 'cacheCommit', 'freezeHttp', 'deferHttp', 'retryHttp', 'discardHttp']
 let tail = Promise.resolve()
 openStorage(workerData.directory, { readOnly: workerData.readOnly === true }).then(store => {
   parentPort.postMessage({ kind: 'ready', info: store.info() })

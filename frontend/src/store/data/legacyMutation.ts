@@ -1,3 +1,4 @@
+import { nativeQueue, queuedResponse } from '@/offline/desktopQueue'
 import axios, { type AxiosError, type Method } from 'axios'
 import type { CommandResult } from '@/data/contracts'
 import { isOffline } from '@/offline/state'
@@ -7,10 +8,11 @@ import { scheduleDomainRefresh } from '@/offline/sync'
 import { LegacyDomainError, legacyFailure } from './legacyErrors'
 
 export interface LegacyMutationOptions<T = unknown> {
-  call: () => Promise<unknown>
+  call: (options?: import('axios').AxiosRequestConfig) => Promise<unknown>
   entity: MutationEntity
   tempId?: number
   operationId?: string
+  onConfirmed?: () => void
   apply: (data: T | null) => void | Promise<void>
   optimistic: () => void
   onError: (message: string) => void
@@ -22,7 +24,16 @@ export async function runLegacyMutation<T = unknown>(opts: LegacyMutationOptions
   let operationId = opts.operationId
   const identified = (result: CommandResult<T | null>): CommandResult<T | null> => operationId ? { ...result, operationId } : result
   try {
-    const resp = await opts.call()
+    const resp = await opts.call(opts.tempId != null ? { headers: { 'X-Desktop-Temp-ID': String(opts.tempId) } } : {})
+    if (nativeQueue && queuedResponse(resp)) {
+      opts.optimistic()
+      const native = resp as { __erpMutation?: import('./desktopPreconditions').DesktopBaselineRequest; __erpOperationId?: string; __erpTempId?: number; __erpContext?: string }
+      if (native.__erpMutation && native.__erpOperationId) {
+        (await import('./nativeBaselines')).observe(native.__erpMutation, native.__erpOperationId, native.__erpTempId, native.__erpContext)
+        operationId = native.__erpOperationId
+      }
+      return identified({ status: 'queued' })
+    }
     const headers = (resp as { config?: { headers?: Record<string, unknown> } } | undefined)?.config?.headers
     operationId ??= String(headers?.['Idempotency-Key'] ?? headers?.['idempotency-key'] ?? '') || undefined
     const body = (resp as { data?: { data?: T; error?: { code?: unknown; message?: string } } } | undefined)?.data
@@ -33,13 +44,16 @@ export async function runLegacyMutation<T = unknown>(opts: LegacyMutationOptions
     const data = body?.data ?? null
     finish()
     await opts.apply(data)
+    const native = resp as { __erpBaseline?: Record<string, string>; __erpMutation?: import('./desktopPreconditions').DesktopBaselineRequest; __erpPreconditions?: Record<string, string>; __erpContext?: string }
+    if (nativeQueue && native.__erpBaseline && native.__erpMutation) (await import('./nativeBaselines')).acknowledge(native.__erpMutation, data, native.__erpBaseline, native.__erpPreconditions, native.__erpContext)
+    opts.onConfirmed?.()
     if (!isOffline.value) scheduleDomainRefresh([opts.entity])
     return identified({ status: 'confirmed', data })
   } catch (e: unknown) {
     const err = e as AxiosError
     operationId ??= String(err?.config?.headers?.['Idempotency-Key'] ?? err?.config?.headers?.['idempotency-key'] ?? '') || undefined
     // A local apply failure cannot turn an acknowledged write into a new queued write.
-    if (!acknowledged && err?.config && isNetworkError(e) && !axios.isCancel(e)) {
+    if (!nativeQueue && !acknowledged && err?.config && isNetworkError(e) && !axios.isCancel(e)) {
       try {
         await enqueueMutation({
           entity: opts.entity,
@@ -60,7 +74,7 @@ export async function runLegacyMutation<T = unknown>(opts: LegacyMutationOptions
     finish()
     const error = legacyFailure(e)
     opts.onError(error.message)
-    return identified({ status: acknowledged || error.kind === 'unavailable' ? 'unknown' : error.kind === 'conflict' ? 'conflict' : 'rejected', error })
+    return identified({ status: acknowledged || error.kind === 'unavailable' || error.kind === 'storage' ? 'unknown' : error.kind === 'conflict' ? 'conflict' : 'rejected', error })
   } finally {
     finish()
   }

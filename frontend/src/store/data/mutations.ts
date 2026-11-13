@@ -33,6 +33,6 @@ export async function runOnlineCommand<T>(options: WebCommandOptions<T>): Promis
 export async function runMutation<T>(options: MutationOptions<T>): Promise<boolean> {
   const result = platformCapabilities.kind === 'web'
     ? await runWebCommand({ ...options, targetId: options.targetId ?? options.tempId })
-    : await runLegacyMutation({ ...options, call: () => options.call() })
+    : await runLegacyMutation({ ...options, call: request => options.call(request) })
   return result.status === 'confirmed' || result.status === 'queued'
 }

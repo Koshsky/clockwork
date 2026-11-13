@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { ConfirmDialog } from '../components/common'
+import { useConfirm } from '../composables/useConfirm'
+import { nativeQueue, nativeCommands, nativeDiscardPlan, queueRequest } from '../offline/desktopQueue'
+import { prepareDesktopSession } from '../session/desktop'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { t } from '@/i18n'
 import { fmtDateTime } from '@/i18n/date'
@@ -10,6 +14,7 @@ import { notifyError, notifySuccess } from '../notify/state'
 
 const failedEntries = ref<Array<{ method: string; url: string; message: string }>>([])
 const busy = ref(false)
+const { confirm: confirmDialog, ask, proceed, cancel } = useConfirm()
 const queueKnown = computed(() => legacyQueueAvailability.value === 'empty' || legacyQueueAvailability.value === 'pending')
 
 let refreshTimer: number | null = null
@@ -71,17 +76,26 @@ async function onRetry() {
   }
 }
 
-async function onDiscard() {
-  if (busy.value || !queueKnown.value) return
+async function discardSelected(operationIds?: string[], contextId?: string) {
   busy.value = true
   try {
-    await discardFailed()
+    if (operationIds) await queueRequest({ action: 'discard', operationIds, contextId })
+    else await discardFailed()
     dismissSyncNotice()
     notifySuccess(t('adminSystem.queue.messages.discarded'))
     await refreshStatus()
-  } finally {
-    busy.value = false
-  }
+  } catch (error) { notifyError(error instanceof Error ? error.message : t('offline.queue.storageUnavailable')) }
+  finally { busy.value = false }
+}
+
+async function onDiscard() {
+  if (busy.value || !queueKnown.value) return
+  if (nativeQueue) {
+    const contextId = (await prepareDesktopSession()).contextId
+    const ids = nativeDiscardPlan(await nativeCommands())
+    if (!ids.length) { notifyError(t('offline.queue.unknownOutcome')); return }
+    ask(t('adminSystem.queue.messages.discardConfirm', { count: ids.length }), () => { void discardSelected(ids, contextId) }, t('adminSystem.queue.messages.discardConfirmLabel'))
+  } else await discardSelected()
 }
 
 onMounted(() => {
@@ -202,6 +216,7 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </div>
+    <ConfirmDialog :open="!!confirmDialog" :message="confirmDialog?.message ?? ''" :confirm-label="confirmDialog?.confirmLabel" @confirm="proceed" @close="cancel" />
   </section>
 </template>
 

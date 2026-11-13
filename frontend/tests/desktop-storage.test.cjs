@@ -38,7 +38,7 @@ async function historical(directory, version = 1) {
 
 test('runtime uses built-in SQLite in a worker, WAL, FULL sync and versioned schema',async t=>{
   const {store}=await fixture(t)
-  assert.equal(store.status().phase,'ready');assert.equal(store.status().driver,'node:sqlite');assert.equal(store.status().journalMode,'wal');assert.equal(store.status().synchronous,2);assert.equal(store.status().schemaVersion,2)
+  assert.equal(store.status().phase,'ready');assert.equal(store.status().driver,'node:sqlite');assert.equal(store.status().journalMode,'wal');assert.equal(store.status().synchronous,2);assert.equal(store.status().schemaVersion,3)
   assert.equal('directory' in store.status(),false)
 })
 test('local projection, command and durable queued receipt commit together',async t=>{
@@ -237,7 +237,7 @@ test('changed or missing migration history is refused instead of silently repair
 test('a historical schema is backed up and upgraded without losing its settings',async t=>{
   const directory=await fs.mkdtemp(path.join(os.tmpdir(),'clockwork-upgrade-'));t.after(()=>cleanup(directory));await historical(directory)
   const old=new DatabaseSync(path.join(directory,filename));old.exec("INSERT INTO scopes VALUES(1,'https://erp.example/api/v1',7);INSERT INTO settings VALUES(1,'calendar','\"week\"',1)");old.close()
-  const store=await createStorage({directory});t.after(()=>store.close());assert.equal(store.status().schemaVersion,2);assert.equal((await store.forScope(scope).setting({key:'calendar'})).value,'week')
+  const store=await createStorage({directory});t.after(()=>store.close());assert.equal(store.status().schemaVersion,3);assert.equal((await store.forScope(scope).setting({key:'calendar'})).value,'week')
   const files=await fs.readdir(path.join(directory,'backups'));assert.equal(files.filter(file=>file.startsWith('migration-')&&file.endsWith('.sqlite')).length,1)
 })
 test('backup captures committed snapshots, queued commands, receipts and id maps',async t=>{
@@ -311,7 +311,7 @@ test('a failed migration rolls back its DDL and history while retaining the pre-
   await assert.rejects(openStorage(directory,{onCommit:phase=>{if(phase==='before')throw new Error('interrupted migration')}}))
   const check=new DatabaseSync(path.join(directory,filename));assert.equal(check.prepare('PRAGMA user_version').get().user_version,1);assert.equal(check.prepare('SELECT count(*) count FROM storage_migrations').get().count,1);assert.equal(check.prepare("SELECT name FROM sqlite_schema WHERE name='commands_pending'").get(),undefined);check.close()
   assert.equal((await fs.readdir(path.join(directory,'backups'))).filter(name=>name.endsWith('.sqlite')).length,1)
-  const store=await createStorage({directory});assert.equal(store.status().schemaVersion,2)
+  const store=await createStorage({directory});assert.equal(store.status().schemaVersion,3)
 })
 test('worker request capacity is bounded without acknowledging rejected work',async t=>{
   const {repository}=await fixture(t)

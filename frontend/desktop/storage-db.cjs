@@ -34,7 +34,7 @@ function verify(db) {
   const history = db.prepare('SELECT version, name, checksum FROM storage_migrations ORDER BY version').all()
   requireValue(history.length === version && history.every((entry, index) => entry.version === index + 1 && entry.name === migrations[index]?.name && entry.checksum === migrations[index]?.checksum), 'STORAGE_MIGRATION_MISMATCH')
   const objects = db.prepare("SELECT type,name FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'").all()
-  for (const migration of migrations.slice(0, version)) for (const match of migration.sql.matchAll(/CREATE (TABLE|INDEX) ([a-z_]+)/g)) requireValue(objects.some(object => object.type === match[1].toLowerCase() && object.name === match[2]), 'STORAGE_CORRUPT')
+  for (const migration of migrations.slice(0, version)) for (const match of migration.sql.matchAll(/CREATE (?:UNIQUE )?(TABLE|INDEX) ([a-z_]+)/g)) requireValue(objects.some(object => object.type === match[1].toLowerCase() && object.name === match[2]), 'STORAGE_CORRUPT')
   requireValue(db.prepare('PRAGMA quick_check').get().quick_check === 'ok', 'STORAGE_CORRUPT')
   requireValue(db.prepare('PRAGMA foreign_key_check').all().length === 0, 'STORAGE_CORRUPT')
   return version
@@ -120,6 +120,34 @@ async function openStorage(directory, { readOnly = false, onCommit = () => {}, c
     return row ? { operationId: row.operation_id, status: row.status, result: row.result == null ? null : JSON.parse(row.result), updatedAt: row.updated_at } : null
   }
   function writable() { requireValue(open, 'STORAGE_CLOSED'); requireValue(!readOnly, 'STORAGE_READ_ONLY') }
+  function commitIntent(scope, input, http) {
+      writable(); const command = localCommand(input)
+      if (http) command.digest = digest([command.operation, JSON.parse(command.input)])
+      return transaction(() => {
+        const id = scopeId(scope, true)
+        const existing = statement('SELECT digest FROM commands WHERE scope_id=? AND operation_id=?', id, command.operationId)
+        if (existing) { requireValue(existing.digest === command.digest, 'STORAGE_OPERATION_REUSED'); return { ...readReceipt(id, command.operationId), replayed: true } }
+        for (const dependency of command.dependencies) requireValue(statement('SELECT 1 FROM commands WHERE scope_id=? AND operation_id=?', id, dependency), 'STORAGE_MISSING_DEPENDENCY')
+        if (http) {
+          for (const change of http.changes) cacheChange(id, change)
+        }
+        const now = Date.now()
+        db.prepare('INSERT INTO commands(scope_id,operation_id,operation,input,idempotency_key,digest,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)').run(id, command.operationId, command.operation, command.input, command.idempotencyKey, command.digest, 'queued', now, now)
+        for (const dependency of command.dependencies) db.prepare('INSERT INTO dependencies VALUES(?,?,?)').run(id, command.operationId, dependency)
+        applyChanges(id, command.changes)
+        for (const change of command.changes) db.prepare('INSERT INTO command_snapshots VALUES(?,?,?,?)').run(id, command.operationId, change.domain, change.key)
+        db.prepare('INSERT INTO receipts VALUES(?,?,?,?,?,?)').run(id, command.operationId, 'queued', null, null, now)
+        if (http) db.prepare('INSERT INTO command_http(scope_id,operation_id,temp_id) VALUES(?,?,?)').run(id, command.operationId, input.input.tempId ?? null)
+        return { ...readReceipt(id, command.operationId), replayed: false }
+      }, 'local')
+    }
+  function cacheChange(id, change) {
+    requireValue(change && typeof change.key === 'string' && change.key.length <= 8192 && Number.isSafeInteger(change.expectedRevision) && change.expectedRevision >= 0)
+    const row = statement('SELECT revision FROM http_cache WHERE scope_id=? AND key=?', id, change.key)
+    requireValue((row?.revision ?? 0) === change.expectedRevision, 'STORAGE_STALE_REVISION')
+    const projection = safeJSON(change.projection), baseline = safeJSON(change.baseline), revisions = safeJSON(change.revisions ?? {})
+    db.prepare('INSERT INTO http_cache VALUES(?,?,?,?,?,?,?) ON CONFLICT(scope_id,key) DO UPDATE SET revision=excluded.revision,baseline=excluded.baseline,projection=excluded.projection,revisions=excluded.revisions,updated_at=excluded.updated_at').run(id, change.key, change.expectedRevision + 1, baseline, projection, revisions, Date.now())
+  }
   const api = {
     info() {
       requireValue(open, 'STORAGE_CLOSED')
@@ -139,21 +167,10 @@ async function openStorage(directory, { readOnly = false, onCommit = () => {}, c
         return applyChanges(id, changes)[0]
       }, 'snapshot')
     },
-    commitLocal(scope, input) {
-      writable(); const command = localCommand(input)
-      return transaction(() => {
-        const id = scopeId(scope, true)
-        const existing = statement('SELECT digest FROM commands WHERE scope_id=? AND operation_id=?', id, command.operationId)
-        if (existing) { requireValue(existing.digest === command.digest, 'STORAGE_OPERATION_REUSED'); return { ...readReceipt(id, command.operationId), replayed: true } }
-        for (const dependency of command.dependencies) requireValue(statement('SELECT 1 FROM commands WHERE scope_id=? AND operation_id=?', id, dependency), 'STORAGE_MISSING_DEPENDENCY')
-        const now = Date.now()
-        db.prepare('INSERT INTO commands(scope_id,operation_id,operation,input,idempotency_key,digest,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)').run(id, command.operationId, command.operation, command.input, command.idempotencyKey, command.digest, 'queued', now, now)
-        for (const dependency of command.dependencies) db.prepare('INSERT INTO dependencies VALUES(?,?,?)').run(id, command.operationId, dependency)
-        applyChanges(id, command.changes)
-        for (const change of command.changes) db.prepare('INSERT INTO command_snapshots VALUES(?,?,?,?)').run(id, command.operationId, change.domain, change.key)
-        db.prepare('INSERT INTO receipts VALUES(?,?,?,?,?,?)').run(id, command.operationId, 'queued', null, null, now)
-        return { ...readReceipt(id, command.operationId), replayed: false }
-      }, 'local')
+    commitLocal: (scope, input) => commitIntent(scope, input),
+    commitHttp(scope, { operationId, input, dependencies = [], changes = [] }) {
+      requireValue(Array.isArray(changes) && changes.length <= 128)
+      return commitIntent(scope, { operationId, operation: 'http.mutation', input, idempotencyKey: operationId, dependencies, changes: [] }, { changes })
     },
     queue(scope, { limit = 100, after = 0 } = {}) {
       requireValue(Number.isSafeInteger(limit) && limit > 0 && limit <= 200 && Number.isSafeInteger(after) && after >= 0)
@@ -161,6 +178,7 @@ async function openStorage(directory, { readOnly = false, onCommit = () => {}, c
       return db.prepare("SELECT * FROM commands WHERE scope_id=? AND status!='confirmed' AND sequence>? ORDER BY sequence LIMIT ?").all(id, after, limit).map(row => ({
         sequence: row.sequence, operationId: row.operation_id, operation: row.operation, input: JSON.parse(row.input), idempotencyKey: row.idempotency_key, status: row.status, attempts: row.attempts,
         dependencies: db.prepare('SELECT depends_on FROM dependencies WHERE scope_id=? AND operation_id=? ORDER BY depends_on').all(id, row.operation_id).map(item => item.depends_on),
+        http: (() => { const meta = statement('SELECT temp_id,wire,retry_at,error,discarded FROM command_http WHERE scope_id=? AND operation_id=?', id, row.operation_id); return meta ? { tempId: meta.temp_id, wire: meta.wire ? JSON.parse(meta.wire) : null, retryAt: meta.retry_at, error: meta.error ? JSON.parse(meta.error) : null, discarded: Boolean(meta.discarded), createdAt: row.created_at } : undefined })(),
         ready: !statement("SELECT 1 FROM dependencies d JOIN commands c ON c.scope_id=d.scope_id AND c.operation_id=d.depends_on WHERE d.scope_id=? AND d.operation_id=? AND c.status!='confirmed' LIMIT 1", id, row.operation_id),
       }))
     },
@@ -177,10 +195,10 @@ async function openStorage(directory, { readOnly = false, onCommit = () => {}, c
       }, 'attempt')
     },
     settle(scope, input) {
-      writable(); requireValue(input && Object.keys(input).every(key => ['operationId', 'status', 'result', 'mappings', 'changes'].includes(key)) && identifier(input.operationId) && ['confirmed', 'rejected', 'conflict'].includes(input.status))
+      writable(); requireValue(input && Object.keys(input).every(key => ['operationId', 'status', 'result', 'mappings', 'changes', 'cacheChanges'].includes(key)) && identifier(input.operationId) && ['confirmed', 'rejected', 'conflict'].includes(input.status))
       const json = safeJSON(input.result ?? null), changes = changesOf(input.changes ?? []), mappings = input.mappings ?? []
       requireValue(Array.isArray(mappings) && mappings.length <= 128 && (input.status === 'confirmed' || mappings.length === 0))
-      for (const mapping of mappings) requireValue(mapping && Object.keys(mapping).every(key => ['entity', 'temporaryId', 'realId'].includes(key)) && ['project', 'process', 'task', 'milestone', 'resource', 'assignment', 'state'].includes(mapping.entity) && Number.isSafeInteger(mapping.temporaryId) && mapping.temporaryId < 0 && Number.isSafeInteger(mapping.realId) && mapping.realId > 0)
+      for (const mapping of mappings) requireValue(mapping && Object.keys(mapping).every(key => ['entity', 'temporaryId', 'realId'].includes(key)) && ['project', 'process', 'task', 'milestone', 'resource', 'assignment', 'state', 'http'].includes(mapping.entity) && Number.isSafeInteger(mapping.temporaryId) && mapping.temporaryId < 0 && Number.isSafeInteger(mapping.realId) && mapping.realId > 0)
       const checksum = digest([input.status, JSON.parse(json), mappings])
       return transaction(() => {
         const id = scopeId(scope), row = statement('SELECT status,settlement_digest FROM receipts WHERE scope_id=? AND operation_id=?', id, input.operationId)
@@ -192,10 +210,72 @@ async function openStorage(directory, { readOnly = false, onCommit = () => {}, c
           db.prepare('INSERT INTO idmap VALUES(?,?,?,?,?) ON CONFLICT DO NOTHING').run(id, mapping.entity, mapping.temporaryId, mapping.realId, input.operationId)
         }
         applyChanges(id, changes)
+        requireValue(Array.isArray(input.cacheChanges ?? []) && (input.cacheChanges ?? []).length <= 128)
+        for (const change of input.cacheChanges ?? []) cacheChange(id, change)
+        db.prepare('UPDATE command_http SET error=? WHERE scope_id=? AND operation_id=?').run(input.status === 'confirmed' ? null : safeJSON({ code: input.result?.data?.error?.code || input.status, message: input.result?.data?.error?.message || input.status }), id, input.operationId)
         db.prepare('UPDATE commands SET status=?,updated_at=? WHERE scope_id=? AND operation_id=?').run(input.status, Date.now(), id, input.operationId)
         db.prepare('UPDATE receipts SET status=?,result=?,settlement_digest=?,updated_at=? WHERE scope_id=? AND operation_id=?').run(input.status, json, checksum, Date.now(), id, input.operationId)
         return readReceipt(id, input.operationId)
       }, 'settlement')
+    },
+    httpHistory(scope, { path, id, createRoute }) {
+      requireValue(typeof path === 'string' && path.length <= 256 && Number.isSafeInteger(Number(id)) && typeof createRoute === 'string')
+      return db.prepare("SELECT c.operation_id,c.sequence,r.result FROM commands c JOIN receipts r USING(scope_id,operation_id) LEFT JOIN idmap m ON m.scope_id=c.scope_id AND m.operation_id=c.operation_id AND m.entity='http' WHERE c.scope_id=? AND c.status='confirmed' AND ((json_extract(c.input,'$.path.id')=? AND substr(json_extract(c.input,'$.route'),instr(json_extract(c.input,'$.route'),' ')+1)=?) OR (m.real_id=? AND json_extract(c.input,'$.route')=?)) ORDER BY c.sequence").all(scopeId(scope), String(id), path, Number(id), createRoute).map(row => ({ operationId: row.operation_id, sequence: row.sequence, result: JSON.parse(row.result) }))
+    },
+    httpIntent(scope, { operationId }) {
+      requireValue(identifier(operationId))
+      const row = statement('SELECT input FROM commands WHERE scope_id=? AND operation_id=? AND operation=?', scopeId(scope), operationId, 'http.mutation')
+      return row ? JSON.parse(row.input) : null
+    },
+    cacheRead(scope, { key }) {
+      requireValue(typeof key === 'string' && key.length <= 8192)
+      const row = statement('SELECT * FROM http_cache WHERE scope_id=? AND key=?', scopeId(scope), key)
+      return row ? { key, revision: row.revision, baseline: JSON.parse(row.baseline), projection: JSON.parse(row.projection), revisions: JSON.parse(row.revisions), ts: row.updated_at } : null
+    },
+    cacheKeys(scope) { return db.prepare('SELECT key FROM http_cache WHERE scope_id=? ORDER BY key').all(scopeId(scope)).map(row => row.key) },
+    cacheCommit(scope, { changes }) {
+      writable(); requireValue(Array.isArray(changes) && changes.length <= 128)
+      return transaction(() => { const id = scopeId(scope, true); for (const change of changes) cacheChange(id, change); return null }, 'http-cache')
+    },
+    freezeHttp(scope, { operationId, wire }) {
+      writable(); requireValue(identifier(operationId)); const json = safeJSON(wire, 1024 * 1024)
+      return transaction(() => {
+        const id = scopeId(scope), row = statement('SELECT wire FROM command_http WHERE scope_id=? AND operation_id=?', id, operationId)
+        requireValue(row, 'STORAGE_COMMAND_MISSING')
+        if (row.wire) { requireValue(row.wire === json, 'STORAGE_OPERATION_REUSED'); return JSON.parse(row.wire) }
+        db.prepare('UPDATE command_http SET wire=? WHERE scope_id=? AND operation_id=?').run(json, id, operationId)
+        return wire
+      }, 'http-wire')
+    },
+    deferHttp(scope, { operationId, retryAt, error }) {
+      writable(); requireValue(identifier(operationId) && Number.isSafeInteger(retryAt) && retryAt >= 0)
+      db.prepare('UPDATE command_http SET retry_at=?,error=? WHERE scope_id=? AND operation_id=?').run(retryAt, safeJSON(error), scopeId(scope), operationId)
+      return null
+    },
+    retryHttp(scope, { operationId }) {
+      writable(); requireValue(identifier(operationId))
+      return transaction(() => {
+        const id = scopeId(scope), row = statement('SELECT status FROM commands WHERE scope_id=? AND operation_id=?', id, operationId)
+        requireValue(row && row.status !== 'confirmed', 'STORAGE_INVALID_TRANSITION')
+        db.prepare("UPDATE commands SET status='queued' WHERE scope_id=? AND operation_id=?").run(id, operationId)
+        db.prepare("UPDATE receipts SET status='queued',settlement_digest=NULL WHERE scope_id=? AND operation_id=?").run(id, operationId)
+        db.prepare('UPDATE command_http SET retry_at=0,error=NULL WHERE scope_id=? AND operation_id=? AND discarded=0').run(id, operationId)
+        return null
+      }, 'http-retry')
+    },
+    discardHttp(scope, { operationIds, changes = [] }) {
+      writable(); requireValue(Array.isArray(operationIds) && operationIds.length <= 200 && operationIds.every(identifier) && Array.isArray(changes) && changes.length <= 128)
+      return transaction(() => {
+        const id = scopeId(scope)
+        for (const operationId of operationIds) {
+          const row = statement('SELECT status,attempts FROM commands WHERE scope_id=? AND operation_id=?', id, operationId)
+          requireValue(row && row.status !== 'confirmed' && (row.status !== 'unknown' && row.attempts === 0 || ['rejected','conflict'].includes(row.status)), 'STORAGE_OUTCOME_UNKNOWN')
+          requireValue(!statement('SELECT 1 FROM dependencies d JOIN command_http h ON h.scope_id=d.scope_id AND h.operation_id=d.operation_id WHERE d.scope_id=? AND d.depends_on=? AND h.discarded=0 AND d.operation_id NOT IN (' + operationIds.map(() => '?').join(',') + ') LIMIT 1', id, operationId, ...operationIds), 'STORAGE_DEPENDENTS_EXIST')
+          db.prepare('UPDATE command_http SET discarded=1 WHERE scope_id=? AND operation_id=?').run(id, operationId)
+        }
+        for (const change of changes) cacheChange(id, change)
+        return null
+      }, 'http-discard')
     },
     resolveId(scope, { entity, temporaryId }) {
       requireValue(identifier(entity) && Number.isSafeInteger(temporaryId) && temporaryId < 0)

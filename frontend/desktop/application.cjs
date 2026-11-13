@@ -1,5 +1,6 @@
 'use strict'
 
+const { createCommandQueue } = require('./command-queue.cjs')
 const { createStorage } = require('./storage.cjs')
 const { createSessionVault } = require('./session-vault.cjs')
 const { createSessionService } = require('./session-service.cjs')
@@ -134,15 +135,18 @@ function startDesktop({ app, BrowserWindow, ipcMain, dialog, session, safeStorag
       service = createDesktopService({ profileId, version, electron: process.versions.electron, ...adapters, storage })
       server = await startServer()
       origin = `http://127.0.0.1:${server.address().port}`
+      let commandQueue
       if (safeStorage && net) {
         const vault = createSessionVault(app.getPath('userData'), safeStorage)
         await vault.load()
-        auth = createSessionService({ vault, fetch: (url, options) => net.fetch(url, options), onIdentity: state => service.setScope(state.user && state.mode !== 'signedOut' ? { server: state.server, accountId: state.user.id } : null) })
+        auth = createSessionService({ vault, interceptApi: (request, send) => commandQueue.api(request, send), fetch: (url, options) => net.fetch(url, options), onIdentity: state => service.setScope(state.user && state.mode !== 'signedOut' ? { server: state.server, accountId: state.user.id } : null) })
+        commandQueue = createCommandQueue({ storage, session: auth })
+        service.installQueue(commandQueue)
         authTimer = setInterval(() => { void auth.tick().catch(() => {}) }, 30000)
         resumeAuth = () => { void auth.tick().catch(() => {}) }
         powerMonitor?.on('resume', resumeAuth)
       }
-      ipc = createDesktopIpc({ ipcMain, service, origin, session: auth })
+      ipc = createDesktopIpc({ ipcMain, service, origin, session: auth, queue: commandQueue })
       service.start()
       createWindow()
       return { service, storage, createWindow, origin }

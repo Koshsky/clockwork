@@ -207,6 +207,8 @@ export default {
     messages: {
       retryFailed: 'Отправлено {ok}, ошибок {failed}',
       retryDone: 'Отправлено без ошибок',
+      discardConfirm: 'Отменить {count} отклонённых и зависимых изменений? Несохранённые на сервере правки будут потеряны.',
+      discardConfirmLabel: 'Отменить изменения',
       discarded: 'Отвергнутые записи удалены',
     },
   },

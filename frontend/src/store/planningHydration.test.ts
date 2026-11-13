@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('@/platform/context', () => ({ platformCapabilities: { kind: 'desktop', optionalStorage: false } }))
 import { createPinia, setActivePinia } from 'pinia'
 
-const fake = vi.hoisted(() => ({ read: vi.fn(), hydrate: vi.fn() }))
+const fake = vi.hoisted(() => ({ read: vi.fn(), hydrate: vi.fn(), native: false }))
+vi.mock('@/offline/desktopQueue', () => ({ get nativeQueue() { return fake.native ? {} : undefined } }))
 vi.mock('@/api', async original => ({
   ...await original<typeof import('@/api')>(),
   PlanningApi: class {
@@ -24,6 +25,7 @@ const cases = [
 
 beforeEach(() => {
   vi.clearAllMocks()
+  fake.native = false
   setActivePinia(createPinia())
   pendingRefs.value = new Set(['task:7'])
   legacyQueueAvailability.value = 'pending'
@@ -55,6 +57,19 @@ describe('planning with a durable queue and an empty in-memory snapshot', () => 
     await planning[method](true)
 
     expect(planning[field]).toBe(current)
+    expect(fake.hydrate).not.toHaveBeenCalled()
+  })
+})
+
+describe('native projected planning reads', () => {
+  it.each(cases)('updates an already loaded %s while commands remain queued', async (field, method) => {
+    fake.native = true
+    const planning = usePlanningStore()
+    planning[field] = {}
+    const projected = { source: 'main-owned baseline plus durable pending commands' }
+    fake.read.mockResolvedValue({ data: { data: projected } })
+    await planning[method](true)
+    expect(planning[field]).toEqual(projected)
     expect(fake.hydrate).not.toHaveBeenCalled()
   })
 })

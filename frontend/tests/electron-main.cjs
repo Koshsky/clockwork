@@ -31,9 +31,13 @@ app.whenReady().then(async () => {
   const storage = await createStorage({ directory: app.getPath('userData') })
   const service = createDesktopService({ storage, profileId: 'isolated-test', version: '1.6.3', electron: process.versions.electron })
   service.start()
-  const auth = createSessionService({ vault, fetch: (url, options) => globalThis.sessionFetchOverride ? globalThis.sessionFetchOverride(url, options, net.fetch.bind(net)) : net.fetch(url, options), onIdentity: state => service.setScope(state.user && state.mode !== 'signedOut' ? { server: state.server, accountId: state.user.id } : null) })
+  let queue
+  const auth = createSessionService({ vault, interceptApi: (request, send) => queue.api(request, send), fetch: (url, options) => globalThis.sessionFetchOverride ? globalThis.sessionFetchOverride(url, options, net.fetch.bind(net)) : net.fetch(url, options), onIdentity: state => service.setScope(state.user && state.mode !== 'signedOut' ? { server: state.server, accountId: state.user.id } : null) })
+  queue = require('../desktop/command-queue.cjs').createCommandQueue({ storage, session: auth })
+  service.installQueue(queue)
+  globalThis.commandQueueFixture = queue
   globalThis.sessionFixture = auth
-  const bridge = createDesktopIpc({ ipcMain, service, session: auth, origin: new URL(process.env.ERP_TEST_URL || process.env.NAV_TEST_WEB_URL || 'http://127.0.0.1:5173').origin })
+  const bridge = createDesktopIpc({ ipcMain, service, session: auth, queue, origin: new URL(process.env.ERP_TEST_URL || process.env.NAV_TEST_WEB_URL || 'http://127.0.0.1:5173').origin })
   let stopping = false
   app.on('before-quit', event => {
     if (stopping) return

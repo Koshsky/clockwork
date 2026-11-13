@@ -1,3 +1,4 @@
+import { nativeQueue, nativeCommands, nativeEntry, nativeDiscardPlan, enqueueNative, queueRequest } from './desktopQueue'
 import { desktopSession, desktopSessionState } from '@/session/desktop'
 import { ref, watch } from 'vue'
 import axios, { type AxiosError, type AxiosRequestConfig, type Method } from 'axios'
@@ -307,6 +308,10 @@ watch(appLocale, () => {
 /** Re-reads the queue into queueItems. Only unsent and non-synced
  *  entries (!quarantined), in send order (FIFO). Quarantined ones are visible in the errors block. */
 export async function refreshQueue(): Promise<void> {
+  if (nativeQueue) {
+    queueItems.value = (await nativeCommands()).map(row => nativeEntry(row) as OutboxEntry).filter(row => !row.quarantined).map(toViewItem)
+    return
+  }
   if (platformCapabilities.kind === 'web') return
   const entries = await idbAll<OutboxEntry>(OUTBOX_STORE).catch(() => null)
   if (!entries) { legacyQueueAvailability.value = 'unavailable'; return }
@@ -317,6 +322,16 @@ export async function refreshQueue(): Promise<void> {
 }
 
 export async function refreshPendingCount(): Promise<void> {
+  if (nativeQueue) {
+    try {
+      const entries = (await nativeCommands()).map(row => nativeEntry(row) as OutboxEntry)
+      pendingCount.value = entries.filter(row => !row.quarantined).length
+      pendingRefs.value = new Set(entries.flatMap(row => { const id = entryIdOf(row); return id == null ? [] : [`${row.entity}:${id}`] }))
+      queueItems.value = entries.filter(row => !row.quarantined).map(toViewItem)
+      legacyQueueAvailability.value = entries.length ? 'pending' : 'empty'
+    } catch { pendingCount.value = 0; pendingRefs.value = new Set(); queueItems.value = []; legacyQueueAvailability.value = 'unavailable' }
+    return
+  }
   if (platformCapabilities.kind === 'web') return
   const entries = await idbAll<OutboxEntry>(OUTBOX_STORE).catch(() => null)
   if (!entries) { legacyQueueAvailability.value = 'unavailable'; return }
@@ -356,6 +371,7 @@ export async function enqueueMutation(
   entry: Omit<OutboxEntry, 'id' | 'ts' | 'failed'>,
 ): Promise<void> {
   if (platformCapabilities.kind === 'web') throw new Error('WEB_OFFLINE_QUEUE_UNAVAILABLE')
+  if (nativeQueue) { await enqueueNative({ ...entry, body: normalizeBody(entry.body) }); await refreshPendingCount(); return }
   const rec: OutboxEntry = { ...entry, body: normalizeBody(entry.body), id: createMutationKey(), ts: Date.now(), creator: currentUsername() ?? undefined }
   // Deduplication: a repeated click on the same mutation (method+url+body) does not
   // spawn identical entries — the queue stays clean and flush does not send duplicate batches.
@@ -570,6 +586,16 @@ function emptyFlush(): FlushResult {
 }
 
 export async function flushOutbox(): Promise<FlushResult> {
+  if (nativeQueue) {
+    const before = await nativeCommands()
+    await queueRequest({ action: 'push' })
+    const after = await nativeCommands(), left = new Set(after.map(row => row.operationId))
+    await refreshPendingCount()
+    return { ok: before.filter(row => !left.has(row.operationId)).length, failed: after.filter(row => row.status === 'conflict' || row.status === 'rejected').length,
+      interrupted: after.some(row => row.status === 'unknown' || row.status === 'queued'), entities: new Set(before.map(row => nativeEntry(row).entity as MutationEntity)),
+      failedEntries: after.filter(row => row.status === 'conflict' || row.status === 'rejected').map(row => { const entry = nativeEntry(row); return { method: entry.method as Method, url: entry.url, message: entry.failed?.message || row.status } }),
+    }
+  }
   if (platformCapabilities.kind === 'web') return emptyFlush()
   if (typeof navigator !== 'undefined' && navigator.locks) {
     // Never queue behind a suspended tab: the next minute cycle retries ownership.
@@ -749,6 +775,7 @@ async function flushOwnedOutbox(): Promise<FlushResult> {
 
 /** Clears the queue (the explicit "clear all" action in the sync UI / reset) */
 export async function clearOutbox(): Promise<void> {
+  if (nativeQueue) { const rows = await nativeCommands(); await queueRequest({ action: 'discard', operationIds: rows.map(row => row.operationId) }); await refreshPendingCount(); return }
   if (platformCapabilities.kind === 'web') return
   const entries = await idbAll<OutboxEntry>(OUTBOX_STORE)
   await Promise.all(entries.map((e) => idbDel(OUTBOX_STORE, e.id)))
@@ -769,6 +796,7 @@ export async function clearOutbox(): Promise<void> {
  * is no longer referenced by any remaining entry.
  */
 export async function pruneForeignOutbox(keepCreator: string): Promise<void> {
+  if (nativeQueue) { await refreshPendingCount(); return }
   if (platformCapabilities.kind === 'web') return
   const entries = await idbAll<OutboxEntry>(OUTBOX_STORE).catch(() => [] as OutboxEntry[])
   const kept: OutboxEntry[] = []
@@ -793,6 +821,7 @@ export async function pruneForeignOutbox(keepCreator: string): Promise<void> {
 export async function getFailedEntries(): Promise<
   Array<OutboxEntry & { message: string }>
 > {
+  if (nativeQueue) return (await nativeCommands()).map(row => nativeEntry(row) as OutboxEntry).filter(row => row.failed).map(row => ({ ...row, message: row.failed?.message || '' }))
   if (platformCapabilities.kind === 'web') return []
   const entries = await idbAll<OutboxEntry>(OUTBOX_STORE).catch(() => [] as OutboxEntry[])
   return entries
@@ -802,6 +831,7 @@ export async function getFailedEntries(): Promise<
 
 /** Lifts quarantine/failed flag so entries are sent again (the "Retry" button) */
 export async function resetFailedRetries(): Promise<void> {
+  if (nativeQueue) { for (const row of await nativeCommands()) if (row.status === 'rejected' || row.status === 'conflict' || row.http.error) await queueRequest({ action: 'retry', operationId: row.operationId }); await refreshPendingCount(); return }
   if (platformCapabilities.kind === 'web') return
   const entries = await idbAll<OutboxEntry>(OUTBOX_STORE).catch(() => [] as OutboxEntry[])
   await Promise.all(
@@ -816,6 +846,7 @@ export async function resetFailedRetries(): Promise<void> {
 
 /** Removes one rejected entry from the queue */
 export async function discardEntry(id: string): Promise<void> {
+  if (nativeQueue) { await queueRequest({ action: 'discard', operationIds: [id] }); await refreshPendingCount(); return }
   if (platformCapabilities.kind === 'web') return
   await idbDel(OUTBOX_STORE, id)
   await refreshPendingCount()
@@ -823,6 +854,7 @@ export async function discardEntry(id: string): Promise<void> {
 
 /** Removes all rejected entries (the "Skip" button — the user accepted the loss) */
 export async function discardFailed(): Promise<void> {
+  if (nativeQueue) { await queueRequest({ action: 'discard', operationIds: nativeDiscardPlan(await nativeCommands()) }); await refreshPendingCount(); return }
   if (platformCapabilities.kind === 'web') return
   const entries = await idbAll<OutboxEntry>(OUTBOX_STORE).catch(() => [] as OutboxEntry[])
   await Promise.all(
@@ -854,6 +886,7 @@ let replayInFlight: Promise<void> | null = null
 let replayAccount: string | null = null
 
 export async function replayOutboxToCache(): Promise<void> {
+  if (nativeQueue) return
   if (platformCapabilities.kind === 'web') return
   const account = currentUsername()
   if ((await idbCount(OUTBOX_STORE)) === 0) return
@@ -895,6 +928,7 @@ export async function replayOutboxToCache(): Promise<void> {
 let replayScheduled = false
 
 export function scheduleReplayOutboxToCache(): void {
+  if (nativeQueue) return
   if (platformCapabilities.kind === 'web') return
   if (replayScheduled) return
   replayScheduled = true

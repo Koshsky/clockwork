@@ -2,6 +2,12 @@ import { chromium, expect } from 'playwright/test'
 import fs from 'node:fs'
 import { launchElectronFixture } from './helpers/electron.mjs'
 
+// SQLite-owned delivery must be observed through native controls, never through the renderer's legacy IndexedDB.
+if (process.env.ERP_TEST_DESKTOP === '1' && process.env.ELECTRON_EXECUTABLE) {
+  await import('./desktop-command-delivery.mjs')
+  process.exit(0)
+}
+
 const base = process.env.ERP_TEST_URL || 'http://127.0.0.1:5173'
 if (!['localhost', '127.0.0.1'].includes(new URL(base).hostname)) throw new Error('Local backend tests only')
 const envPath = process.env.ERP_TEST_ENV || new URL('../../local/dev.env', import.meta.url)

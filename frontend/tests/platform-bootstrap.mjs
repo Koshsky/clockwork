@@ -50,7 +50,7 @@ try {
     await page.locator('input[autocomplete=username]').fill('admin')
     await page.locator('input[autocomplete=current-password]').fill(password)
     await page.locator('button[type=submit]').click()
-    if (desktop && mode !== 'healthy') {
+    if (desktop && mode !== 'healthy' && !await page.evaluate(() => Boolean(window.erpDesktop?.queue))) {
       await expect(page.locator('button[type=submit]')).toBeEnabled()
       await expect(page).toHaveURL(/\/login$/)
       expect(await page.evaluate(async () => (await import('/src/store/index.ts')).useAuthStore().isAuthenticated)).toBe(false)

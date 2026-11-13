@@ -12,7 +12,7 @@ function normalizeServer(value) {
 function expiresAt(token) {
   try { return JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()).exp * 1000 || 0 } catch { return 0 }
 }
-function createSessionService({ vault, fetch: fetchRequest, onIdentity = () => {}, now = Date.now }) {
+function createSessionService({ vault, fetch: fetchRequest, onIdentity = () => {}, interceptApi, now = Date.now }) {
   let server = null, user = null, access = null, refresh = null, mode = 'signedOut', persistent = false
   let contextId = randomUUID(), revision = 0, epoch = 0, pending = null, stopped = false
   let offlineAvailable = false, needsLogin = false, activeRequests = 0
@@ -42,7 +42,7 @@ function createSessionService({ vault, fetch: fetchRequest, onIdentity = () => {
       if (text.length > 8 * 1024 * 1024) throw new Error('SESSION_RESPONSE_LIMIT')
       const data = text ? JSON.parse(text) : null
       if (!bounded(data, 8 * 1024 * 1024)) throw new Error('SESSION_RESPONSE_LIMIT')
-      return { status: response.status, data }
+      return { status: response.status, data, ...(response.headers?.get('Operation-Status') ? { operationStatus: response.headers.get('Operation-Status') } : {}), ...(response.headers?.get('Retry-After') ? { retryAfter: Number(response.headers.get('Retry-After')) || 0 } : {}) }
     } finally { activeRequests--; clearTimeout(timer); signal?.removeEventListener('abort', abort) }
   }
   async function revoke(base, token) {
@@ -140,11 +140,12 @@ function createSessionService({ vault, fetch: fetchRequest, onIdentity = () => {
       if (!server) return false
       try { return (await wire(server, '/health', 'GET')).status < 500 } catch { return false }
     },
-    async api(owner, request) {
+    async api(owner, request, internal = {}) {
       const route = routes.find(item => item.operation === request.operation)
       if (!route) throw new Error('SESSION_INVALID_REQUEST')
       if (request.contextId !== contextId) throw new Error('SESSION_CONTEXT_CHANGED')
       if (!server || !user || mode === 'signedOut') return { status: 401, data: { error: { code: 'UNAUTHORIZED' } } }
+      if (interceptApi && !internal.bypassQueue) return interceptApi(request, options => this.api(owner, request, { bypassQueue: true, ...options }))
       if (mode !== 'online') throw new Error('SESSION_OFFLINE')
       if (requests.size >= 64 || requests.has(request.requestId)) throw new Error('SESSION_BUSY')
       let pathname = route.path
@@ -169,7 +170,7 @@ function createSessionService({ vault, fetch: fetchRequest, onIdentity = () => {
         if (!access || expiresAt(access) <= now()) await renew()
         if (own !== epoch) throw new Error('SESSION_CONTEXT_CHANGED')
         if (!access) return { status: 401, data: { error: { code: 'UNAUTHORIZED' } } }
-        const headers = () => ({ Authorization: `Bearer ${access}`, 'Accept-Language': request.locale === 'en' ? 'en' : 'ru', ...(request.key ? { 'Idempotency-Key': request.key } : {}), ...(request.viewUser ? { 'X-View-User-ID': String(request.viewUser) } : {}) })
+        const headers = () => ({ Authorization: `Bearer ${access}`, 'Accept-Language': request.locale === 'en' ? 'en' : 'ru', ...(request.key ? { 'Idempotency-Key': request.key } : {}), ...(request.operationId ? { 'Operation-Id': request.operationId } : {}), ...(internal.revisionProtocol ? { 'Revision-Protocol': '1' } : {}), ...(request.viewUser ? { 'X-View-User-ID': String(request.viewUser) } : {}) })
         const sent = access
         let result = await wire(base, pathname, route.method, request.body, headers(), controller.signal)
         if (result.status === 401) {

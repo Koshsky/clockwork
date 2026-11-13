@@ -8,6 +8,7 @@ import { t } from '@/i18n'
 import { getApiUrl } from '@/config'
 import { tablePageSize } from '@/settings'
 import { isOffline } from '@/offline/state'
+import { nativeQueue } from '@/offline/desktopQueue'
 import { offlineFailFastAdapter } from '@/offline/failFast'
 import { scheduleWarmup } from '@/offline/warmup'
 import { enqueueMutation, isNetworkError, pruneForeignOutbox } from '@/offline/outbox'
@@ -31,6 +32,7 @@ import { createTemporaryId } from '@/offline/temporaryId'
 import { hydrateFromCache, apiPath } from '@/offline/hydrate'
 import { cacheGetAllByPath } from '@/offline/cache'
 import { createReadGuard } from '@/data/readGuard'
+import { createPeriodBaselines, periodRowBaseline, type RevisionBaseline } from '@/data/periodBaselines'
 import { taskDataKey } from '@/data/taskData'
 import { createLegacyTaskData } from './data/legacyTasks'
 import { createWebTaskData } from './data/webTasks'
@@ -97,7 +99,7 @@ function apiConfig(): Configuration {
       // queue, GETs are served from cache. The adapter is only placed here (store clients)
       // so that the queue flush (flushOutbox, raw axios) goes to the network as
       // usual: otherwise, once the network is back, writes would fail with Network Error.
-      ...(platformCapabilities.kind !== 'web' && isOffline.value ? { adapter: offlineFailFastAdapter } : {}),
+      ...(platformCapabilities.kind !== 'web' && !desktopSession && isOffline.value ? { adapter: offlineFailFastAdapter } : {}),
     },
     apiKey: () => `Bearer ${getAccessToken()}`,
   })
@@ -1392,6 +1394,8 @@ export const useTimesheetStore = defineStore('timesheet', () => {
   const employeesLoadedFor = ref<number | null>(null)
   const states = ref<DtoStateResponse[]>([])
   const periodsByEmployee = ref<Record<number, DtoUserStateResponse[]>>({})
+  const periodBaselines = createPeriodBaselines()
+  const stateBaseline = ref<RevisionBaseline | undefined>()
   const periodRevision = ref(0)
   let periodRead = 0
   const windowStart = ref('')
@@ -1433,7 +1437,11 @@ export const useTimesheetStore = defineStore('timesheet', () => {
     const targets = timesheetRows.value.map((emp) => ({
       path: apiPath(`/user/${emp.id ?? 0}/days`),
       filled: () => periodsByEmployee.value[emp.id ?? 0] != null,
-      apply: (body: unknown) => {
+      apply: (body: unknown, metadata?: { key?: string; baseline?: RevisionBaseline }) => {
+        if (metadata?.key) {
+          const query = new URL(metadata.key.replace(/^u\d+:/, ''), 'http://cache.invalid').searchParams
+          periodBaselines.record(emp.id ?? 0, query.get('start_date') || '', query.get('end_date') || '', metadata.baseline)
+        }
         const list = (body as { data?: DtoUserStateResponse[] } | undefined)?.data ?? []
         periodsByEmployee.value[emp.id ?? 0] = [...list].sort((a, b) =>
           (a.start_date ?? '').localeCompare(b.start_date ?? ''),
@@ -1444,8 +1452,9 @@ export const useTimesheetStore = defineStore('timesheet', () => {
   }
 
   /** Merges a fresh [start, end] window response for one employee into the cache */
-  function mergeWindowPeriods(id: number, list: DtoUserStateResponse[], start: string, end: string): void {
+  function mergeWindowPeriods(id: number, list: DtoUserStateResponse[], start: string, end: string, baseline?: RevisionBaseline): void {
     if (busy.value) return
+    periodBaselines.record(id, start, end, baseline)
     const existing = periodsByEmployee.value[id] ?? []
     const merged = mergePeriodWindow(existing, list, start, end)
     if (merged !== existing) periodsByEmployee.value[id] = merged
@@ -1465,17 +1474,17 @@ export const useTimesheetStore = defineStore('timesheet', () => {
     const results = await Promise.all(
       timesheetRows.value.map((emp) =>
         readApi('timesheet.periods:' + emp.id, [emp.id, start, end], request => api.userIdDaysGet(emp.id ?? 0, start, end, request))
-          .then((r) => ({ id: emp.id, list: r.data?.data ?? [] }))
+          .then((r) => ({ id: emp.id, list: r.data?.data ?? [], baseline: (r as { __erpBaseline?: RevisionBaseline }).__erpBaseline }))
           .catch((e: unknown) => {
             failed = failed ?? e
-            return { id: emp.id, list: null }
+            return { id: emp.id, list: null, baseline: undefined }
           }),
       ),
     )
     if (read !== periodRead || revision !== periodRevision.value) return false
-    for (const { id, list } of results) {
+    for (const { id, list, baseline } of results) {
       if (id == null || list == null) continue
-      mergeWindowPeriods(id, list, start, end)
+      mergeWindowPeriods(id, list, start, end, baseline)
     }
     return failed == null
   }
@@ -1513,7 +1522,7 @@ export const useTimesheetStore = defineStore('timesheet', () => {
         if (!Array.isArray(entries)) throw new Error('batch days response: unexpected payload shape')
         for (const entry of entries) {
           if (entry.user_id == null) continue
-          mergeWindowPeriods(entry.user_id, entry.days ?? [], start, end)
+          mergeWindowPeriods(entry.user_id, entry.days ?? [], start, end, periodRowBaseline(entry as { _baseline?: RevisionBaseline; _pending?: Record<string, string> }))
         }
       }
       // Unsync guard: if the backend omitted some requested ids, their current
@@ -1710,7 +1719,8 @@ export const useTimesheetStore = defineStore('timesheet', () => {
       {
         path: apiPath('/timesheet/states'),
         filled: () => states.value.length > 0,
-        apply: (body) => {
+        apply: (body, metadata) => {
+          stateBaseline.value = metadata?.baseline
           states.value = (body as { data?: DtoStateResponse[] } | undefined)?.data ?? []
         },
       },
@@ -1724,6 +1734,7 @@ export const useTimesheetStore = defineStore('timesheet', () => {
       const api = new TimesheetStatesApi(readConfig())
       const resp = await readApi('timesheet.states', undefined, request => api.timesheetStatesGet(request), preferCache)
       states.value = resp.data?.data ?? []
+      stateBaseline.value = (resp as { __erpBaseline?: RevisionBaseline }).__erpBaseline
     } catch (e: unknown) {
       if (isReadForbidden(e)) { states.value = [] }
       if (isReadCancelled(e)) return
@@ -1935,6 +1946,8 @@ export const useTimesheetStore = defineStore('timesheet', () => {
     employeesTotal.value = 0
     employeesLoadedFor.value = null
     periodsByEmployee.value = {}
+    periodBaselines.clear()
+    stateBaseline.value = undefined
     windowStart.value = ''
     windowEnd.value = ''
   }
@@ -1948,6 +1961,9 @@ export const useTimesheetStore = defineStore('timesheet', () => {
     employeesHasMore,
     states,
     periodsByEmployee,
+    periodBaseline: periodBaselines.capture,
+    confirmPeriodBaseline: periodBaselines.advance,
+    stateBaseline,
     periodRevision,
     windowStart,
     windowEnd,
@@ -2063,7 +2079,7 @@ export const usePlanningStore = defineStore('planning', () => {
       const stamp = readStamp()
       const resp = await readApi('planning.projects', undefined, request => new PlanningApi(readConfig()).planningProjectsGet(request), preferCache)
       if (!mayApplyRead(stamp)) return
-      if (pendingRefs.value.size === 0) projectPlanning.value = resp.data?.data ?? null
+      if (pendingRefs.value.size === 0 || nativeQueue) projectPlanning.value = resp.data?.data ?? null
       // A durable queue must preserve edits without blocking the first snapshot.
       else if (projectPlanning.value == null) await hydratePlanning(() => projectPlanning.value, value => { projectPlanning.value = value }, apiPath('/planning/projects'))
     })
@@ -2074,7 +2090,7 @@ export const usePlanningStore = defineStore('planning', () => {
       const stamp = readStamp()
       const resp = await readApi('planning.processes', undefined, request => new PlanningApi(readConfig()).planningProcessesGet(request), preferCache)
       if (!mayApplyRead(stamp)) return
-      if (pendingRefs.value.size === 0) processPlanning.value = resp.data?.data ?? null
+      if (pendingRefs.value.size === 0 || nativeQueue) processPlanning.value = resp.data?.data ?? null
       // A durable queue must preserve edits without blocking the first snapshot.
       else if (processPlanning.value == null) await hydratePlanning(() => processPlanning.value, value => { processPlanning.value = value }, apiPath('/planning/processes'))
     })
@@ -2091,7 +2107,7 @@ export const usePlanningStore = defineStore('planning', () => {
         throw new Error(result.error.message)
       }
       if (result.status === 'cancelled') return
-      if (pendingRefs.value.size === 0) taskPlanning.value = result.status === 'ok' ? result.data : null
+      if (pendingRefs.value.size === 0 || nativeQueue) taskPlanning.value = result.status === 'ok' ? result.data : null
       // A durable queue must preserve edits without blocking the first snapshot.
       else if (taskPlanning.value == null) await loadTaskPlanning()
     })
@@ -3255,7 +3271,7 @@ export const usePlanningStore = defineStore('planning', () => {
       )
     } catch (e: unknown) {
       const err = e as AxiosError
-      if (err?.config && isNetworkError(e)) {
+      if (!nativeQueue && err?.config && isNetworkError(e)) {
         // Offline: the local reorder is already applied; the PUTs go to the queue.
         const base = axios.getUri(err.config).replace(/\d+$/, '')
         for (const c of changes) {
@@ -3324,7 +3340,7 @@ export const usePlanningStore = defineStore('planning', () => {
       await new ProcessesApi(apiConfig()).processOrderPut({ project_id: projectId, ids })
     } catch (e: unknown) {
       const err = e as AxiosError
-      if (err?.config && isNetworkError(e)) {
+      if (!nativeQueue && err?.config && isNetworkError(e)) {
         try {
           await enqueueMutation({
             entity: 'reorder',
@@ -3379,7 +3395,7 @@ export const usePlanningStore = defineStore('planning', () => {
       await new TasksApi(apiConfig()).taskOrderPut({ process_id: processId, ids })
     } catch (e: unknown) {
       const err = e as AxiosError
-      if (err?.config && isNetworkError(e)) {
+      if (!nativeQueue && err?.config && isNetworkError(e)) {
         try {
           await enqueueMutation({
             entity: 'reorder',

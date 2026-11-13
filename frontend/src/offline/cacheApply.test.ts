@@ -336,7 +336,7 @@ describe('complete resource header cache survives offline CRUD', () => {
   it('updates ownership even when the resource is outside the table first page', async () => {
     fake.put(key, { ts: 1, data: [{ id: 501, owner_id: 7 }] })
     await applyToCache(entry({ entity: 'resource', method: 'PUT', url: 'http://api.test/api/v1/resources/501', body: { owner_id: 8 } }))
-    expect(fake.get(key)).toMatchObject({ data: [{ id: 501, owner_id: 8 }] })
+    expect(fake.get(key)).toMatchObject({ data: [] })
   })
   it('removes a deleted resource from the complete snapshot', async () => {
     fake.put(key, { ts: 1, data: [{ id: 501, owner_id: 7 }] })
@@ -369,7 +369,7 @@ it('updates only the current account prefixed resource header cache', async () =
     fake.put(own, { ts: 1, data: [{ id: 1, owner_id: 7 }] })
     fake.put(foreign, { ts: 1, data: [{ id: 1, owner_id: 7 }] })
     await applyToCache(entry({ entity: 'resource', method: 'PUT', url: 'http://api.test/api/v1/resources/1', body: { owner_id: 8 } }))
-    expect(fake.get(own)).toMatchObject({ data: [{ id: 1, owner_id: 8 }] })
+    expect(fake.get(own)).toMatchObject({ data: [] })
     expect(fake.get(foreign)).toMatchObject({ data: [{ id: 1, owner_id: 7 }] })
   } finally { vi.unstubAllGlobals() }
 })

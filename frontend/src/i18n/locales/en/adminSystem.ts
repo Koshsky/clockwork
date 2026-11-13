@@ -202,6 +202,8 @@ export default {
     messages: {
       retryFailed: '{ok} sent, {failed} failed',
       retryDone: 'Sent without errors',
+      discardConfirm: 'Discard {count} rejected and dependent changes? Edits not saved on the server will be lost.',
+      discardConfirmLabel: 'Discard changes',
       discarded: 'Discarded entries deleted',
     },
   },

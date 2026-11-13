@@ -84,6 +84,7 @@ export function keyMatchesUser(key: string, userId: number | null): boolean {
  */
 
 export interface CachedEntry<T> {
+  baseline?: Record<string, string>
   ts: number
   /** App version the entry was written by (for cache invalidation on upgrade) */
   version?: string
@@ -167,6 +168,8 @@ export async function cacheGetByPath<T>(
 
 /** Cached value together with its write time (for the freshness UX) */
 export interface FreshEntry<T> {
+  key?: string
+  baseline?: Record<string, string>
   data: T
   /** Write time (epoch ms). For UI freshness only — never used to delete data. */
   ts: number
@@ -221,7 +224,7 @@ export async function cacheGetFresh<T>(
       if (keyPredicate && !keyPredicate(key)) continue
       const entry = await idbGet<CachedEntry<T>>(CACHE_STORE, key)
       if (!entry) continue
-      if (!best || entry.ts > best.ts) best = { data: entry.data, ts: entry.ts }
+      if (!best || entry.ts > best.ts) best = { data: entry.data, ts: entry.ts, ...(entry.baseline ? { key, baseline: entry.baseline } : {}) }
     }
     return best
   } catch {

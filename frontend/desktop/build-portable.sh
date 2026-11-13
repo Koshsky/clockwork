@@ -184,6 +184,8 @@ if [ "$NEED_INSTALL" -eq 1 ]; then
   (cd "$FRONTEND_DIR" && npm ci) || (cd "$FRONTEND_DIR" && npm install)
 fi
 
+node "$FRONTEND_DIR/scripts/desktop-domain.cjs" --check
+
 # Purge everything that could serve a stale bundle. dist/ goes first: if the
 # build fails, no half-written or old bundle is left behind for electron-builder
 # to pick up (set -e aborts the script).

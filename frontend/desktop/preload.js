@@ -71,6 +71,14 @@ contextBridge.exposeInMainWorld('erpDesktop', {
       return () => sessionListeners.delete(listener)
     },
   },
+  queue: {
+    request: async request => {
+      if (!bounded(request)) throw new Error('COMMAND_INVALID_REQUEST')
+      const result = await ipcRenderer.invoke('erp:queue', request)
+      if (!result?.ok) throw new Error(result?.error || 'COMMAND_UNAVAILABLE')
+      return result.value
+    },
+  },
   service: {
     status: () => invoke({ kind: 'status' }),
     read: async request => {

@@ -4,7 +4,7 @@ const { validate } = require('./protocol.cjs')
 const sessionIpc = require('./session-ipc.cjs')
 const REQUEST = 'erp:service-request', EVENT = 'erp:service-state'
 
-function createDesktopIpc({ ipcMain, service, origin, session }) {
+function createDesktopIpc({ ipcMain, service, origin, session, queue }) {
   const windows = new Map()
   let disposed = false
   const trusted = event => {
@@ -71,6 +71,15 @@ function createDesktopIpc({ ipcMain, service, origin, session }) {
     }
     return sessionIpc.dispatch(session, window.contents.id + ':' + window.document, request)
   })
+  if (queue) ipcMain.handle('erp:queue', async (event, request) => {
+    if (!trusted(event)) return { ok: false, error: 'DESKTOP_UNTRUSTED_SENDER' }
+    const fields = { configure: ['autoSync'], enqueue: ['operationId', 'input'], cachePut: ['key', 'value'], list: ['after'], push: [], retry: ['operationId'], discard: ['operationIds'], cacheGet: ['key'], cacheKeys: [] }
+    if (!request || !Object.hasOwn(fields, request.action) || Object.keys(request).some(key => !['action', 'contextId'].includes(key) && !fields[request.action].includes(key)) || !require('./protocol.cjs').bounded(request)) return { ok: false, error: 'COMMAND_INVALID_REQUEST' }
+    if (request.action === 'retry' && !/^[A-Za-z0-9._:-]{1,128}$/.test(request.operationId || '') || request.action === 'discard' && (!Array.isArray(request.operationIds) || request.operationIds.length > 200 || !request.operationIds.every(id => typeof id === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(id))) || request.action === 'cacheGet' && (typeof request.key !== 'string' || request.key.length > 8192)) return { ok: false, error: 'COMMAND_INVALID_REQUEST' }
+    if (request.action === 'list' && request.after != null && (!Number.isSafeInteger(request.after) || request.after < 0)) return { ok: false, error: 'COMMAND_INVALID_REQUEST' }
+    if (request.contextId !== queue.status().contextId) return { ok: false, error: 'COMMAND_SESSION_UNAVAILABLE' }
+    try { const value = await queue.control(request); if (request.contextId !== queue.status().contextId) return { ok: false, error: 'COMMAND_SESSION_UNAVAILABLE' }; if (!require('./protocol.cjs').bounded(value, 8 * 1024 * 1024)) throw new Error('COMMAND_RESULT_LIMIT'); return { ok: true, value } } catch (error) { return { ok: false, error: /^STORAGE_|^COMMAND_/.test(error.code || error.message) ? error.code || error.message : 'COMMAND_UNAVAILABLE' } }
+  })
   ipcMain.handle('erp:app-version', event => {
     if (!trusted(event)) throw new Error('DESKTOP_UNTRUSTED_SENDER')
     const state = service.status()
@@ -86,7 +95,7 @@ function createDesktopIpc({ ipcMain, service, origin, session }) {
       window.sessionAwaiting = null; window.sessionDirty = false
       window.document++; window.subscription = null; window.awaiting = null; window.dirty = false
     }
-    const navigation = (_, __, ___, mainFrame) => { if (mainFrame) leaveDocument() }
+    const navigation = (_, __, inPlace, mainFrame) => { if (mainFrame && !inPlace) leaveDocument() }
     const destroyed = () => {
       leaveDocument(); windows.delete(contents.id)
       contents.removeListener('did-start-navigation', navigation)
@@ -107,6 +116,7 @@ function createDesktopIpc({ ipcMain, service, origin, session }) {
     if (session) ipcMain.removeHandler(sessionIpc.CHANNEL)
     for (const window of [...windows.values()]) window.cleanup()
     windows.clear()
+    if (queue) ipcMain.removeHandler('erp:queue')
     ipcMain.removeHandler(REQUEST); ipcMain.removeHandler('erp:app-version')
   } }
 }

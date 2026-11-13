@@ -4,7 +4,7 @@ const path = require('node:path')
 const { Worker } = require('node:worker_threads')
 const { bounded } = require('./protocol.cjs')
 const { StorageError, scopeOf, requireValue } = require('./storage-validation.cjs')
-const readMethods = new Set(['snapshot', 'queue', 'receipt', 'resolveId', 'setting', 'info'])
+const readMethods = new Set(['snapshot', 'queue', 'receipt', 'resolveId', 'setting', 'info', 'cacheRead', 'cacheKeys', 'httpIntent', 'httpHistory'])
 
 async function createStorage({ directory, readOnly = false, timeoutMs = 15000, startupTimeoutMs = 10000 }) {
   // Node's worker loader must receive a real file, including inside packaged ASAR apps.
@@ -61,7 +61,7 @@ async function createStorage({ directory, readOnly = false, timeoutMs = 15000, s
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener) },
     forScope(scope) {
       const selected = scopeOf(scope)
-      return Object.freeze(Object.fromEntries(['snapshot', 'saveSnapshot', 'commitLocal', 'queue', 'receipt', 'markAttempt', 'settle', 'resolveId', 'setting', 'saveSetting'].map(method => [method, params => request(method, selected, params)])))
+      return Object.freeze(Object.fromEntries(['snapshot', 'saveSnapshot', 'commitLocal', 'queue', 'receipt', 'markAttempt', 'settle', 'resolveId', 'setting', 'saveSetting', 'commitHttp', 'httpIntent', 'httpHistory', 'cacheRead', 'cacheKeys', 'cacheCommit', 'freezeHttp', 'deferHttp', 'retryHttp', 'discardHttp'].map(method => [method, params => request(method, selected, params)])))
     },
     backup: () => request('backup'),
     abort() { fail('STORAGE_ABORTED'); return worker.terminate() },

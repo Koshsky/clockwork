@@ -8,6 +8,8 @@ The web app and the desktop wrapper are versioned together.
 
 ## [Unreleased]
 
+- Electron persists and delivers offline changes from SQLite in the main process with durable replay and explicit conflicts.
+
 - Web no longer uses the legacy IndexedDB queue or exposes Electron offline tools.
 
 - Web and Electron builds use the version from frontend/package.json.

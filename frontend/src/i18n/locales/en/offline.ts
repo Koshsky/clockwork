@@ -76,6 +76,16 @@ export default {
     insecureScheme: 'HTTP does not protect data in transit. Use HTTPS for a remote server.',
   },
   queue: {
+    dependentsExist: 'Other changes depend on this command. Discard them first or select the complete chain.',
+    baselineRequired: 'Refresh this object before editing. The change has not been saved yet.',
+    baselineAmbiguous: 'Open pages contain different data versions. Refresh them before saving.',
+    incompatibleServer: 'Update the server before delivering queued changes.',
+    receiptMismatch: 'The server receipt does not match this command. Delivery is paused.',
+    rateLimited: 'The server requested a delay. The command will be sent later.',
+    unknownOutcome: 'No server response was received. The command is saved and its outcome will be checked.',
+    storageUnavailable: 'The local database did not confirm this change. Check the change queue and storage before retrying.',
+    conflict: 'Another user changed this object. Refresh it and enter your change again.',
+    rejected: 'The server rejected this change. Check its data and your permissions.',
     foreignCreator:
       'The entry was created under «{creator}» while syncing as «{sender}»: switch the saved account on the Sync screen',
     noResponse: 'The request failed (no response from the server)',

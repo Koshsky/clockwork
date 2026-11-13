@@ -270,7 +270,7 @@ function preloadFixture() {
 }
 test('preload exposes only narrow bridge methods, never Electron events or raw invocation', () => {
   const f = preloadFixture()
-  assert.deepEqual(Object.keys(f.context.bridge).sort(), ['appVersion', 'isElectron', 'service', 'session'])
+  assert.deepEqual(Object.keys(f.context.bridge).sort(), ['appVersion', 'isElectron', 'queue', 'service', 'session'])
   assert.deepEqual(Object.keys(f.context.bridge.service).sort(), ['cancel', 'execute', 'read', 'status', 'subscribe'])
 })
 test('preload rejects oversized trees before serializing IPC to main', async () => {
@@ -341,4 +341,21 @@ test('session notifications coalesce behind one acknowledgement and discard stal
   f.contents.emit('did-start-navigation',{},'/planner',false,true)
   await ack(f.event,{action:'ack',revision:101});assert.equal(f.contents.sent.length,2)
   f.host.dispose()
+})
+
+test('same-document router navigation preserves the service subscription', async () => {
+  const f = ipcFixture(); await f.send({ kind: 'subscribe', subscriptionId: 'router' })
+  const first = f.contents.sent[0].value.state.revision
+  await f.send({ kind: 'ack', subscriptionId: 'router', revision: first })
+  f.contents.emit('did-start-navigation', {}, '/projects', true, true)
+  f.service.setScope({ server: 'https://erp.example/api', accountId: 7 })
+  assert.equal(f.contents.sent.length, 2); assert.equal(f.contents.sent[1].value.subscriptionId, 'router')
+  f.host.dispose()
+})
+test('a real document navigation still releases subscriptions and ignores its old acknowledgements', async () => {
+  const f = ipcFixture(); await f.send({ kind: 'subscribe', subscriptionId: 'old-document' })
+  const first = f.contents.sent[0].value.state.revision
+  f.contents.emit('did-start-navigation', {}, 'https://other.example', false, true)
+  f.service.setScope(null); await f.send({ kind: 'ack', subscriptionId: 'old-document', revision: first })
+  assert.equal(f.contents.sent.length, 1); f.host.dispose()
 })

@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import type { DtoUserInfo } from '@/api'
 import { getApiUrl } from '@/config'
 import routes from './apiRoutes.json'
+import { t } from '@/i18n'
 
 export interface SessionState {
   server: string | null
@@ -24,7 +25,7 @@ export interface DesktopSession {
   logout(): Promise<SessionState>
   enterOffline(username: string | null): Promise<SessionState>
   probe(): Promise<boolean>
-  api(request: { operation: string; contextId: string; requestId: string; path?: Record<string, string>; query?: Record<string, string>; body?: unknown; key?: string; locale?: string; viewUser?: number }): Promise<{ status: number; data: unknown }>
+  api(request: { operation: string; contextId: string; requestId: string; path?: Record<string, string>; query?: Record<string, string>; body?: unknown; key?: string; locale?: string; viewUser?: number; tempId?: number; preconditions?: Record<string, string> }): Promise<{ status: number; data: unknown; queued?: boolean; localSnapshot?: boolean; baseline?: Record<string, string>; operationId?: string }>
   cancel(requestId: string): Promise<void>
   subscribe(listener: (state: SessionState) => void): () => void
 }
@@ -66,7 +67,7 @@ export const desktopSessionAdapter: AxiosAdapter = async config => {
   const route = routes.find(item => {
     if (item.method !== (config.method || 'get').toUpperCase()) return false
     const names = [...item.path.matchAll(/\{([^}]+)\}/g)].map(match => match[1]!)
-    const match = new RegExp('^' + item.path.replace(/\{([^}]+)\}/g, (_, name: string) => (item.pathTypes as Record<string, string>)[name] === 'integer' ? '([1-9]\\d*)' : '([^/]+)') + '$').exec(routePath)
+    const match = new RegExp('^' + item.path.replace(/\{([^}]+)\}/g, (_, name: string) => (item.pathTypes as Record<string, string>)[name] === 'integer' ? '(-?[1-9]\\d*)' : '([^/]+)') + '$').exec(routePath)
     if (!match) return false
     path = Object.fromEntries(names.map((name, index) => [name, decodeURIComponent(match[index + 1]!)]))
     return true
@@ -77,16 +78,21 @@ export const desktopSessionAdapter: AxiosAdapter = async config => {
   try {
     if (config.signal?.aborted) throw new axios.CanceledError()
     const headers = AxiosHeaders.from(config.headers)
+    const body = typeof config.data === 'string' ? JSON.parse(config.data) as unknown : config.data
+    const descriptor = { route: route.operation, path, query: Object.fromEntries(url.searchParams), body }
+    const tempId = headers.get('X-Desktop-Temp-ID') ? Number(headers.get('X-Desktop-Temp-ID')) : undefined
+    const preconditions = window.erpDesktop?.queue && route.method !== 'GET' ? (await import('@/store/data/nativeBaselines')).capture(descriptor) : undefined
     const result = await desktopSession.api({
       operation: route.operation, contextId: state.contextId, requestId, path,
       query: Object.fromEntries(url.searchParams),
-      body: typeof config.data === 'string' ? JSON.parse(config.data) as unknown : config.data,
+      body, preconditions,
       key: headers.get('Idempotency-Key') as string | undefined,
       locale: headers.get('Accept-Language') as string | undefined,
+      tempId,
       viewUser: headers.get('X-View-User-ID') ? Number(headers.get('X-View-User-ID')) : undefined,
     })
     if (config.signal?.aborted || desktopSessionState.value?.contextId !== state.contextId) throw new axios.CanceledError('Session context changed', config)
-    const response = { data: result.data, status: result.status, statusText: '', headers: new AxiosHeaders(), config }
+    const response = { data: result.data, status: result.status, statusText: '', headers: new AxiosHeaders(result.queued ? { 'Operation-Status': 'queued' } : {}), config, ...(result.localSnapshot ? { __erpLocalSnapshot: true } : {}), ...(result.baseline ? { __erpBaseline: result.baseline } : {}), ...((result.baseline || result.queued) ? { __erpMutation: { ...descriptor, preconditions, operationId: result.operationId }, __erpOperationId: result.operationId, __erpTempId: tempId, __erpPreconditions: preconditions, __erpContext: state.contextId } : {}) }
     if (!config.validateStatus || config.validateStatus(result.status)) return response
     throw new AxiosError('Request failed', result.status >= 500 ? 'ERR_BAD_RESPONSE' : 'ERR_BAD_REQUEST', config, undefined, response)
   } catch (error) {
@@ -94,6 +100,10 @@ export const desktopSessionAdapter: AxiosAdapter = async config => {
     if (axios.isAxiosError(error) || axios.isCancel(error)) throw error
     const message = error instanceof Error ? error.message : ''
     if (message === 'SESSION_CONTEXT_CHANGED') throw new axios.CanceledError(message, config)
+    if (/^STORAGE_|^COMMAND_/.test(message)) {
+      const key = message === 'COMMAND_BASELINE_AMBIGUOUS' ? 'offline.queue.baselineAmbiguous' : message === 'COMMAND_BASELINE_REQUIRED' ? 'offline.queue.baselineRequired' : 'offline.queue.storageUnavailable'
+      throw new AxiosError(t(key), 'ERR_DESKTOP_STORAGE', config)
+    }
     if (message.startsWith('SESSION_INVALID')) throw fail('ERR_BAD_REQUEST')
     throw fail('ERR_NETWORK')
   } finally { config.signal?.removeEventListener?.('abort', abort) }

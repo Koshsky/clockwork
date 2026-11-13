@@ -217,3 +217,15 @@ test('a late native transport failure after logout is cancellation, never a muta
   await tick();await f.service.logout();wait.reject(new Error('connection lost'))
   await assert.rejects(pending,{message:'SESSION_CONTEXT_CHANGED'})
 })
+
+test('native queue storage codes stay explicit without leaking native exception details', async () => {
+  const { dispatch } = require('../desktop/session-ipc.cjs')
+  const session = { api: async () => { throw Object.assign(new Error('/private/profile/clockwork.sqlite'), { code: 'STORAGE_FULL' }) } }
+  const result = await dispatch(session, 'owner', { action: 'api', operation: 'POST /task', contextId: 'context', requestId: 'request' })
+  assert.deepEqual(result, { ok: false, error: 'STORAGE_FULL' }); assert.equal(JSON.stringify(result).includes('/private'), false)
+})
+test('renderer cannot supply private durable delivery or revision switches', () => {
+  const { valid } = require('../desktop/session-ipc.cjs')
+  const base = { action: 'api', operation: 'PUT /task/{id}', contextId: 'context', requestId: 'request' }
+  assert.equal(valid({ ...base, operationId: 'bypass' }), false); assert.equal(valid({ ...base, revisionProtocol: true }), false)
+})

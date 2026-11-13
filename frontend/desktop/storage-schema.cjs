@@ -19,5 +19,10 @@ CREATE INDEX commands_pending ON commands(scope_id, status, sequence);
 CREATE INDEX dependencies_reverse ON dependencies(scope_id, depends_on);
 CREATE INDEX command_snapshots_lookup ON command_snapshots(scope_id, domain, key);
 ` },
+  { version: 3, name: 'native_command_delivery', sql: `
+CREATE TABLE command_http (scope_id INTEGER NOT NULL, operation_id TEXT NOT NULL, temp_id INTEGER, wire TEXT, retry_at INTEGER NOT NULL DEFAULT 0, error TEXT, discarded INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(scope_id, operation_id), FOREIGN KEY(scope_id, operation_id) REFERENCES commands(scope_id, operation_id)) STRICT;
+CREATE UNIQUE INDEX command_http_temporary ON command_http(scope_id,temp_id) WHERE temp_id IS NOT NULL;
+CREATE TABLE http_cache (scope_id INTEGER NOT NULL REFERENCES scopes(id), key TEXT NOT NULL, revision INTEGER NOT NULL, baseline TEXT NOT NULL, projection TEXT NOT NULL, revisions TEXT NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY(scope_id,key)) STRICT;
+` },
 ].map(migration => ({ ...migration, checksum: createHash('sha256').update(migration.sql).digest('hex') }))
 module.exports = { applicationId, migrations, schemaVersion: migrations.at(-1).version }

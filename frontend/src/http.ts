@@ -74,7 +74,7 @@ export function setupHttp() {
     if ((config.method ?? 'get').toLowerCase() === 'get') {
       reads.set(config, { stamp: readStamp(), prefix: userCachePrefix(), key: cacheKey(config) })
     }
-    if (desktopSession && config.adapter !== offlineFailFastAdapter) config.adapter = desktopSessionAdapter
+    if (desktopSession && (window.erpDesktop?.queue || config.adapter !== offlineFailFastAdapter)) config.adapter = desktopSessionAdapter
     const token = getAccessToken()
     config.headers = config.headers ?? {}
     const auth = String(config.headers['authorization'] || config.headers['Authorization'] || '')

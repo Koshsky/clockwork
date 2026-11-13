@@ -25,6 +25,7 @@ export function legacyFailure(error: unknown): DataFailure {
   else if (status === 404 || code === 'NOT_FOUND') kind = 'not-found'
   else if (status === 409 || code === 'CONFLICT') kind = 'conflict'
   else if (status === 400 || status === 422 || code === 'VALIDATION_ERROR' || code === 'BAD_REQUEST') kind = 'validation'
+  else if (axios.isAxiosError(error) && error.code === 'ERR_DESKTOP_STORAGE') kind = 'storage'
   else if (status === 429 || status >= 500 || (axios.isAxiosError(error) && !response)) kind = 'unavailable'
   return {
     kind,

@@ -122,6 +122,16 @@ type CrudOperations<Name extends string, Create, Update, Entity> = {
   [K in `${Name}.delete`]: Operation<{ id: number }, null>
 }
 
+export interface DesktopMutation {
+  preconditions?: Record<string, string>
+  route: string
+  path?: Record<string, string>
+  query?: Record<string, string>
+  body?: Record<string, unknown>
+  tempId?: number
+  locale?: 'ru' | 'en'
+}
+
 export type CommandOperations =
   CrudOperations<'project', DtoCreateProjectRequest, DtoUpdateProjectRequest, DtoCreateProjectResponse | DtoProjectResponse> &
   CrudOperations<'process', DtoCreateProcessRequest, DtoUpdateProcessRequest, DtoProcessResponse> &

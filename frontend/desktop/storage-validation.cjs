@@ -45,7 +45,7 @@ function localCommand(value) {
   requireValue(value && Object.keys(value).every(key => ['operationId', 'operation', 'input', 'idempotencyKey', 'dependencies', 'changes'].includes(key)))
   requireValue(identifier(value.operationId) && identifier(value.idempotencyKey))
   requireValue(typeof value.operation === 'string' && !/^(account|comment|rbac|template)\./.test(value.operation))
-  requireValue(validate({ protocol: 1, kind: 'command', contextId: 'storage', requestId: 'storage', operationId: value.operationId, operation: value.operation, input: value.input }))
+  requireValue(value.operation === 'http.mutation' ? require('./command-request.cjs').validMutation(value.input) : validate({ protocol: 1, kind: 'command', contextId: 'storage', requestId: 'storage', operationId: value.operationId, operation: value.operation, input: value.input }))
   const dependencies = value.dependencies ?? []
   requireValue(Array.isArray(dependencies) && dependencies.length <= 128 && dependencies.every(identifier) && new Set(dependencies).size === dependencies.length && !dependencies.includes(value.operationId))
   const input = safeJSON(value.input ?? null, 1024 * 1024)
