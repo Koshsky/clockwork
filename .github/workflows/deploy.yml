@@ -1,0 +1,43 @@
+name: Deploy production
+run-name: Deploy production by @${{ github.actor }}
+on:
+  workflow_dispatch:
+    inputs:
+      backend_version:
+        description: Published backend vX.Y.Z (empty uses backend/VERSION)
+        type: string
+        required: false
+      frontend_version:
+        description: Published frontend vX.Y.Z (empty uses frontend/package.json)
+        type: string
+        required: false
+permissions:
+  contents: read
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+jobs:
+  deploy:
+    name: Reconcile the existing ERP stack
+    if: github.ref == 'refs/heads/main'
+    environment:
+      name: production
+      url: https://erp.koshsky.ru
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Deploy published images and repository configuration
+        env:
+          BACKEND_VERSION: ${{ inputs.backend_version }}
+          FRONTEND_VERSION: ${{ inputs.frontend_version }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_APP_ENV_JSON: ${{ secrets.DEPLOY_APP_ENV_JSON }}
+        run: python3 scripts/deploy.py deploy

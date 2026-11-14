@@ -1,0 +1,110 @@
+# Scalars are rendered by scripts/deploy.py; secrets never enter the repository.
+name: erp
+services:
+  db:
+    image: postgres@sha256:aa6cb33cf4c19c765cefcf48d96176258800870a9a1e930ad126200f9d825139
+    container_name: db
+    restart: unless-stopped
+    environment:
+      PGDATA: /var/lib/postgresql/data
+      POSTGRES_DB: ${DATABASE_NAME}
+      POSTGRES_USER: ${DATABASE_USER}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
+    volumes:
+      - type: volume
+        source: db_data
+        target: /var/lib/postgresql/data
+    networks: [app-network]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  erp:
+    image: ${BACKEND_IMAGE}
+    container_name: erp
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      JWT_REFRESH_KEY: ${JWT_REFRESH_KEY}
+    volumes:
+      - type: bind
+        source: ${BACKEND_CONFIG}
+        target: /app/config.yaml
+        read_only: true
+        bind:
+          create_host_path: false
+    networks: [app-network]
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD-SHELL, 'wget -q -O /dev/null http://127.0.0.1:8080/api/v1/health']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+  frontend:
+    image: ${FRONTEND_IMAGE}
+    container_name: frontend
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: ${CUSTOM_ASSETS}
+        target: /usr/share/nginx/html/assets/custom
+        read_only: true
+        bind:
+          create_host_path: false
+    networks: [app-network]
+  caddy:
+    image: caddy@sha256:78bd35025c7ba85961dd149ae670315129954e77abe2383ac47c89106b35ade9
+    container_name: caddy
+    restart: unless-stopped
+    ports: ['80:80', '443:443']
+    volumes:
+      - type: bind
+        source: ${CADDY_CONFIG}
+        target: /etc/caddy/Caddyfile
+        read_only: true
+        bind:
+          create_host_path: false
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      app-network:
+        ipv4_address: 172.18.0.5
+    depends_on: [frontend, erp]
+  loki:
+    image: grafana/loki@sha256:58a6c186ce78ba04d58bfe2a927eff296ba733a430df09645d56cdc158f3ba08
+    container_name: loki
+    restart: unless-stopped
+    command: [-config.file=/etc/loki/loki.yaml, -querier.split-queries-by-interval=24h]
+    volumes:
+      - type: bind
+        source: ${LOKI_CONFIG}
+        target: /etc/loki/loki.yaml
+        read_only: true
+        bind:
+          create_host_path: false
+      - loki_data:/loki
+    # Loki has no authentication. The application reaches it through Docker.
+    networks: [app-network]
+volumes:
+  db_data:
+    external: true
+    name: erp-infra_db_data
+  caddy_data:
+    external: true
+    name: erp-infra_caddy_data
+  caddy_config:
+    external: true
+    name: erp-infra_caddy_config
+  loki_data:
+    external: true
+    name: erp_loki_data
+networks:
+  app-network:
+    external: true
+    name: erp_app-network

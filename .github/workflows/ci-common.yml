@@ -26,7 +26,10 @@ jobs:
         with:
           fetch-depth: 0
       - run: python3 scripts/check-repository.py
-      - run: python3 -m unittest discover -s scripts/tests -v
+      - name: Test repository tooling and isolated deployment reconciliation
+        env:
+          CLOCKWORK_DEPLOY_DOCKER_TESTS: '1'
+        run: python3 -m unittest discover -s scripts/tests -v
       - name: Validate workflows
         run: >-
           docker run --rm --network none -v "$PWD:/repo:ro" -w /repo

@@ -178,3 +178,14 @@ already published main history only when the owner explicitly requests it.
 
 See CONTRIBUTING.md for branch commands. Keep the root README focused on the
 product; development commands and internal process information belong here.
+
+## Manual server deployment
+
+`Deploy production` is workflow_dispatch-only on main and separate from releases.
+It consumes published vX.Y.Z images and repository-owned production configuration;
+it never publishes images or moves latest/stable. See docs/deployment.md for the
+verified server contract, production environment secrets, recovery and tests.
+Keep external volume/network names immutable unless a separately reviewed server
+migration explicitly changes that contract. Do not run production deployment as
+part of validating a deployment PR. Changes here require owner's approval before
+merging, and a separate instruction before running the workflow.
