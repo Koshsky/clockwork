@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { usePageReadRefresh } from '@/composables/usePageReadRefresh'
+usePageReadRefresh(async () => { if (!ts.employees.length) await loadTimesheet(); else await ts.refreshEmployees(undefined, true, true) })
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import CalendarHeader from '../components/planner/CalendarHeader/CalendarHeader.vue'
@@ -11,8 +13,7 @@ import type { PlanningUnit } from '../components/planner/calendar'
 import { useEmployeeFilters } from '../composables/useEmployeeFilters'
 import { useRoleAccess } from '../composables/useRoleAccess'
 import { useAppStore, useRbacStore, useTimesheetStore } from '../store'
-import { isOffline } from '../offline/state'
-import { scheduleNamedRefresh } from '../offline/sync'
+import { isOffline, scheduleNamedRefresh } from '@/store/data/uiServices'
 import { t as $t } from '../i18n'
 
 import TimesheetDayTypes from './TimesheetDayTypes.vue'
@@ -63,11 +64,12 @@ const {
 const visibleRows = computed(() => applyFilters(timesheetRows.value))
 
 async function loadTimesheet() {
-  await ts.loadStates()
   if (!canViewTimesheet.value) {
     showDayTypes.value = canConfigureDayTypes.value
+    await ts.loadStates()
     return
   }
+  await ts.loadStates()
   await ts.loadEmployees()
   // The filter options need the user/resource catalogs (cached in the app store)
   if (seesAllEmployees.value && !users.value.length) await app.loadUsers()

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { applicationData } from '@/store/data/uiServices'
 import { ref, computed } from 'vue'
 import { useAuthStore } from '../store'
 import { PasswordField, PasswordRequirements } from '../components/common'
@@ -42,7 +43,7 @@ async function onChangePassword() {
     notifyError(t('adminUsers.profileEdit.error.mismatch'))
     return
   }
-  const ok = await auth.changePassword(oldPassword.value, newPassword.value)
+  const ok = (await applicationData.session.changePassword(oldPassword.value, newPassword.value)).status === 'confirmed'
   if (ok) {
     notifySuccess(t('adminUsers.profileEdit.success'))
     oldPassword.value = ''

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { usePageReadRefresh } from '@/composables/usePageReadRefresh'
+usePageReadRefresh(async () => { await store.refreshResources(store.resources.length > 0, true) })
 import { ref, onMounted, computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import { t } from '@/i18n'
@@ -13,8 +15,7 @@ import { useRoleAccess } from '../composables/useRoleAccess'
 import { useAppStore, useTimesheetStore, useAuthStore, useRbacStore, usePlanningStore } from '../store'
 import { compareByName } from '../utils'
 import { useColumnWidths } from '../composables/useColumnWidths'
-import { isOffline } from '../offline/state'
-import { scheduleNamedRefresh } from '../offline/sync'
+import { isOffline, scheduleNamedRefresh } from '@/store/data/uiServices'
 import type { DtoResourceMemberResponse, DtoResourceResponse } from '@/api'
 
 const store = useAppStore()

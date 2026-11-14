@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { t } from '../i18n'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { isOffline, reconnectDeadline } from './state'
-import { retryConnectionNow } from './connection'
+import { isOffline, reconnectDeadline } from '@/store/data/uiServices'
+import { retryPlatformConnection } from '@/store/data/uiServices'
 
 const busy = ref(false)
 
@@ -35,7 +35,7 @@ async function onRetry() {
   if (busy.value) return
   busy.value = true
   try {
-    await retryConnectionNow()
+    await retryPlatformConnection()
   } finally {
     busy.value = false
     updateSecondsLeft()

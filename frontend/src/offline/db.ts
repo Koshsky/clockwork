@@ -23,6 +23,7 @@
  */
 
 import { t } from '../i18n'
+import { localDataAvailability } from '@/platform/state'
 
 const DB_NAME = 'erp-offline'
 // The schema version this build knows. It is NOT passed to indexedDB.open
@@ -126,6 +127,7 @@ function openDb(): Promise<IDBDatabase> {
 function getDb(): Promise<IDBDatabase> {
   if (!dbPromise) {
     const pending = openDb().catch((error) => {
+      localDataAvailability.value = 'unavailable'
       if (dbPromise === pending) dbPromise = null
       throw error
     })
@@ -163,6 +165,7 @@ async function txAll(
     const fail = (error: unknown) => {
       if (settled) return
       settled = true
+      localDataAvailability.value = 'unavailable'
       clearTimeout(timer)
       release()
       reject(error ?? new Error(t('offline.db.operationFailed')))
@@ -179,6 +182,7 @@ async function txAll(
       tx.oncomplete = () => {
         if (settled) return
         settled = true
+        localDataAvailability.value = 'available'
         clearTimeout(timer)
         release()
         resolve(req.result)

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { usePageReadRefresh } from '@/composables/usePageReadRefresh'
+usePageReadRefresh(async () => { await store.refreshProcessPlanning(store.processPlanning != null, true) })
 import { ref, onMounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { storeToRefs } from 'pinia'
@@ -16,8 +18,7 @@ import { compareByName, DAY_MS } from '../utils'
 import { useRoleAccess } from '../composables/useRoleAccess'
 import { useFindPlanningItem } from '../composables/useFindPlanningItem'
 import { usePlanningStore, useAppStore } from '../store'
-import { isOffline } from '../offline/state'
-import { scheduleNamedRefresh } from '../offline/sync'
+import { isOffline, scheduleNamedRefresh } from '@/store/data/uiServices'
 import { t } from '../i18n'
 import { addMonthsISO, fitSpanDates, toDate } from '../components/planner/calendar'
 import { CELL_WIDTH } from '../components/planner/layout'

@@ -32,6 +32,9 @@ declare module 'pdfjs-dist/build/pdf.worker.min.mjs' {
 interface ErpDesktop {
   isElectron: true
   appVersion: () => Promise<{ version: string; electron: string }>
+  session?: import('./session/desktop').DesktopSession
+  queue?: import('./offline/desktopQueue').DesktopQueue
+  service?: import('./data/desktopBridge').DesktopBridge
 }
 
 interface Window {

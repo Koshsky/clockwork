@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { fmtDate } from '@/components/planner/calendar'
+import { resourceAbsencesInRange, resourceCellUsage } from '@/domain/resourceUsage'
 import TooltipCell from '../TooltipCell/TooltipCell.vue'
 import { InfoTooltip } from '../Tooltips'
 import UsageCell from '../UsageCell/UsageCell.vue'
@@ -31,44 +32,28 @@ interface CellUsage {
 function cellAbsentees(resourceId: number, start: Date, end: Date): DtoResourceAbsenceResponse[] {
   const list = props.absenceByResource?.[resourceId]
   if (!list?.length) return []
-  const startT = start.getTime()
-  const endT = end.getTime()
-  return list.filter((a) => {
-    const s = a.start_date ? new Date(`${a.start_date}T00:00:00`).getTime() : -Infinity
-    const e = a.end_date ? new Date(`${a.end_date}T00:00:00`).getTime() : Infinity
-    return s <= endT && e >= startT
-  })
+  return resourceAbsencesInRange(list, start, end)
 }
 
-function cellUsage(resourceId: number, idx: number): CellUsage {
-  let peak = 0
-  let minAvail: number | null = null
-  let hasUnknown = false
-  let weekend = true
-  const start = props.t.cellStart(idx)
-  const end = props.t.cellEnd(idx)
-  const absentees = cellAbsentees(resourceId, start, end)
-  const cur = new Date(start)
-  while (cur <= end) {
-    const wd = cur.getDay() === 0 || cur.getDay() === 6
-    if (!wd) weekend = false
-    peak = Math.max(peak, props.usageFn(resourceId, cur))
-    const avail = props.availableFn(resourceId, cur)
-    if (avail == null) {
-      hasUnknown = true
-    } else if (minAvail == null || avail < minAvail) {
-      minAvail = avail
-    }
-    cur.setDate(cur.getDate() + 1)
+function cellUsage(resourceId: number, start: Date, end: Date): CellUsage {
+  return {
+    ...resourceCellUsage(resourceId, start, end, props.usageFn, props.availableFn),
+    absentees: cellAbsentees(resourceId, start, end),
   }
-  return { used: peak, available: hasUnknown ? null : minAvail, isWeekend: weekend, absentees }
 }
+
+// Dates and geometry belong to a column, not to each resource in that column.
+const visibleCells = computed(() => props.t.visibleIndices.map((index) => {
+  const start = props.t.cellStart(index)
+  const date = fmtDate(start)
+  return { start, end: props.t.cellEnd(index), date, left: props.t.cellLeft(index) + 'px', contextKey: props.t.unit + ':' + date }
+}))
 
 /** Usage per resource and visible cell (peak daily load inside a cell) */
 const resourceCells = computed(() =>
   props.resources.map((res) => ({
     res,
-    cells: props.t.visibleIndices.map((i) => cellUsage(res.id, i)),
+    cells: visibleCells.value.map((cell) => cellUsage(res.id, cell.start, cell.end)),
   })),
 )
 
@@ -115,13 +100,13 @@ const labelsH = computed(() => resourceCells.value.length * rowH.value)
       <div class="rs-row" :class="{ 'rs-row--compact': !showText }">
         <div
           v-for="(u, k) in rc.cells"
-          :key="'rc' + t.visibleIndices[k]"
+          :key="k"
           class="rs-cell"
           :data-resource-id="rc.res.id"
-          :data-date="fmtDate(t.cellStart(t.visibleIndices[k]))"
-          :style="{ left: t.cellLeft(t.visibleIndices[k]) + 'px', width: t.cellPx + 'px' }"
+          :data-date="visibleCells[k].date"
+          :style="{ left: visibleCells[k].left, width: t.cellPx + 'px' }"
         >
-          <UsageCell :used="u.used" :available="u.available" :isWeekend="u.isWeekend" :show-text="showText" :absentees="u.absentees" />
+          <UsageCell :used="u.used" :available="u.available" :isWeekend="u.isWeekend" :show-text="showText" :absentees="u.absentees" :context-key="visibleCells[k].contextKey" />
         </div>
       </div>
     </template>

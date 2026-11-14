@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { usePageReadRefresh } from '@/composables/usePageReadRefresh'
+usePageReadRefresh(async () => { if (dirty.value || saving.value) return false; await app.loadAutoCreateConfig() })
 import { HintButton } from '../components/common'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'

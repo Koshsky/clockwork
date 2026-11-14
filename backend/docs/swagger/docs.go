@@ -771,7 +771,7 @@ const docTemplate = `{
         },
         "/auth/refresh": {
             "post": {
-                "description": "Rotate the refresh session; the token is read from the body ({refresh_token}) or the HttpOnly cookie, and a new refresh token is returned in both",
+                "description": "Rotate the refresh session using a body token or the HttpOnly cookie. Cookie-based responses never expose the new refresh token in JSON; native clients supplying a body token receive the rotated token in JSON too.",
                 "consumes": [
                     "application/json"
                 ],
@@ -1409,6 +1409,167 @@ const docTemplate = `{
                     },
                     "400": {
                         "description": "Bad Request",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.ErrorResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.ErrorResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/operations": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Check protocol=1, durable=true and a matching operations route/verb pattern before sending Operation-Id. Only planning/timesheet mutations are eligible; credentials, users, comments and administrative configuration are excluded. The ID is bound to the actor, method, complete request URI, exact body bytes and content type. An optional Idempotency-Key must exactly equal Operation-Id; without Operation-Id legacy TTL semantics remain unchanged. Successful durable receipts have no TTL. revision_protocol=1 enables Revision-Protocol: 1 reads and guarded mutations. Those successful replies wrap original data as data.snapshot and data._revisions (opaque aggregate tokens); guarded 204 becomes 200. Send _preconditions in the immutable JSON body plus Operation-Id and Revision-Protocol: 1. Never obtain fresh tokens separately from the edited snapshot. Strict process/project/resource/day aggregates may conservatively conflict; no field merging occurs. Existing clients without opt-in retain their original shapes and legacy writes still invalidate tokens. Non-2xx transactions roll back and remain unrecorded. Never change an existing legacy request into a durable request, or fall back to an unprotected request on an unsupported server.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Operations"
+                ],
+                "summary": "Durable operation capabilities",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.SuccessResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/idempotency.OperationCapabilities"
+                                        },
+                                        "error": {
+                                            "type": "object"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.ErrorResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/operations/{operation_id}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Returns confirmed, in_progress or not_found for the authenticated actor only. Administrators cannot select another actor. A receipt is historical acknowledgement, not current resource access. not_found means no committed durable receipt was visible; retry only with the original Operation-Id and request. Authentication failures or unavailable storage never imply not_found. Exact byte equality is required on retries; the original response envelope is nested in response.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Operations"
+                ],
+                "summary": "Inspect an owned durable operation",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Stable operation ID, 1..128 ASCII letters/digits or ._:-, excluding dot segments",
+                        "name": "operation_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.SuccessResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/idempotency.OperationReceipt"
+                                        },
+                                        "error": {
+                                            "type": "object"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.ErrorResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
                         "schema": {
                             "allOf": [
                                 {
@@ -9528,6 +9689,55 @@ const docTemplate = `{
                 }
             }
         },
+        "idempotency.OperationCapabilities": {
+            "type": "object",
+            "properties": {
+                "durable": {
+                    "type": "boolean"
+                },
+                "operations": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "protocol": {
+                    "type": "integer"
+                },
+                "revision_protocol": {
+                    "type": "integer"
+                }
+            }
+        },
+        "idempotency.OperationReceipt": {
+            "type": "object",
+            "properties": {
+                "completed_at": {
+                    "type": "string"
+                },
+                "method": {
+                    "type": "string"
+                },
+                "operation_id": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "request_hash": {
+                    "type": "string"
+                },
+                "response": {
+                    "type": "object"
+                },
+                "response_status": {
+                    "type": "integer"
+                },
+                "state": {
+                    "type": "string"
+                }
+            }
+        },
         "response.ErrorResponse": {
             "type": "object",
             "properties": {
@@ -9576,7 +9786,7 @@ const docTemplate = `{
 
 // SwaggerInfo holds exported Swagger Info so clients can modify it
 var SwaggerInfo = &swag.Spec{
-	Version:          "1.4.3",
+	Version:          "1.5.0",
 	Host:             "localhost:8080",
 	BasePath:         "/api/v1",
 	Schemes:          []string{"http"},

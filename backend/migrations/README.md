@@ -1,9 +1,11 @@
 # Database migrations
 
-Core SQL (`V1__*.sql` through `V12__*.sql`) is embedded by `go:embed` into
+Core SQL (`V1__*.sql` through `V15__*.sql`) is embedded by `go:embed` into
 `cmd/service`. The image needs no SQL mount, Flyway installation, Java, or
 network access to fetch migrations. Existing files and their Flyway checksums
 are immutable. Add a new sequential core file for every schema change.
+V1–V14 are the published prefix. V15 combines durable receipts and revision
+guards in a single first-release step.
 The source adapter exposes the original files to golang-migrate as upward-only
 migrations; SQL execution, PostgreSQL locking and dirty/version bookkeeping are
 provided by `github.com/golang-migrate/migrate/v4` (pgx/v5 driver).
@@ -54,7 +56,7 @@ Redis, tracing, JWT or administrator bootstrapping:
 ```
 
 `status` and `--dry-run` create no tables or history records. Adoption itself
-records a baseline but does not apply V10. `up` reports version 13/dirty false
+records a baseline but does not apply V10. `up` reports the latest embedded version (currently 15)/dirty false
 after a successful upgrade. An already-applied V10 is adopted as 10 and skipped.
 
 V11 enforces matching process/resource owners for assignments and removes
@@ -88,3 +90,88 @@ See [the administration runbook](../docs/operations/migration-upgrade.md).
 ### V13: predefined role matrix
 
 V13 replaces grants for existing `dp`, `rp`, `vp`, and `worker` tags. Custom presets, renamed/deleted tags and personal overrides survive. Legacy custom project-update grants and personal project-update grants/revokes are copied to the new project-only `prioritize` capability. DP reads all planning and changes only priorities; RP manages owned projects and their contents; VP manages owned processes and resources; worker has no preset rights. Take a database backup before upgrading.
+
+### V15: durable operations and concurrent-editing guards
+
+V15 adds `operation_receipts`, `operation_revisions` and revision triggers without changing legacy transport keys, Flyway
+history, application data or unknown plugins. Successful `Operation-Id` requests
+commit the receipt in the same PostgreSQL transaction as their business changes.
+Receipts have no TTL; normal key cleanup never deletes them. Backups must include
+this table, or replay safety for previously committed operations is lost.
+
+Clients must verify `GET /api/v1/operations` returns protocol 1 and durable true
+and an advertised OpenAPI method/path pattern before sending a new durable
+planning/timesheet mutation. User/password, RBAC, comments and administrative
+configuration are excluded, so credentials never enter durable responses.
+Keep the same actor, Operation-Id, method,
+full URI, Content-Type and exact request bytes on every retry. An optional
+Idempotency-Key must equal Operation-Id; a legacy request must never be upgraded
+to a new identity on retry. The request hash is lowercase SHA-256 over the
+Content-Type byte length (unsigned 64-bit big-endian), Content-Type bytes and
+raw request body bytes, concatenated in that order. A success response is sent
+only after commit. Non-2xx writes roll back; a commit/transport failure requires
+lookup or safe repetition with the original identity, never a fresh ID or an
+unprotected request.
+
+`GET /api/v1/operations/{operation_id}` returns only the authenticated actor's
+confirmed acknowledgement, in-progress status or absence. It cannot select another
+actor, including for administrators. Stored responses are historical acknowledgements,
+not permission to read a current resource or to execute a new mutation. Response
+loss is recoverable even after the original entity is deleted. The new desktop
+queue uses this protocol in the subsequent sender stage; old clients retain their
+existing Idempotency-Key contract. Rollback to an older server must stop durable
+senders, preserve receipts and never fall back to legacy delivery.
+
+
+#### Opt-in concurrent-editing guards
+
+The same migration adds revision tracking for legacy and guarded planning,
+resource, membership and timesheet writes. Revisions are opaque UUIDs, not client
+clocks or row timestamps; deleted aggregate keys remain as tombstones. The
+migration does not rewrite Flyway history or existing durable receipts.
+
+After `/operations` advertises `revision_protocol=1`, a client may request existing
+business GET endpoints with `Revision-Protocol: 1`. Successful replies use
+`data: {snapshot: <the original data>, _revisions: {<aggregate>: <token>}}`.
+The data and tokens share one repeatable-read transaction. Legacy replies without
+the header retain their original shape. Never fetch a newer token separately
+from the baseline that the user edited.
+
+Guarded writes require `Operation-Id`, `Revision-Protocol: 1`, and an immutable
+JSON body containing `_preconditions: {<aggregate>: <baseline token>}`. These bytes
+are already covered by the durable operation fingerprint. An accepted write
+returns the same snapshot wrapper with resulting revisions; guarded 204 becomes
+200 so the acknowledgement can carry metadata. Advance an unsent dependent
+command only from the accepted predecessor's acknowledgement. Never mutate the
+wire body or its preconditions after the first delivery attempt.
+
+Required aggregates:
+
+- Project update/delete: `project:<id>`, covering the complete project tree.
+- Process creation/reordering: `project:<project_id>`.
+- Process update/delete: `process:<id>`; a reparent also requires the destination
+  `project:<id>` (repeating the unchanged project_id does not add that guard).
+- Task/subtask/reorder/dependency and milestone mutations: their process;
+  moving a milestone also requires the destination process.
+- Assignment mutations: the old and new task processes and resource aggregates.
+- Resource/membership mutations: `resource:<id>`; new resources and projects
+  accept an empty precondition object because there is no previous aggregate.
+- Day kinds: `states`. Worker periods: `user_days:<user_id>` plus `states`.
+
+Process aggregates include tasks, subtasks, milestones, dependencies and
+assignments; resources include membership and employee profile changes.
+Parent project edits invalidate descendant process tokens, including trigger
+cascades. Different tasks of one process may therefore conflict conservatively;
+there is no automatic field merge. Missing/incorrect preconditions do not fall
+back to an unguarded write. A stale successful mutation is rolled back with 409
+and `Revision-Status: conflict`; existing RBAC and domain errors retain their
+statuses, including 403 and 404 for missing objects. No receipt is recorded for
+failed mutations. A previously accepted operation replays its original receipt
+before revision validation, even after deletion or rights changes.
+
+All covered writers take the existing V11 advisory transaction lock before
+changing rows, and guards take the same lock before comparing revisions. This
+serializes covered write transactions (reads remain concurrent), including old
+clients and trigger cascades. Legacy clients retain last-write-wins behavior but
+always invalidate newer clients' baselines; they cannot leave stale revisions.
+Back up the revision ledger with the database and preserve it on future upgrades.

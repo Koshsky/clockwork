@@ -42,16 +42,14 @@
 #    --win-exe          Windows single self-contained *.exe only (best-effort)
 #
 #  Version (ONE version shared by the web frontend and the desktop wrapper):
-#    - single source of truth — services/frontend/package.json (semver);
-#      desktop/package.json is synced to the same version automatically, so
-#      the wrapper package can never drift from the web version;
+#    - single source of truth — frontend/package.json (semver);
+#      Electron receives it as generated package metadata at packaging time;
 #    - artifacts and the UI get the same version (dist via env APP_VERSION,
 #      electron-builder via -c.extraMetadata.version below);
 #    - the build ALWAYS uses the current version from
-#      services/frontend/package.json as is — this script never bumps it
+#      frontend/package.json as is — this script never bumps it
 #      (there is no --bump flag); bump the source version yourself
 #      (npm version / edit) before releasing;
-#    - --version X.Y.Z — build exactly this version (no source change).
 #    The script does not change or commit the version: bump and tag it
 #    yourself (e.g. chore: release v1.0.1).
 #
@@ -61,7 +59,6 @@
 #    ./build-portable.sh --win-exe           # Windows single .exe (best-effort)
 #    ./build-portable.sh --win               # Windows portable + .exe
 #    ./build-portable.sh --linux --win       # Linux + Windows
-#    ./build-portable.sh --version 2.1.0     # build exactly 2.1.0 (no source change)
 #    ./build-portable.sh --build-web         # deprecated no-op (web is always rebuilt)
 #    ./build-portable.sh --clean             # clean release/ before building
 #
@@ -108,7 +105,6 @@ BUILD_WEB=0
 CLEAN=0
 # No bumping at all: the build always uses the current version from the
 # frontend package.json as is.
-OVERRIDE_VERSION=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -120,18 +116,13 @@ while [ "$#" -gt 0 ]; do
     --linux)          LINUX_PORTABLE=1; LINUX_APPIMAGE=1; shift ;;
     --build-web)      BUILD_WEB=1; shift ;;
     --clean)          CLEAN=1; shift ;;
-    --version)
-      [ "$#" -ge 2 ] || { echo "--version требует аргумент X.Y.Z" >&2; exit 1; }
-      OVERRIDE_VERSION="$2"; shift 2
-      ;;
-    --version=*)      OVERRIDE_VERSION="${1#--version=}"; shift ;;
     -h|--help)
       sed -n '2,/^set -euo pipefail$/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *)
       echo "Неизвестный аргумент: $1" >&2
-      echo "Используйте: $0 [--linux-portable] [--linux-appimage] [--win-portable] [--win-exe] [--win] [--linux] [--build-web] [--clean] [--version X.Y.Z]" >&2
+      echo "Используйте: $0 [--linux-portable] [--linux-appimage] [--win-portable] [--win-exe] [--win] [--linux] [--build-web] [--clean]" >&2
       exit 1
       ;;
   esac
@@ -151,39 +142,8 @@ if [ "$LINUX_PORTABLE" -eq 0 ] && [ "$LINUX_APPIMAGE" -eq 0 ] && [ "$WIN_PORTABL
 fi
 
 # ---------- Version ----------
-# Single source of truth — services/frontend/package.json: the web frontend
-# and the desktop wrapper ALWAYS share ONE version. The build always uses
-# that version AS IS — this script never bumps anything; --version overrides
-# the built version without touching the source. desktop/package.json is
-# synced below, so the wrapper package (and plain `npm run dist*`) never
-# drifts from the web version.
-if [ -n "$OVERRIDE_VERSION" ]; then
-  VERSION="$OVERRIDE_VERSION"
-else
-  VERSION="$(node -p "require('$FRONTEND_DIR/package.json').version" 2>/dev/null || echo '0.0.0')"
-fi
-
-# semver-ish validation (npm already checks on bump; guard for --version)
-if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
-  echo "Некорректная версия: $VERSION (ожидается X.Y.Z)" >&2
-  exit 1
-fi
-
-# Keep desktop/package.json in lockstep with the web version: the frontend
-# package.json is the single source of truth, this write-back makes the
-# wrapper carry the same version (electron-builder also receives it via
-# -c.extraMetadata.version below, so even plain `npm run dist*` — without
-# this script — sees the identical value). The lockfile root version is
-# regenerated with it; a failure here is only cosmetic (npm tolerates a
-# version mismatch), so it must not abort the release.
-node -e "
-  const fs = require('fs')
-  const file = '$DESKTOP_DIR/package.json'
-  const pkg = JSON.parse(fs.readFileSync(file, 'utf8'))
-  pkg.version = '$VERSION'
-  fs.writeFileSync(file, JSON.stringify(pkg, null, 2) + '\n')
-"
-(cd "$DESKTOP_DIR" && npm install --package-lock-only --ignore-scripts >/dev/null 2>&1) || true
+# A release cannot override the version or rewrite tracked package metadata.
+VERSION="$(node "$FRONTEND_DIR/scripts/app-version.cjs")"
 
 # The version goes into the web build: vite writes it into __APP_VERSION__ and
 # precache-manifest.json — the UI ("App/build version") matches the artifacts.
@@ -224,6 +184,9 @@ if [ "$NEED_INSTALL" -eq 1 ]; then
   (cd "$FRONTEND_DIR" && npm ci) || (cd "$FRONTEND_DIR" && npm install)
 fi
 
+node "$FRONTEND_DIR/scripts/desktop-domain.cjs" --check
+node "$FRONTEND_DIR/scripts/application-services.cjs" --check
+
 # Purge everything that could serve a stale bundle. dist/ goes first: if the
 # build fails, no half-written or old bundle is left behind for electron-builder
 # to pick up (set -e aborts the script).
@@ -234,7 +197,9 @@ rm -rf "$FRONTEND_DIR/dist" \
 # Build. APP_VERSION is already exported: vite inlines it into __APP_VERSION__
 # (UI "App/build version") and writes it into precache-manifest.json. The
 # explicit `|| exit 1` keeps a failure loud even if `set -e` is ever weakened.
-(cd "$FRONTEND_DIR" && npm run build) || { echo "ОШИБКА: сборка web-фронтенда не удалась." >&2; exit 1; }
+(cd "$FRONTEND_DIR" && ERP_BUILD_TARGET=desktop npm run build) || { echo "ОШИБКА: сборка web-фронтенда не удалась." >&2; exit 1; }
+
+node "$FRONTEND_DIR/scripts/verify-renderer.cjs" "$FRONTEND_DIR/dist" desktop
 
 # The freshly built output must exist — otherwise there is nothing to package.
 if [ ! -f "$FRONTEND_DIR/dist/index.html" ]; then
@@ -275,26 +240,28 @@ mkdir -p "$REL_DIR"
 # release/<version>/ and the file names always carry the SAME version, even if
 # package.json drifted (this is what previously produced release/1.1.0/ with
 # 1.0.5 artifacts).
+node "$DESKTOP_DIR/verify-storage.cjs" || { echo "Desktop SQLite runtime verification failed." >&2; exit 1; }
+
 if [ "$LINUX_PORTABLE" -eq 1 ] && [ "$LINUX_APPIMAGE" -eq 1 ]; then
   echo "== Linux: dir (portable-папка) + AppImage (единый файл) =="
-  (cd "$DESKTOP_DIR" && npx electron-builder --linux dir AppImage --x64 -c.directories.output="$REL_DIR" -c.extraMetadata.version="$VERSION")
+  (cd "$DESKTOP_DIR" && node build.cjs --linux dir AppImage --x64 -c.directories.output="$REL_DIR")
 elif [ "$LINUX_PORTABLE" -eq 1 ]; then
   echo "== Linux: dir (portable-папка) =="
-  (cd "$DESKTOP_DIR" && npx electron-builder --linux dir --x64 -c.directories.output="$REL_DIR" -c.extraMetadata.version="$VERSION")
+  (cd "$DESKTOP_DIR" && node build.cjs --linux dir --x64 -c.directories.output="$REL_DIR")
 else
   echo "== Linux: AppImage (единый файл) =="
-  (cd "$DESKTOP_DIR" && npx electron-builder --linux AppImage --x64 -c.directories.output="$REL_DIR" -c.extraMetadata.version="$VERSION")
+  (cd "$DESKTOP_DIR" && node build.cjs --linux AppImage --x64 -c.directories.output="$REL_DIR")
 fi
 
 # Windows (off by default; enabled via --win-portable/--win-exe/--win)
 if [ "$WIN_PORTABLE" -eq 1 ]; then
   echo "== Windows: zip (portable-папка + архив) =="
-  (cd "$DESKTOP_DIR" && npx electron-builder --win zip --x64 -c.directories.output="$REL_DIR" -c.extraMetadata.version="$VERSION")
+  (cd "$DESKTOP_DIR" && node build.cjs --win zip --x64 -c.directories.output="$REL_DIR")
 fi
 
 if [ "$WIN_EXE" -eq 1 ]; then
   echo "== Windows: единый self-contained .exe (portable, best-effort) =="
-  if (cd "$DESKTOP_DIR" && npx electron-builder --win portable --x64 -c.directories.output="$REL_DIR" -c.extraMetadata.version="$VERSION"); then
+  if (cd "$DESKTOP_DIR" && node build.cjs --win portable --x64 -c.directories.output="$REL_DIR"); then
     echo "   portable-.exe собран"
   else
     echo "   [warning] portable-.exe не собран: на этом хосте нет нужных"
@@ -320,6 +287,8 @@ check_embedded_web() {
     echo "ОШИБКА: встроенный в артефакт web отличается от свежего dist/." >&2
     exit 1
   fi
+  node "$FRONTEND_DIR/scripts/verify-renderer.cjs" "$web" desktop
+  node "$DESKTOP_DIR/verify-storage.cjs" --payload "$DESKTOP_DIR" "$unpacked/resources" || exit 1
   # The embedded manifest version must match the release version as well — a
   # copy of an old dist/ would pass a file compare only if it were identical,
   # but this catches a manifest that drifted from the artifact version.

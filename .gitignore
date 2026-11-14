@@ -19,6 +19,7 @@
 /backend/migrations/seed/passwords.txt
 
 # Dependencies and generated build output
+/bin/
 node_modules
 vendor/
 /backend/build/

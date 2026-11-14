@@ -1,4 +1,4 @@
-import { ref, watch } from 'vue'
+import { watch, getCurrentScope, onScopeDispose } from 'vue'
 import { isOffline, probeBackend, reconnectDeadline } from './state'
 import { syncNow } from './sync'
 import { pullStaleCycle, scheduleWarmup } from './warmup'
@@ -8,8 +8,8 @@ import { isLoggedOut } from '@/loggedOut'
 import { hasActiveMutations } from './mutationGuard'
 
 /**
- * The single background connection & maintenance monitor, active in EVERY
- * environment (web and desktop) and idempotent — starting it twice is a no-op.
+ * Legacy desktop connection & maintenance monitor. Its platform runtime owns
+ * startup and cleanup; starting it twice is a no-op.
  *
  * It watches backend reachability and drives autosync:
  *   - ONLINE: probes /health every ONLINE_PROBE_MS (10 s, see below); while the
@@ -40,6 +40,8 @@ const COUNTDOWN_TICK_MS = 1000 // one countdown step per second
 
 /** Guards against double-starting the monitor (idempotent) */
 let started = false
+let generation = 0
+let stopOfflineWatch: (() => void) | null = null
 
 /** Guards against overlapping auto-push/recovery while a flush is in flight */
 let pushing = false
@@ -49,32 +51,10 @@ let probing = false
 
 /**
  * Background PULL freshness marker (survives reloads via localStorage).
- * Owned here so imports from the deprecated './cycle' still resolve (cycle.ts).
+ * Re-exported here so imports from the deprecated './cycle' still resolve (cycle.ts).
  */
-const LAST_PULL_KEY = 'mvs_erp_last_pull_at'
-
-function readLastPull(): number | null {
-  try {
-    const raw = localStorage.getItem(LAST_PULL_KEY)
-    const n = raw ? Number(raw) : NaN
-    return Number.isFinite(n) && n > 0 ? n : null
-  } catch {
-    return null
-  }
-}
-
-/** Time of the last successful background PULL (for the freshness chip) */
-export const lastPullAt = ref<number | null>(readLastPull())
-
-function notePull(): void {
-  const now = Date.now()
-  lastPullAt.value = now
-  try {
-    localStorage.setItem(LAST_PULL_KEY, String(now))
-  } catch {
-    // not critical
-  }
-}
+export { lastPullAt } from './freshness'
+import { notePull } from './freshness'
 
 /** Whether scheduled work may run right now (visible tab + user not signed out) */
 function canWork(): boolean {
@@ -100,12 +80,14 @@ function stopCountdown(): void {
 }
 
 function startOnlineLoop(): void {
+  if (!started) return
   stopOnlineLoop()
   heartbeatTimer = window.setInterval(() => void onlineHeartbeat(), ONLINE_PROBE_MS)
   pullTimer = window.setInterval(() => void minuteSync(), PULL_STALE_MS)
 }
 
 function startCountdown(): void {
+  if (!started) return
   stopCountdown()
   countdownTimer = window.setInterval(() => countdownTick(), COUNTDOWN_TICK_MS)
 }
@@ -126,6 +108,7 @@ function gotoOffline(): void {
 
 /** Backend confirmed reachable: go online, flush the queue and warm up. */
 async function handleBackendUp(): Promise<void> {
+  const own = generation
   if (!isOffline.value) return
   if (recovering) return
   recovering = true
@@ -136,8 +119,9 @@ async function handleBackendUp(): Promise<void> {
     startOnlineLoop()
     if (canWork()) {
       await refreshPendingCount()
+      if (!started || own !== generation) return
       if (pendingCount.value > 0) await syncNow()
-      if (!isOffline.value) scheduleWarmup()
+      if (started && own === generation && !isOffline.value) scheduleWarmup()
     }
   } catch {
     // Preserve the queue; a later cycle can retry without an unhandled rejection.
@@ -148,11 +132,12 @@ async function handleBackendUp(): Promise<void> {
 
 /** A single online heartbeat probe → offline when it fails. */
 async function onlineHeartbeat(): Promise<void> {
-  if (probing || !canWork()) return
+  if (!started || probing || !canWork()) return
+  const own = generation
   probing = true
   try {
     const alive = await probeBackend()
-    if (!alive) gotoOffline()
+    if (started && own === generation && !alive) gotoOffline()
   } finally {
     probing = false
   }
@@ -174,13 +159,14 @@ async function autoPush(): Promise<void> {
 /** Slow PULL of expired cache domains (keeps the cache fresh when online). */
 let minuteRunning = false
 async function minuteSync(): Promise<void> {
-  if (minuteRunning || recovering || hasActiveMutations() || isOffline.value || !canWork()) return
+  if (!started || minuteRunning || recovering || hasActiveMutations() || isOffline.value || !canWork()) return
   minuteRunning = true
+  const own = generation
   try {
     await autoPush()
-    if (isOffline.value || !canWork()) return
+    if (!started || own !== generation || isOffline.value || !canWork()) return
     const refreshed = await pullStaleCycle()
-    if (refreshed > 0) notePull()
+    if (started && own === generation && refreshed > 0) notePull()
   } catch {
     // A failed push must not start a pull over unsent changes.
   } finally {
@@ -200,9 +186,11 @@ function countdownTick(): void {
 
 async function pingBackend(): Promise<void> {
   if (probing) return
+  const own = generation
   probing = true
   try {
     const alive = await probeBackend()
+    if (own !== generation) return
     if (alive) {
       await handleBackendUp()
     } else if (!isOffline.value) {
@@ -222,6 +210,7 @@ async function pingBackend(): Promise<void> {
  * online right away; a failure restarts a full countdown.
  */
 export async function retryConnectionNow(): Promise<void> {
+  if (window.erpDesktop?.queue?.mainSync) { await import('./desktopQueue').then(module => module.queueRequest({ action: 'sync', force: true })); return }
   if (recovering || probing) return
   // Set the deadline to now so the UI reads "probing…" while we wait.
   if (reconnectDeadline.value != null) reconnectDeadline.value = Date.now()
@@ -245,12 +234,13 @@ function onWindowOnline(): void {
 }
 
 /**
- * Starts the background connection monitor. Called from main.ts for every
- * environment. Idempotent — a second call keeps the already-running monitor.
+ * Starts the legacy monitor for the desktop runtime. Idempotent — a second
+ * call keeps the already-running monitor.
  */
-export function startConnectionMonitor(): void {
-  if (started || typeof window === 'undefined') return
+export function startConnectionMonitor(): () => void {
+  if (started || typeof window === 'undefined') return stopConnectionMonitor
   started = true
+  generation++
 
   // navigator.onLine reported offline at init → start the reconnect countdown
   // (gotoOffline early-returns when already offline, so start it directly).
@@ -265,7 +255,22 @@ export function startConnectionMonitor(): void {
   window.addEventListener('offline', onWindowOffline)
 
   // HTTP cache fallback can detect an outage before the next health probe.
-  watch(isOffline, (offline) => {
+  stopOfflineWatch = watch(isOffline, (offline) => {
     if (offline) gotoOffline()
   })
+  if (getCurrentScope()) onScopeDispose(stopConnectionMonitor)
+  return stopConnectionMonitor
+}
+
+export function stopConnectionMonitor(): void {
+  if (!started) return
+  started = false
+  generation++
+  stopOnlineLoop()
+  stopCountdown()
+  stopOfflineWatch?.()
+  stopOfflineWatch = null
+  window.removeEventListener('online', onWindowOnline)
+  window.removeEventListener('offline', onWindowOffline)
+  reconnectDeadline.value = null
 }

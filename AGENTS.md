@@ -124,8 +124,9 @@ a server or moves stable. The stable tag is promoted manually, outside Actions.
 Before launching, the developer commits the new version and finalized release
 notes in a short-lived branch, then merges it into main:
 
-- Frontend canonical version: frontend/package.json. Keep its lockfile, desktop
-  package metadata and both frontend changelogs consistent when preparing a release.
+- Frontend canonical version: frontend/package.json. npm manages its lockfile;
+  Electron package metadata is generated from that version during packaging.
+  Finalize both frontend changelogs when preparing a release.
 - Backend canonical version: backend/VERSION (plain X.Y.Z). Keep the backend
   changelogs and Swagger metadata current using the documented generators.
 - Published changelog blocks and migration SQL remain immutable. Release-note

@@ -13,7 +13,7 @@ import sys
 ROOT = Path(__file__).resolve().parent.parent
 FLAGS = ("backend", "frontend", "api")
 DETECTORS = {"backend": "backend-changes", "frontend": "frontend-changes", "api": "common-changes"}
-SERVICE_RESULTS = {"backend": ("build_result", "lint_result"), "frontend": ("checks_result",)}
+SERVICE_RESULTS = {"backend": ("build_result", "lint_result"), "frontend": ("checks_result", "native_result")}
 SHA = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?\Z")
 
 

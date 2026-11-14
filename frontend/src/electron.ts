@@ -8,9 +8,9 @@
  * IndexedDB (see offline/session.ts) in every environment.
  */
 
-export const isElectron = Boolean(
-  typeof window !== 'undefined' && window.erpDesktop?.isElectron === true,
-)
+import { platformCapabilities } from './platform/context'
+
+export const isElectron = platformCapabilities.kind === 'desktop'
 
 /** Desktop app version (Electron), or null in the browser */
 export async function desktopAppVersion(): Promise<{ version: string; electron: string } | null> {

@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { loadAppManifest } from '@/store/data/pageReads'
 import { t } from '@/i18n'
 import { fmtDateTime } from '@/i18n/date'
-import { lastPullAt } from '../offline/connection'
-import { lastPushAt } from '../offline/sync'
-import { pendingCount, refreshPendingCount } from '../offline/outbox'
-import { idbCount } from '../offline/db'
-import { isOffline } from '../offline/state'
+import { lastPullAt } from '@/store/data/uiServices'
+import { lastPushAt } from '@/store/data/uiServices'
+import { pendingCount, refreshPendingCount } from '@/store/data/uiServices'
+import { optionalCacheKeys } from '@/platform/cacheStore'
+import { isOffline } from '@/store/data/uiServices'
 
 // === App / offline ===
 const appVersion = ref('—')
@@ -38,9 +39,8 @@ const connectionLabel = computed(() =>
 /** Build version and offline cache sizes (for the "App and offline" card) */
 async function refreshAppInfo() {
   try {
-    const res = await fetch('/precache-manifest.json')
-    if (res.ok) {
-      const data = (await res.json()) as { version?: string }
+    const data = await loadAppManifest()
+    if (data) {
       appVersion.value = data.version ?? '—'
     }
   } catch {
@@ -62,7 +62,7 @@ async function refreshAppInfo() {
 
 async function refreshStatus() {
   await refreshPendingCount().catch(() => {})
-  cachedData.value = await idbCount('cache').catch(() => 0)
+  cachedData.value = await optionalCacheKeys('cache').then(keys => keys.length).catch(() => 0)
   await refreshAppInfo()
 }
 

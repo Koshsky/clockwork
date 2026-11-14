@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { probeServerLogin } from '@/store/data/pageReads'
 import { t } from '@/i18n'
 import { getServerBase, getApiUrl, setServerBase, httpSchemeWarning } from '../config'
-import { isElectron } from '../electron'
+import { platformCapabilities } from '@/platform/context'
 
 /**
  * Server address settings screen (before login).
@@ -36,23 +37,7 @@ function applyAndStore(url: string): boolean {
 
 /** Whether the server is alive: POST /auth/login returns <500 (401 "bad credentials" also counts) */
 async function probeServer(): Promise<boolean> {
-  const base = getApiUrl()
-  if (!base) return false
-  const ctrl = new AbortController()
-  const timer = window.setTimeout(() => ctrl.abort(), 5000)
-  try {
-    const res = await fetch(`${base}/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: 'probe', password: 'probe' }),
-      signal: ctrl.signal,
-    })
-    return res.status < 500
-  } catch {
-    return false
-  } finally {
-    window.clearTimeout(timer)
-  }
+  return probeServerLogin(getApiUrl())
 }
 
 async function onCheck() {
@@ -116,7 +101,7 @@ function onSave() {
       <h2 class="lp-title">{{ t('adminSystem.server.title') }}</h2>
 
       <!-- Electron: the address can be set (the exe connects to an external backend) -->
-      <template v-if="isElectron">
+      <template v-if="platformCapabilities.serverSelection">
         <p class="lp-subtitle">{{ t('adminSystem.server.subtitle') }}</p>
 
         <form class="lp-form" @submit.prevent="onSave">

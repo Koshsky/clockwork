@@ -1,28 +1,12 @@
 import { defineConfig, loadEnv, type Plugin } from 'vite'
+import { buildTarget, rendererBuildComposition, webApiPath } from './scripts/build-targets.mjs'
+import { rendererPlatformBoundary } from './scripts/platform-boundaries.mjs'
+import { readVersion } from './scripts/app-version.cjs'
 import vue from '@vitejs/plugin-vue'
 import checker from 'vite-plugin-checker'
 import { fileURLToPath, URL } from 'node:url'
 import { readdirSync, writeFileSync, mkdirSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
-import { execSync } from 'node:child_process'
-
-/**
- * Build version: when the APP_VERSION env var is set (the desktop build script
- * passes the version from desktop/package.json) it is used — the UI ("App version"
- * on the SyncPage) then matches the artifact version. Without env — short git hash +
- * build time (a unique version for every release, as before).
- */
-function buildVersion(root: string): string {
-  const injected = process.env.APP_VERSION?.trim()
-  if (injected) return injected
-  let hash = 'dev'
-  try {
-    hash = execSync('git rev-parse --short HEAD', { cwd: root }).toString().trim() || 'dev'
-  } catch {
-    // outside a git repository — stay on 'dev'
-  }
-  return `${hash}-${Date.now().toString(36)}`
-}
 
 /**
  * Writes dist/precache-manifest.json: { version, assets }. The file is used
@@ -61,7 +45,8 @@ function versionManifest(version: string): Plugin {
   }
 }
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ mode, command }) => {
+  const target = buildTarget(command)
   // Load environment variables from .env (VITE_* etc.)
   const envDir = fileURLToPath(new URL('../', import.meta.url))
   const env = loadEnv(mode, envDir, '')
@@ -72,14 +57,17 @@ export default defineConfig(({ mode }) => {
   // The build version is computed ONCE: it must be identical both in the bundle
   // (__APP_VERSION__) and in precache-manifest.json, otherwise version comparison
   // in the profile would always show "different" builds.
-  const appVersion = buildVersion(process.cwd())
+  const appVersion = readVersion()
 
   return {
   envDir,
   define: {
     __APP_VERSION__: JSON.stringify(appVersion),
+    ...(target === 'web' ? { 'import.meta.env.VITE_API_URL': JSON.stringify(webApiPath(env.VITE_API_URL)) } : {}),
   },
   plugins: [
+    rendererPlatformBoundary(),
+    ...(target !== 'auto' ? [rendererBuildComposition(target, appVersion)] : []),
     vue(),
     checker({
       vueTsc: true,

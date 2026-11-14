@@ -14,6 +14,7 @@ export default {
   pingCheck: 'Check server connection',
   offlineHint: 'The server cannot verify the password — sign in offline below',
   offlineLogin: 'Sign in offline (no password check)',
+  serviceUnavailable: 'Could not open the session. Check your connection and sign in again.',
   noSession: 'No saved session: sign in online at least once',
   fillAll: 'Fill in all fields',
   server: 'Server: {base}',

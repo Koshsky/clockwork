@@ -1,33 +1,50 @@
+import { sessionRequests } from './data/adapters/sessionRequests'
+import { createApplicationServices } from './data/applicationClients'
 import { defineStore } from 'pinia'
-import { ref, computed, watch, onScopeDispose } from 'vue'
+import { ref, computed, watch, onScopeDispose, hasInjectionContext, inject } from 'vue'
 import axios, { type AxiosError, type Method } from 'axios'
-import { AuthApi, ProjectsApi, ProcessesApi, TasksApi, TimesheetResourcesApi, TimesheetCalendarApi, TimesheetStatesApi, PlanningApi, MilestonesApi, UsersApi, AssignmentsApi, AutoCreateApi, RBACApi, PermissionsApi, AuditApi, Configuration } from '@/api'
-import type { DtoUserInfo, DtoProject, DtoResourceResponse, DtoResourceCalendar, DtoResourceMemberResponse, DtoResourceAbsenceResponse, DtoUserResponse, DtoUserStateResponse, DtoStateResponse, DtoCreateResourceRequest, DtoUpdateResourceRequest, DtoCreateUserRequest, DtoUpdateUserRequest, DtoAdminUserResponse, DtoCreateUserResult, DtoAutoCreateConfig, DtoAutoCreatedCounts, DtoCommentResponse, DtoPresetView, DtoPresetRuleInput, DtoPresetRuleView, DtoMatrixCell, DtoRoutePolicyView, EngineKindInfo, DtoPermission, DtoUserPermissionsView, DtoUserPermissionsInput, DtoAuditEventView, DtoAssignmentResponse, DtoDetailedProcess, DtoDetailedProject, DtoDetailedTask, DtoMilestone, DtoProcess, DtoProcessPlanning, DtoProjectPlanning, DtoResource, DtoTaskDependency, DtoTaskPlanning } from '@/api'
+import { Configuration } from '@/api'
+import type { DtoUserInfo, DtoProject, DtoResourceResponse, DtoResourceCalendar, DtoResourceMemberResponse, DtoResourceAbsenceResponse, DtoUserResponse, DtoUserStateResponse, DtoStateResponse, DtoCreateResourceRequest, DtoUpdateResourceRequest, DtoCreateUserRequest, DtoUpdateUserRequest, DtoAdminUserResponse, DtoCreateUserResult, DtoAutoCreateConfig, DtoAutoCreatedCounts, DtoCommentResponse, DtoPresetView, DtoPresetRuleInput, DtoPresetRuleView, DtoMatrixCell, DtoRoutePolicyView, EngineKindInfo, DtoPermission, DtoUserPermissionsView, DtoUserPermissionsInput, DtoAuditEventView, DtoAssignmentResponse, DtoDetailedProcess, DtoDetailedProject, DtoDetailedTask, DtoTaskResponse, DtoUpdateTaskRequest, DtoMilestone, DtoProcess, DtoProcessPlanning, DtoProjectPlanning, DtoResource, DtoTaskDependency, DtoTaskPlanning } from '@/api'
 import { apiErrorMessage } from '@/utils'
 import { t } from '@/i18n'
 import { getApiUrl } from '@/config'
 import { tablePageSize } from '@/settings'
 import { isOffline } from '@/offline/state'
+import { nativeQueue } from '@/offline/desktopQueue'
 import { offlineFailFastAdapter } from '@/offline/failFast'
 import { scheduleWarmup } from '@/offline/warmup'
-import { enqueueMutation, isNetworkError, pruneForeignOutbox, type MutationEntity } from '@/offline/outbox'
+import { enqueueMutation, isNetworkError, pruneForeignOutbox } from '@/offline/outbox'
 import { scheduleDomainRefresh } from '@/offline/sync'
-import { applyRangeSplit } from '@/offline/periodSplit'
-import { updatePeriodAvailability } from './periodAvailability'
+import { applyRangeSplit, mergePeriodWindow, replaceEmployeeAbsences, shiftPeriodDate as shiftDate } from '@/domain/timesheet'
+import { updatePeriodAvailability } from '@/domain/periodAvailability'
+import { assignmentAllowed } from '@/domain/resourceUsage'
+import { findPlanningTask, findTaskProcess, reorderItems, projectPriorityChanges, taskDateRollback, addResourceAssignment, removeResourceAssignment } from '@/domain/planning'
 import { beginMutation, readStamp, mayApplyRead } from '@/offline/mutationGuard'
 import { pendingRefs } from '@/offline/outbox'
 import { getAccessToken, setAccessToken, accessTokenExpired, accessTokenExpiresAt } from '@/token'
 import {
-  withRefreshLock,
+  withRefreshLock, withSessionLock, sessionEpoch, advanceSessionEpoch, sessionUncertain, markSessionUncertain, subscribeEpoch,
   publishSession,
   subscribeSession,
   subscribeToken,
 } from '@/sessionSync'
 import { isLoggedOut, clearLoggedOut, setLoggedOut } from '@/loggedOut'
-import { saveRefreshToken, loadRefreshToken, clearRefreshToken } from '@/offline/session'
+import { desktopSession, desktopSessionState, desktopAction, type SessionState } from '@/session/desktop'
 import { createTemporaryId } from '@/offline/temporaryId'
 import { hydrateFromCache, apiPath } from '@/offline/hydrate'
-import { cacheGetAllByPath } from '@/offline/cache'
+import { cacheGet, userCachePrefix, cacheGetAllByPath } from '@/offline/cache'
+import { createReadGuard } from '@/data/readGuard'
+import { createPeriodBaselines, periodRowBaseline, type RevisionBaseline } from '@/data/periodBaselines'
+import { taskDataKey } from '@/data/taskData'
+import { createLegacyTaskData } from './data/legacyTasks'
+import { createWebTaskData } from './data/webTasks'
+import { readApi, isReadCancelled, isReadForbidden, invalidateApiReads, readPending } from './data/apiReads'
+import { readConfiguration } from './data/readConfiguration'
+import { platformCapabilities } from '@/platform/context'
+import { localDataAvailability } from '@/platform/state'
+import { runMutation, runOnlineCommand } from './data/mutations'
+import { resetWebCommands, runWebCommand } from './data/webCommands'
+import { commandData } from './data/legacyErrors'
 import { evalScope, type ScopeProbe } from '@/rbacScope'
 import { parentScope } from '@/utils/presetDefaults'
 import {
@@ -39,7 +56,7 @@ import {
   type DependencyType,
   type TaskDates,
   type TaskDatePatch,
-} from '@/components/planner/dependencies'
+} from '@/domain/dependencies'
 
 const USER_KEY = 'mvs_erp_user'
 /**
@@ -50,7 +67,8 @@ const USER_KEY = 'mvs_erp_user'
  */
 const PERMS_KEY_PREFIX = 'mvs_erp_perms'
 function permsKey(uid: number | null | undefined): string {
-  return uid != null ? `${PERMS_KEY_PREFIX}_${uid}` : PERMS_KEY_PREFIX
+  const server = desktopSession ? `_${encodeURIComponent(getApiUrl() || '')}` : ''
+  return uid != null ? `${PERMS_KEY_PREFIX}_${uid}${server}` : PERMS_KEY_PREFIX + server
 }
 
 /** How long before the token expires that proactive refresh kicks in */
@@ -69,81 +87,6 @@ function nextTempId(): number {
   return createTemporaryId()
 }
 
-interface MutationOptions<T = unknown> {
-  call: () => Promise<unknown>
-  entity: MutationEntity
-  tempId?: number
-  /** Regular path after a successful server response (data — the useful part of the payload) */
-  apply: (data: T | null) => void | Promise<void>
-  /** Optimistic path when offline (the request has already gone into the outbox queue) */
-  optimistic: () => void
-  onError: (message: string) => void
-}
-
-/**
- * Runs a mutation with offline support:
- *  - network unavailable (or a network error) → the request is saved to the
- *    outbox queue and the optimistic change is applied, returns true;
- *  - online success → the regular apply, then a coalesced background refresh
- *    of the mutated domains (scheduleDomainRefresh): related pages (the other
- *    planning aggregates) become server-fresh immediately instead of waiting
- *    for the slow PULL cycle — the "backend > cache" rule while online;
- *  - server error → false + onError (as before offline support).
- *  Auth/passwords (/auth/*, changePassword) do not go through this path.
- */
-async function runMutation<T = unknown>(opts: MutationOptions<T>): Promise<boolean> {
-  const finish = beginMutation()
-  try {
-    const resp = await opts.call()
-    const body = (resp as { data?: { error?: { code?: unknown; message?: string } } } | undefined)?.data
-    if (body?.error && (body.error.code != null || body.error.message)) {
-      throw new Error(apiErrorMessage(body.error))
-    }
-    // Unwrap the unified envelope exactly TWO levels: `resp.data` is the body
-    // ({ data: <payload>, error }), `resp.data.data` is the payload DTO the
-    // apply callback expects (the created/updated entity). Going one level
-    // deeper (resp.data.data.data = payload.data) yields undefined for every
-    // create/update DTO and would silently drop online mutations from the UI
-    // (the offline/optimistic path is unaffected — it never reads the payload).
-    finish()
-    await opts.apply(((resp as { data?: { data?: unknown } } | undefined)?.data?.data as T | null) ?? null)
-    // Post-mutation consistency (online only): the outbox flush path owns the
-    // refresh of queued changes (reconcile), so here the refresh is skipped
-    // while isOffline — an optimistic entry would otherwise be reconciled
-    // against the pre-mutation server state.
-    if (!isOffline.value) scheduleDomainRefresh([opts.entity])
-    return true
-  } catch (e: unknown) {
-    const err = e as AxiosError
-    if (err?.config && isNetworkError(e)) {
-      // Mutation queue (outbox): on a network failure the request is stored in
-      // IndexedDB and the optimistic change is applied — in every environment
-      // (web and desktop share the same offline-first logic).
-      try {
-        await enqueueMutation({
-          entity: opts.entity,
-          tempId: opts.tempId,
-          method: (err.config.method ?? 'get') as Method,
-          url: axios.getUri(err.config),
-          body: err.config.data,
-          idempotencyKey: String(err.config.headers?.['Idempotency-Key'] ?? err.config.headers?.['idempotency-key'] ?? '') || undefined,
-        })
-      } catch {
-        finish()
-        opts.onError(e instanceof Error ? e.message ?? String(e) : String(e))
-        return false
-      }
-      opts.optimistic()
-      return true
-    }
-    finish()
-    opts.onError(e instanceof Error ? e.message ?? String(e) : String(e))
-    return false
-  } finally {
-    finish()
-  }
-}
-
 function apiConfig(): Configuration {
   return new Configuration({
     basePath: getApiUrl(),
@@ -153,12 +96,12 @@ function apiConfig(): Configuration {
       // and a hanging server used to freeze the UI indefinitely — most critically
       // the silent auto re-login before first paint (see main.ts BOOT_BOUND_MS).
       timeout: 10000,
-      // Fail-fast when offline is known (the banner is up): the request does not go
+      // Desktop fail-fast when offline is known: the request does not go
       // to the network or wait for a timeout — mutations immediately land in the outbox
       // queue, GETs are served from cache. The adapter is only placed here (store clients)
       // so that the queue flush (flushOutbox, raw axios) goes to the network as
       // usual: otherwise, once the network is back, writes would fail with Network Error.
-      ...(isOffline.value ? { adapter: offlineFailFastAdapter } : {}),
+      ...(platformCapabilities.kind !== 'web' && !desktopSession && isOffline.value ? { adapter: offlineFailFastAdapter } : {}),
     },
     apiKey: () => `Bearer ${getAccessToken()}`,
   })
@@ -176,12 +119,16 @@ function authApiConfig(): Configuration {
   return new Configuration({
     basePath: getApiUrl(),
     baseOptions: {
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-ERP-Session': 'cookie' },
       timeout: 10000,
     },
     apiKey: () => `Bearer ${getAccessToken()}`,
   })
 }
+
+const apiReadsEnabled = platformCapabilities.kind === 'web'
+const readConfig = () => readConfiguration(apiConfig)
+const applicationServices = createApplicationServices(apiConfig, readConfig)
 
 export { apiConfig }
 
@@ -192,6 +139,13 @@ function readStoredUser(): DtoUserInfo | null {
   } catch {
     return null
   }
+}
+
+function saveSessionMetadata(key: string, value: string): void {
+  try { localStorage.setItem(key, value) } catch { /* Public identity may remain memory-only. */ }
+}
+function removeSessionMetadata(key: string): void {
+  try { localStorage.removeItem(key) } catch { /* A storage failure cannot prevent local logout. */ }
 }
 
 /** Whether the token should be renewed early (less than the margin left until expiry) */
@@ -222,13 +176,21 @@ function waitForExternalToken(previous: string): Promise<boolean> {
   })
 }
 
+function resetReadModels(): void {
+  useAppStore().resetUserData()
+  useTimesheetStore().resetUserData()
+  usePlanningStore().resetUserData()
+  useAuditStore().resetUserData()
+}
+
 // === Auth ===
 export const useAuthStore = defineStore('auth', () => {
   // Cached identity supports session restoration, but cannot override a recorded logout.
-  const user = ref<DtoUserInfo | null>(readStoredUser())
+  const user = ref<DtoUserInfo | null>(desktopSession ? null : readStoredUser())
+  let webEpoch = sessionEpoch()
   const isAuthenticated = ref<boolean>(Boolean(user.value) && !isLoggedOut())
   // Neither the in-memory token nor the wall clock invalidates a Vue computed value.
-  function accessExpired(): boolean { return accessTokenExpired() }
+  function accessExpired(): boolean { return desktopSession ? !desktopSessionState.value || desktopSessionState.value.mode === 'online' && desktopSessionState.value.expiresAt <= Date.now() : accessTokenExpired() }
   /** Session mode: online — real (with token), offline — local without token */
   const sessionMode = ref<'online' | 'offline'>('online')
   const loading = ref(false)
@@ -250,15 +212,17 @@ export const useAuthStore = defineStore('auth', () => {
     data: { access_token?: string; user?: DtoUserInfo } | undefined,
     warm = false,
   ) {
+    webEpoch = sessionEpoch()
     const prevUid = user.value?.id
     const token = data?.access_token
     setAccessToken(token ?? null)
     if (data?.user) {
-      localStorage.setItem(USER_KEY, JSON.stringify(data.user))
+      saveSessionMetadata(USER_KEY, JSON.stringify(data.user))
       user.value = data.user
     }
     isAuthenticated.value = Boolean(token)
     sessionMode.value = 'online'
+    isOffline.value = false
     scheduleProactiveRefresh()
     // Permission isolation: when a different user id arrives (a login or an
     // account switch) drop the stale in-memory permission snapshot and fetch
@@ -266,126 +230,109 @@ export const useAuthStore = defineStore('auth', () => {
     // previous account's matrix. A token rotation keeps the same user, so
     // nothing to do (the TTL pull cycle owns refreshes).
     if (prevUid !== user.value?.id) {
+      resetWebCommands()
+      resetReadModels()
       const rbac = useRbacStore()
       rbac.resetPermissions()
       if (!isOffline.value) void rbac.refreshPermissions()
     }
     // Background warm-up of the offline cache with data for the user's role
-    if (warm) scheduleWarmup()
+    if (warm && platformCapabilities.kind !== 'web') scheduleWarmup()
   }
 
-  /**
-   * Offline login (Desktop, the button on /login when isOffline): a local session
-   * without a token — data from cache, mutations to the queue, the server is not polled.
-   * Identity: the saved profile (if it matches the entered login or no login was
-   * entered), otherwise a minimal profile with the entered login.
-   */
-  function enterOffline(username: string | null): boolean {
-    const stored = readStoredUser()
-    const prevUid = user.value?.id
-    if (stored?.username && (!username || stored.username === username)) {
-      user.value = stored
-    } else {
-      user.value = { username: username ?? undefined } as DtoUserInfo
-    }
+  function applyDesktop(state: SessionState) {
+    const previous = user.value?.id
+    const rightsChanged = user.value?.preset !== state.user?.preset || sessionMode.value === 'offline' && state.mode === 'online'
+    const changed = desktopContext !== state.contextId
+    desktopContext = state.contextId
     setAccessToken(null)
-    stopProactiveRefresh()
-    isAuthenticated.value = true
-    sessionMode.value = 'offline'
-    // Offline account switch — never keep another profile's permissions.
-    if (prevUid !== user.value?.id) useRbacStore().resetPermissions()
-    return true
+    user.value = state.user
+    isAuthenticated.value = state.mode !== 'signedOut' && Boolean(state.user) && localDataAvailability.value === 'available'
+    sessionMode.value = state.mode === 'offline' ? 'offline' : 'online'
+    if (state.user) saveSessionMetadata(USER_KEY, JSON.stringify(state.user))
+    else removeSessionMetadata(USER_KEY)
+    if (state.mode === 'online') { clearLoggedOut(); isOffline.value = false }
+    if (state.mode === 'offline') {
+      isOffline.value = true
+      if (state.offlineAvailable && !state.needsLogin) clearLoggedOut()
+    }
+    if (state.mode === 'signedOut') setLoggedOut()
+    if (changed || rightsChanged || previous !== state.user?.id) {
+      resetWebCommands(); resetReadModels(); useRbacStore().resetPermissions()
+    }
+    if (localDataAvailability.value === 'unavailable') error.value = t('offline.db.unavailable')
+    else if (state.error) error.value = apiErrorMessage(state.error)
   }
+  let desktopContext: string | null = null
+  if (desktopSession) watch([desktopSessionState, localDataAvailability], ([state]) => { if (state) applyDesktop(state) }, { immediate: true, flush: 'sync' })
 
-  // Once the network returns after an offline login, silently try to restore a
-  // real online session (the refresh token is in IndexedDB or the cookie). The
-  // router guard alone cannot do it: it skips the refresh while isOffline is
-  // true and then admits the stored profile without an access token — which
-  // made every request go out with an empty Bearer and the server answered
-  // INVALID_TOKEN («Сессия истекла»). When no refresh token is available at
-  // all (a pure offline session), do nothing: the user stays offline (their
-  // data and queue are intact) and can log in online explicitly.
-  watch(
-    isOffline,
-    (offline) => {
-      if (offline) return
-      if (sessionMode.value !== 'offline') return
-      if (isLoggedOut()) return
-      void (async () => {
-        const stored = await loadRefreshToken()
-        if (stored == null) return // no session to restore — stay offline
-        await refreshSession()
-      })()
-    },
-    { flush: 'sync' },
-  )
+  async function enterOffline(username: string | null): Promise<boolean> {
+    if (!desktopSession) return false
+    try { applyDesktop(await desktopAction('enterOffline', username)); return isAuthenticated.value }
+    catch { error.value = t('auth.noSession'); return false }
+  }
+  watch(isOffline, offline => {
+    if (!offline && sessionMode.value === 'offline' && !isLoggedOut()) void refreshSession()
+  }, { flush: 'sync' })
 
   async function login(username: string, password: string) {
     loading.value = true
     error.value = null
     try {
-      const api = new AuthApi(authApiConfig())
-      const resp = await api.authLoginPost({ username: username.trim(), password })
-      const body = resp.data
-      const errBody = body?.error as { code?: unknown; message?: string } | undefined
-      if (errBody && errBody.code != null) throw new Error(apiErrorMessage(errBody))
-      // Commit shared state before publishing authentication to navigation watchers.
-      if (body?.data?.refresh_token) {
-        await saveRefreshToken(body.data.refresh_token)
+      if (desktopSession) {
+        if (localDataAvailability.value !== 'available') throw new Error(t('offline.db.unavailable'))
+        const state = await desktopAction('login', username, password)
+        applyDesktop(state)
+        if (state.mode !== 'online') return false
+        scheduleWarmup()
+      } else {
+        const own = advanceSessionEpoch()
+        const accepted = await withSessionLock(async () => {
+          const resp = await sessionRequests.login({ username: username.trim(), password }, authApiConfig())
+          if (own !== sessionEpoch()) return false
+          const body = resp.data
+          if ((body?.error as { code?: unknown } | undefined)?.code != null) throw new Error(apiErrorMessage(body.error))
+          if (!body?.data?.access_token) return false
+          markSessionUncertain(false)
+          clearLoggedOut()
+          applySession(body.data, true)
+          publishSession({ access: body.data.access_token, user: body.data.user })
+          return true
+        })
+        if (!accepted) return false
       }
-      clearLoggedOut()
-      // Manual login: the offline cache is warmed for the user's role.
-      applySession(body?.data, true)
-      sessionMode.value = 'online'
-      // A verified login orphans the queue entries of the previous account
-      // (their session is revoked; the flush-time creator guard would park
-      // them forever). Same-account entries — e.g. pending work of a sibling
-      // tab — are kept. Non-fatal.
-      void pruneForeignOutbox(user.value?.username ?? username.trim()).catch(() => {})
+      if (platformCapabilities.kind !== 'web') void pruneForeignOutbox(user.value?.username ?? username.trim()).catch(() => {})
       return true
     } catch (e: unknown) {
-      error.value = e instanceof Error ? e.message || String(e) : String(e)
+      error.value = desktopSession && e instanceof Error && /^(SESSION_|DESKTOP_)/.test(e.message)
+        ? t('auth.serviceUnavailable')
+        : e instanceof Error ? e.message || String(e) : String(e)
       return false
-    } finally {
-      loading.value = false
-    }
+    } finally { loading.value = false }
   }
 
   async function changePassword(oldPassword: string, newPassword: string) {
     loading.value = true
     error.value = null
     try {
-      const api = new UsersApi(apiConfig())
-      const resp = await api.userChangePasswordPost({
-        old_password: oldPassword,
-        new_password: newPassword,
+      const result = await runOnlineCommand({
+        key: ['account.password', user.value?.id], sensitive: true,
+        call: request => sessionRequests.changePassword({ old_password: oldPassword, new_password: newPassword }, request, authApiConfig()),
+        apply: () => {}, onConfirmed: () => { error.value = null },
+        onError: message => { error.value = message },
       })
-      const body = resp.data
-      const errBody = body?.error as { code?: unknown; message?: string } | undefined
-      if (errBody && errBody.code != null) throw new Error(apiErrorMessage(errBody))
-      return true
-    } catch (e: unknown) {
-      error.value = apiErrorMessage(
-        (e as { response?: { data?: { error?: { message?: string; code?: unknown } | null | undefined } } } | undefined)
-          ?.response?.data?.error,
-        e instanceof Error ? e.message : String(e),
-      )
-      return false
-    } finally {
-      loading.value = false
-    }
+      return result.status === 'confirmed'
+    } finally { loading.value = false }
   }
 
+  let backgroundSessionAllowed = true
   let proactiveTimer: number | null = null
   let onVisibilityChange: (() => void) | null = null
   let refreshInFlight: Promise<boolean> | null = null
 
   /** Proactive refresh: timer + tab visibility return, so the access token never expires prematurely */
   function scheduleProactiveRefresh() {
-    if (proactiveTimer != null) return
-    // Refresh is unified across environments: the refresh token lives in the
-    // IndexedDB 'session' store (body of /auth/refresh), so the timer works the
-    // same on web and desktop.
+    if (desktopSession || !backgroundSessionAllowed || proactiveTimer != null) return
     const renew = () => {
       if (accessTokenExpiring()) {
         void refreshSession()
@@ -412,19 +359,25 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function invalidateOnlineSession() {
+    resetWebCommands()
     stopProactiveRefresh()
     setAccessToken(null)
     isAuthenticated.value = false
     useRbacStore().resetPermissions()
-    useTimesheetStore().resetUserData()
-    useAppStore().resetUserData()
-    usePlanningStore().resetUserData()
+    resetReadModels()
   }
 
   /** Renews the access token via the refresh token; on failure logs out.
    *  Parallel calls (timer/guard/interceptor) are deduplicated into a single request */
   async function refreshSession(): Promise<boolean> {
     // A sibling logout can leave this tab's cached profile and memory intact.
+    if (desktopSession) {
+      try {
+        const state = await desktopAction('refresh')
+        applyDesktop(state)
+        return isAuthenticated.value && state.mode === 'online' && state.expiresAt > Date.now()
+      } catch { return false }
+    }
     if (isLoggedOut() && !isOffline.value) {
       invalidateOnlineSession()
       return false
@@ -446,7 +399,10 @@ export const useAuthStore = defineStore('auth', () => {
     const previous = getAccessToken()
     const deadline = Date.now() + SIBLING_REFRESH_WAIT_MS
     while (true) {
-      if (isOffline.value) return true
+      if (isOffline.value) {
+        if (sessionUncertain()) { invalidateOnlineSession(); return false }
+        return isAuthenticated.value && !accessTokenExpired()
+      }
       if (isLoggedOut()) {
         invalidateOnlineSession()
         return false
@@ -467,61 +423,44 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function refreshOwnedSession(): Promise<boolean> {
-    let rotated = false
+    if (sessionUncertain()) { invalidateOnlineSession(); error.value = t('auth.noSession'); return false }
+    const own = sessionEpoch()
     loading.value = true
     error.value = null
     try {
-      const api = new AuthApi(authApiConfig())
-      const stored = await loadRefreshToken()
-      const resp = await api.authRefreshPost(stored ? { refresh_token: stored } : undefined)
-      const body = resp.data
-      const errBody = body?.error as { code?: unknown; message?: string } | undefined
-      if (errBody && errBody.code != null) throw new Error(apiErrorMessage(errBody))
-      // A response issued before logout must not resurrect the online session.
-      if (isLoggedOut()) {
-        invalidateOnlineSession()
-        return false
-      }
-      // Rotate: persist the refresh token returned by the backend for the next refresh.
-      if (body?.data?.refresh_token) {
-        rotated = true
-        await saveRefreshToken(body.data.refresh_token)
-      }
-      if (isLoggedOut()) {
-        invalidateOnlineSession()
-        return false
-      }
-      applySession(body?.data)
+      // A lost response may have rotated the cookie; never replay it blindly.
+      if (markSessionUncertain(true) === false) { error.value = t('auth.noSession'); return false }
+      const resp = await sessionRequests.refresh(authApiConfig())
+      if (isLoggedOut() || own !== sessionEpoch()) { invalidateOnlineSession(); return false }
+      if ((resp.data?.error as { code?: unknown } | undefined)?.code != null) throw new Error(apiErrorMessage(resp.data.error))
+      markSessionUncertain(false)
+      applySession(resp.data?.data)
       const token = getAccessToken()
-      if (token) {
-        publishSession({ access: token, refresh: body?.data?.refresh_token })
-      }
-      return true
+      if (token) publishSession({ access: token, user: resp.data?.data?.user })
+      return Boolean(token)
     } catch (e: unknown) {
-      // Network error (no HTTP response): the server is unreachable. We do not log out —
-      // we switch to offline mode (the session and the change queue in IndexedDB live
-      // until the network returns), in every environment. Logout happens only on a
-      // real server failure.
-      if (isNetworkError(e)) {
-        isOffline.value = true
-        return true
-      }
-      error.value = e instanceof Error ? e.message || String(e) : String(e)
-      // Storage failures and transient server errors do not revoke a shared session.
+      if (isNetworkError(e)) { isOffline.value = true; return !accessTokenExpired() }
+      error.value = e instanceof Error ? e.message : String(e)
       const status = (e as AxiosError)?.response?.status
-      if (status === 401 || status === 403) logout()
-      else if (rotated) {
-        // The stored token is now revoked; no tab may reuse it after a failed rotation commit.
-        invalidateOnlineSession()
-        setLoggedOut()
-      }
+      if (status === 401 || status === 403) { invalidateOnlineSession(); setLoggedOut() }
       return false
-    } finally {
-      loading.value = false
-    }
+    } finally { loading.value = false }
   }
 
+  function startBackgroundSession(): void {
+    backgroundSessionAllowed = true
+    if (isAuthenticated.value && sessionMode.value === 'online') scheduleProactiveRefresh()
+  }
+
+  function stopBackgroundSession(): void {
+    backgroundSessionAllowed = false
+    stopProactiveRefresh()
+  }
+
+  onScopeDispose(stopBackgroundSession)
+
   function logout() {
+    resetWebCommands()
     stopProactiveRefresh()
     // The mutation queue is NOT wiped here: it is shared by every tab/window of
     // this profile, and a sibling tab of the same user may still have pending
@@ -530,32 +469,23 @@ export const useAuthStore = defineStore('auth', () => {
     // auto-sync is disabled (isLoggedOut) until a manual login. Orphaned
     // entries of the logged-out account are pruned on the next verified login
     // (pruneForeignOutbox). The explicit full wipe is clearOutbox().
-    // Revoke the refresh session on the server: read the stored token and send it
-    // in the body of /auth/logout (falling back to the cookie when none is stored),
-    // then clear our local copy. Best-effort — the cookie is also cleared by the backend.
-    void (async () => {
-      try {
-        const stored = await loadRefreshToken()
-        await new AuthApi(authApiConfig()).authLogoutPost(
-          stored ? { refresh_token: stored } : undefined,
-        )
-      } catch {
-        // the session is revoked/expired on the client regardless
-      } finally {
-        // Local cleanup must never throw out of logout (an IndexedDB failure —
-        // e.g. a missing object store — would otherwise surface as an
-        // unhandled promise rejection after the user logged out).
-        await clearRefreshToken().catch(() => {})
-      }
-    })()
+    if (desktopSession) void desktopAction('logout').then(applyDesktop).catch(() => {})
+    else {
+      advanceSessionEpoch()
+      void withSessionLock(async () => {
+        await sessionRequests.logout(authApiConfig())
+        markSessionUncertain(false)
+        return true
+      }).catch(() => {})
+    }
     setAccessToken(null)
     // The permission cache is per-user: drop the logged-out account's key and
     // the in-memory snapshot so a later login (the same or another account)
     // starts from its real /permissions/me, never from these rights.
     const wasUid = user.value?.id
-    if (wasUid != null) localStorage.removeItem(permsKey(wasUid))
+    if (wasUid != null) removeSessionMetadata(permsKey(wasUid))
     useRbacStore().resetPermissions()
-    localStorage.removeItem(USER_KEY)
+    removeSessionMetadata(USER_KEY)
     user.value = null
     isAuthenticated.value = false
     sessionMode.value = 'online'
@@ -565,27 +495,26 @@ export const useAuthStore = defineStore('auth', () => {
     // (the same or another account) starts from its own server-scoped data —
     // never from the previous session's rows (the GET cache itself is per-user
     // keyed — see offline/cache.ts — so no cache wipe is needed).
-    useTimesheetStore().resetUserData()
-    useAppStore().resetUserData()
-    usePlanningStore().resetUserData()
+    resetReadModels()
   }
 
   /** Fetches fresh user data by id via UsersApi.usersIdGet */
-  async function fetchProfile(userId: number): Promise<boolean> {
-    if (isOffline.value && user.value) return true
+  async function fetchProfile(userId: number, preferCache = false): Promise<boolean> {
+    if (!apiReadsEnabled && isOffline.value && user.value) return true
     error.value = null
     try {
-      const api = new UsersApi(apiConfig())
-      const resp = await api.userIdGet(userId)
+      const api = applicationServices.users
+      const resp = await readApi('profile', userId, request => api.profile(userId, request), preferCache)
       const body = resp.data
       const errBody = body?.error as { code?: unknown; message?: string } | undefined
       if (errBody && errBody.code != null) throw new Error(apiErrorMessage(errBody))
       if (body?.data) {
         user.value = body.data as DtoUserInfo
-        localStorage.setItem(USER_KEY, JSON.stringify(user.value))
+        saveSessionMetadata(USER_KEY, JSON.stringify(user.value))
       }
       return true
     } catch (e: unknown) {
+      if (isReadCancelled(e)) return false
       error.value = e instanceof Error ? e.message || String(e) : String(e)
       return false
     }
@@ -593,6 +522,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   /** Local-first profile: hydrate from the cache; network refresh via fetchProfile */
   async function loadProfile(userId: number): Promise<boolean> {
+    if (apiReadsEnabled) return fetchProfile(userId, true)
     if (user.value) return true
     await hydrateFromCache([
       {
@@ -602,7 +532,7 @@ export const useAuthStore = defineStore('auth', () => {
           const d = (body as { data?: DtoUserInfo } | undefined)?.data
           if (d) {
             user.value = d
-            localStorage.setItem(USER_KEY, JSON.stringify(d))
+            saveSessionMetadata(USER_KEY, JSON.stringify(d))
           }
         },
       },
@@ -613,23 +543,21 @@ export const useAuthStore = defineStore('auth', () => {
   // After a page reload with saved tokens, continue proactive refresh
   if (isAuthenticated.value) {
     scheduleProactiveRefresh()
-    scheduleWarmup()
+    if (platformCapabilities.kind !== 'web') scheduleWarmup()
   }
 
-  // Adopt fresher sessions (access token + rotated refresh token) published by
-  // sibling tabs (cross-tab refresh coordination in ALL environments — the
-  // refresh token is shared and rotated once per family).
-  let unsubscribeSessionToken: (() => void) | null = null
-  unsubscribeSessionToken = subscribeSession(({ access }) => {
-    if (isLoggedOut()) return
-    if (access) {
-      const cur = accessTokenExpiresAt(getAccessToken())
-      const next = accessTokenExpiresAt(access)
-      if (next != null && (cur == null || next > cur)) setAccessToken(access)
-    }
-    // The owner persisted the shared refresh token before broadcasting; replaying it here can roll it back.
+  const unsubscribeSessionToken = desktopSession ? () => {} : subscribeSession(({ access, user: identity }) => {
+    if (isLoggedOut() || !access) return
+    const current = accessTokenExpiresAt(), next = accessTokenExpiresAt(access)
+    if (next != null && (current == null || next >= current)) applySession({ access_token: access, user: identity })
   })
-  onScopeDispose(() => unsubscribeSessionToken?.())
+  const unsubscribeEpoch = desktopSession ? () => {} : subscribeEpoch(() => {
+    if (webEpoch === sessionEpoch() && !isLoggedOut()) return
+    webEpoch = sessionEpoch()
+    invalidateOnlineSession()
+    user.value = null
+  })
+  onScopeDispose(() => { unsubscribeSessionToken(); unsubscribeEpoch() })
 
   return {
     user,
@@ -643,6 +571,8 @@ export const useAuthStore = defineStore('auth', () => {
     changePassword,
     refreshSession,
     waitForSessionRefresh,
+    startBackgroundSession,
+    stopBackgroundSession,
     fetchProfile,
     loadProfile,
     logout,
@@ -660,6 +590,7 @@ export const useAppStore = defineStore('app', () => {
    * happens only through the background PULL cycle (refreshProjects).
    */
   async function loadProjects(): Promise<void> {
+    if (apiReadsEnabled) return refreshProjects(false, true)
     if (projects.value.length) return
     await hydrateFromCache([
       {
@@ -677,7 +608,7 @@ export const useAppStore = defineStore('app', () => {
     ])
   }
 
-  async function refreshProjects(): Promise<void> {
+  async function refreshProjects(silent = false, preferCache = false): Promise<void> {
     // Only users with project.view (backend-enforced) may list projects; for
     // the others the listing is forbidden (403) — we do not send the request
     // at all. The RBAC matrix is authoritative once loaded; the preset is only
@@ -692,17 +623,18 @@ export const useAppStore = defineStore('app', () => {
       projects.value = []
       return
     }
-    projectsLoading.value = true
-    projectsError.value = null
+    if (!silent) { projectsLoading.value = true; projectsError.value = null }
     try {
-      const api = new ProjectsApi(apiConfig())
-      const resp = await api.projectGet(tablePageSize.value, undefined, 0)
+      const api = applicationServices.projects
+      const resp = await readApi('projects', [tablePageSize.value, 0], request => api.list(tablePageSize.value, undefined, 0, request), preferCache)
       const data = resp.data?.data
       projects.value = data?.items ?? []
     } catch (e: unknown) {
-      projectsError.value = e instanceof Error ? e.message || String(e) : String(e)
+      if (isReadForbidden(e)) { projects.value = [] }
+      if (isReadCancelled(e)) return
+      if (!silent) projectsError.value = e instanceof Error ? e.message || String(e) : String(e)
     } finally {
-      projectsLoading.value = false
+      if (!silent) projectsLoading.value = readPending('projects')
     }
   }
 
@@ -748,6 +680,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   async function loadResources(): Promise<void> {
+    if (apiReadsEnabled) return refreshResources(false, true)
     if (resources.value.length) return
     await hydrateFromCache([
       {
@@ -772,14 +705,22 @@ export const useAppStore = defineStore('app', () => {
    * purpose: while the list is empty they are the only progress indicator the
    * page has (mirrors `refreshEmployees(managerId, silent)`).
    */
-  async function refreshResources(silent = false): Promise<void> {
+  async function refreshResources(silent = false, preferCache = false): Promise<void> {
+    const rbac = useRbacStore()
+    if (rbac.permsLoaded && !rbac.can('resource', 'view')) {
+      resources.value = []
+      resourcesTotal.value = 0
+      resourcesError.value = null
+      resourcesLoading.value = false
+      return
+    }
     if (!silent) {
       resourcesLoading.value = true
       resourcesError.value = null
     }
     try {
-      const api = new TimesheetResourcesApi(apiConfig())
-      const resp = await api.resourcesGet(tablePageSize.value, undefined, 0)
+      const api = applicationServices.resources
+      const resp = await readApi('resources', [tablePageSize.value, 0], request => api.list(tablePageSize.value, undefined, 0, request), preferCache)
       const data = resp.data?.data
       const items = data?.items ?? []
       // The background PULL must not truncate pages already loaded via
@@ -788,13 +729,18 @@ export const useAppStore = defineStore('app', () => {
       // offline path uses (mergeResources). The array identity is preserved
       // when the merged roster equals the current one, so dependent views do
       // not re-render on every quiet refresh cycle.
-      const merged = mergeResourceLists(resources.value, items)
+      const complete = nativeQueue?.mainSync ? await cacheGet<DtoResourceResponse[]>(userCachePrefix() + '/local/resource-header?owner_id=all') : null
+      const completeById = complete ? new Map(complete.map(row => [row.id, row])) : null
+      const visible = completeById ? resources.value.flatMap(row => completeById.has(row.id) ? [completeById.get(row.id)!] : []) : resources.value
+      const merged = mergeResourceLists(visible, items)
       if (!sameResources(merged, resources.value)) resources.value = merged
       resourcesTotal.value = data?.total ?? 0
     } catch (e: unknown) {
+      if (isReadForbidden(e)) { resources.value = []; resourcesTotal.value = 0 }
+      if (isReadCancelled(e)) return
       if (!silent) resourcesError.value = e instanceof Error ? e.message || String(e) : String(e)
     } finally {
-      if (!silent) resourcesLoading.value = false
+      if (!silent) resourcesLoading.value = readPending('resources')
     }
   }
 
@@ -809,7 +755,7 @@ export const useAppStore = defineStore('app', () => {
     resourcesLoadingMore.value = true
     resourcesError.value = null
     try {
-      if (isOffline.value) {
+      if (!apiReadsEnabled && isOffline.value) {
         const pages = await cacheGetAllByPath<{ data?: { items?: DtoResourceResponse[]; offset?: number; total?: number } }>(
           apiPath('/resources'),
         )
@@ -824,17 +770,18 @@ export const useAppStore = defineStore('app', () => {
         if (!merged) resourcesError.value = t('offline.noCachedData')
         return merged
       }
-      const api = new TimesheetResourcesApi(apiConfig())
-      const resp = await api.resourcesGet(tablePageSize.value, undefined, resources.value.length)
+      const api = applicationServices.resources
+      const resp = await readApi('resources.more', [tablePageSize.value, resources.value.length], request => api.list(tablePageSize.value, undefined, resources.value.length, request))
       const data = resp.data?.data
       mergeResources(data?.items ?? [])
       resourcesTotal.value = data?.total ?? resourcesTotal.value
       return true
     } catch (e: unknown) {
+      if (isReadCancelled(e)) return false
       resourcesError.value = e instanceof Error ? e.message || String(e) : String(e)
       return false
     } finally {
-      resourcesLoadingMore.value = false
+      resourcesLoadingMore.value = readPending('resources.more')
     }
   }
 
@@ -842,21 +789,23 @@ export const useAppStore = defineStore('app', () => {
     resourcesError.value = null
     payload = { ...payload, owner_id: payload.owner_id ?? useAuthStore().user?.id }
     const tempId = nextTempId()
-    return runMutation({
+    return runMutation<DtoResourceResponse>({
       entity: 'resource',
+      key: ['resource.create', payload],
       tempId,
-      call: async () => {
-        const resp = await new TimesheetResourcesApi(apiConfig()).resourcesPost(payload)
+      call: async (request) => {
+        const resp = await applicationServices.resources.create(payload, request)
         const errBody = resp.data?.error as { code?: unknown; message?: string } | undefined
         if (errBody && errBody.code != null) throw new Error(apiErrorMessage(errBody))
         return resp
       },
       apply: (data) => {
-        if (data) resources.value.push(data)
+        if (data && !resources.value.some(row => row.id === data.id)) resources.value.push(data)
       },
       optimistic: () => {
         resources.value.push({ id: tempId, ...payload } as unknown as DtoResourceResponse)
       },
+      onConfirmed: () => { resourcesError.value = null },
       onError: (m) => {
         resourcesError.value = m
       },
@@ -864,6 +813,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   async function updateResource(id: number, patch: DtoUpdateResourceRequest): Promise<boolean> {
+    patch = { ...patch }
     resourcesError.value = null
     const previousOwner = resources.value.find((r) => r.id === id)?.owner_id
     const clearAssignments = () => {
@@ -874,8 +824,10 @@ export const useAppStore = defineStore('app', () => {
     }
     return runMutation({
       entity: 'resource',
-      call: async () => {
-        const resp = await new TimesheetResourcesApi(apiConfig()).resourcesIdPut(id, patch)
+      key: ['resource.update', id, patch],
+      targetId: id,
+      call: async (request) => {
+        const resp = await applicationServices.resources.update(id, patch, request)
         const errBody = resp.data?.error as { code?: unknown; message?: string } | undefined
         if (errBody && errBody.code != null) throw new Error(apiErrorMessage(errBody))
         return resp
@@ -891,6 +843,7 @@ export const useAppStore = defineStore('app', () => {
         const i = resources.value.findIndex((r) => r.id === id)
         if (i >= 0) resources.value[i] = { ...resources.value[i], ...patch }
       },
+      onConfirmed: () => { resourcesError.value = null },
       onError: (m) => {
         resourcesError.value = m
       },
@@ -905,9 +858,12 @@ export const useAppStore = defineStore('app', () => {
     }
     return runMutation({
       entity: 'resource',
-      call: () => new TimesheetResourcesApi(apiConfig()).resourcesIdDelete(id),
+      key: ['resource.delete', id],
+      targetId: id,
+      call: (request) => applicationServices.resources.remove(id, request),
       apply: remove,
       optimistic: remove,
+      onConfirmed: () => { resourcesError.value = null },
       onError: (m) => {
         resourcesError.value = m
       },
@@ -919,6 +875,7 @@ export const useAppStore = defineStore('app', () => {
 
   /** Loads the member (user) list of a resource — local-first (cache) */
   async function loadResourceMembers(resourceId: number): Promise<void> {
+    if (apiReadsEnabled) return refreshResourceMembers(resourceId, true)
     if (resourceMembers.value[resourceId] != null) return
     await hydrateFromCache([
       {
@@ -932,12 +889,13 @@ export const useAppStore = defineStore('app', () => {
     ])
   }
 
-  async function refreshResourceMembers(resourceId: number): Promise<void> {
+  async function refreshResourceMembers(resourceId: number, preferCache = false): Promise<void> {
     try {
-      const api = new TimesheetResourcesApi(apiConfig())
-      const resp = await api.resourcesIdMembersGet(resourceId)
+      const api = applicationServices.resources
+      const resp = await readApi('resource.members:' + resourceId, resourceId, request => api.members(resourceId, request), preferCache)
       resourceMembers.value[resourceId] = resp.data?.data ?? []
     } catch (e: unknown) {
+      if (isReadCancelled(e) || preferCache && nativeQueue?.mainSync) return
       resourcesError.value = e instanceof Error ? e.message || String(e) : String(e)
     }
   }
@@ -948,10 +906,12 @@ export const useAppStore = defineStore('app', () => {
     const tempId = nextTempId()
     return runMutation({
       entity: 'member',
+      key: ['member.add', resourceId, userId],
+      targetId: resourceId,
       tempId,
-      call: () => new TimesheetResourcesApi(apiConfig()).resourcesIdMembersPost(resourceId, {
+      call: (request) => applicationServices.resources.addMember(resourceId, {
         user_id: userId,
-      }),
+      }, request),
       apply: async () => {
         await refreshResourceMembers(resourceId)
         await refreshResources()
@@ -972,6 +932,7 @@ export const useAppStore = defineStore('app', () => {
         }
         resourceMembers.value[resourceId] = list
       },
+      onConfirmed: () => { resourcesError.value = null },
       onError: (m) => {
         resourcesError.value = m
       },
@@ -988,12 +949,15 @@ export const useAppStore = defineStore('app', () => {
     }
     return runMutation({
       entity: 'member',
-      call: () => new TimesheetResourcesApi(apiConfig()).resourcesIdMembersUserIdDelete(resourceId, userId),
+      key: ['member.remove', resourceId, userId],
+      targetId: resourceId,
+      call: (request) => applicationServices.resources.removeMember(resourceId, userId, request),
       apply: async () => {
         remove()
         await refreshResources()
       },
       optimistic: remove,
+      onConfirmed: () => { resourcesError.value = null },
       onError: (m) => {
         resourcesError.value = m
       },
@@ -1069,6 +1033,7 @@ export const useAppStore = defineStore('app', () => {
 
   /** Loads resource availability for the "180 days back / 360 days forward" window (within the backend limit) */
   async function loadCalendar(): Promise<void> {
+    if (apiReadsEnabled) return refreshCalendar(true)
     if (calendar.value.length) return
     await hydrateFromCache([
       {
@@ -1082,7 +1047,7 @@ export const useAppStore = defineStore('app', () => {
     ])
   }
 
-  async function refreshCalendar(): Promise<void> {
+  async function refreshCalendar(preferCache = false): Promise<void> {
     const timesheet = useTimesheetStore()
     if (timesheet.busy) return
     const revision = timesheet.periodRevision
@@ -1090,16 +1055,17 @@ export const useAppStore = defineStore('app', () => {
     calendarError.value = null
     try {
       const today = new Date()
-      const api = new TimesheetCalendarApi(apiConfig())
-      const resp = await api.timesheetCalendarGet(
-        calendarDay(today, -CALENDAR_BACK_DAYS),
-        calendarDay(today, CALENDAR_FORWARD_DAYS),
-      )
+      const api = applicationServices.calendar
+      const from = calendarDay(today, -CALENDAR_BACK_DAYS)
+      const to = calendarDay(today, CALENDAR_FORWARD_DAYS)
+      const resp = await readApi('resource.calendar', [from, to], request => api.list(from, to, request), preferCache)
       if (!timesheet.busy && revision === timesheet.periodRevision) calendar.value = resp.data?.data?.resources ?? []
     } catch (e: unknown) {
+      if (isReadForbidden(e)) { calendar.value = [] }
+      if (isReadCancelled(e)) return
       calendarError.value = e instanceof Error ? e.message || String(e) : String(e)
     } finally {
-      calendarLoading.value = false
+      calendarLoading.value = readPending('resource.calendar')
     }
   }
 
@@ -1112,8 +1078,8 @@ export const useAppStore = defineStore('app', () => {
     if (timesheet.busy) return
     const revision = timesheet.periodRevision
     try {
-      const api = new TimesheetResourcesApi(apiConfig())
-      const resp = await api.resourcesIdAbsenceGet(resourceId, from, to)
+      const api = applicationServices.resources
+      const resp = await readApi('resource.absences:' + resourceId, [resourceId, from, to], request => api.absences(resourceId, from, to, request), true)
       if (timesheet.busy || revision !== timesheet.periodRevision) return
       absenceByResource.value = { ...absenceByResource.value, [resourceId]: resp.data?.data ?? [] }
     } catch {
@@ -1132,6 +1098,7 @@ export const useAppStore = defineStore('app', () => {
   const myStaffLoading = ref(false)
 
   async function loadUsers(): Promise<void> {
+    if (apiReadsEnabled) return refreshUsers(true)
     if (users.value.length) return
     await hydrateFromCache([
       {
@@ -1147,22 +1114,25 @@ export const useAppStore = defineStore('app', () => {
     if (!users.value.length) scheduleWarmup()
   }
 
-  async function refreshUsers(): Promise<void> {
+  async function refreshUsers(preferCache = false): Promise<void> {
     usersLoading.value = true
     usersError.value = null
     try {
-      const api = new UsersApi(apiConfig())
-      const resp = await api.userAllGet()
+      const api = applicationServices.users
+      const resp = await readApi('users.directory', undefined, request => api.directory(request), preferCache)
       users.value = resp.data?.data ?? []
     } catch (e: unknown) {
+      if (isReadForbidden(e)) { users.value = [] }
+      if (isReadCancelled(e)) return
       usersError.value = e instanceof Error ? e.message || String(e) : String(e)
     } finally {
-      usersLoading.value = false
+      usersLoading.value = readPending('users.directory')
     }
   }
 
   /** Loads "own staff" (scoped /users without a role filter). */
   async function loadMyStaff(): Promise<void> {
+    if (apiReadsEnabled) return refreshMyStaff(true)
     if (myStaff.value.length) return
     await hydrateFromCache([
       {
@@ -1177,16 +1147,16 @@ export const useAppStore = defineStore('app', () => {
     ])
   }
 
-  async function refreshMyStaff(): Promise<void> {
+  async function refreshMyStaff(preferCache = false): Promise<void> {
     myStaffLoading.value = true
     try {
-      const api = new UsersApi(apiConfig())
-      const resp = await api.userGet(500, undefined, undefined, undefined, undefined, 0)
+      const api = applicationServices.users
+      const resp = await readApi('users.staff', [500, 0], request => api.employees(500, undefined, undefined, undefined, undefined, 0, request), preferCache)
       myStaff.value = resp.data?.data?.items ?? []
     } catch {
       // Not critical: the candidate pool stays as is.
     } finally {
-      myStaffLoading.value = false
+      myStaffLoading.value = readPending('users.staff')
     }
   }
 
@@ -1210,88 +1180,88 @@ export const useAppStore = defineStore('app', () => {
     adminUsersLoading.value = true
     adminUsersError.value = null
     try {
-      const api = new UsersApi(apiConfig())
-      const resp = await api.userAccountsGet(500, undefined, undefined, false, search || undefined, 0)
+      const api = applicationServices.users
+      const resp = await readApi('users.accounts', search, request => api.accounts(500, undefined, undefined, false, search || undefined, 0, request))
       adminUsers.value = resp.data?.data?.items ?? []
     } catch (e: unknown) {
+      if (isReadForbidden(e)) { adminUsers.value = [] }
+      if (isReadCancelled(e)) return
       adminUsersError.value = apiErrorMessage(e as { message?: string; code?: unknown })
     } finally {
-      adminUsersLoading.value = false
+      adminUsersLoading.value = readPending('users.accounts')
+    }
+  }
+
+  async function loadAdminUser(id: number): Promise<DtoAdminUserResponse | null> {
+    adminUsersError.value = null
+    try {
+      const response = await readApi('account.detail', id, request => applicationServices.users.account(id, request))
+      return response.data?.data ?? null
+    } catch (e) {
+      if (!isReadCancelled(e)) adminUsersError.value = apiErrorMessage(e as { message?: string; code?: unknown })
+      return null
     }
   }
 
   /** Creates a user; returns the generated password (if any) */
   async function createUser(payload: DtoCreateUserRequest): Promise<DtoCreateUserResult | null> {
-    try {
-      const api = new UsersApi(apiConfig())
-      const resp = await api.userPost(payload)
-      await loadAdminUsers()
-      // The new account must appear in the roster/name catalog immediately
-      // (coalesced silent refresh of the user domains).
-      if (!isOffline.value) scheduleDomainRefresh(['user'])
-      return resp.data?.data ?? null
-    } catch (e: unknown) {
-      adminUsersError.value = apiErrorMessage(e as { message?: string; code?: unknown })
-      return null
-    }
+    payload = { ...payload }
+    const result = await runOnlineCommand<DtoCreateUserResult>({
+      key: ['account.create', payload.username], sensitive: true,
+      call: request => applicationServices.users.create(payload, request),
+      apply: async () => { await loadAdminUsers(); if (!isOffline.value) scheduleDomainRefresh(['user']) },
+      onConfirmed: () => { adminUsersError.value = null },
+      onError: message => { adminUsersError.value = message },
+    })
+    return result.status === 'confirmed' ? result.data : null
   }
 
   /** Resets a user's password (admin-only); returns the generated password (shown once) or null. */
   async function resetPassword(id: number): Promise<string | null> {
-    try {
-      const api = new UsersApi(apiConfig())
-      const resp = await api.userIdResetPasswordPost(id)
-      // The backend now returns the generated password once in the body.
-      return resp.data?.data?.password ?? null
-    } catch (e: unknown) {
-      adminUsersError.value = apiErrorMessage(e as { message?: string; code?: unknown })
-      return null
-    }
+    const result = await runOnlineCommand<{ password?: string }>({
+      key: ['account.resetPassword', id], sensitive: true,
+      call: request => sessionRequests.resetPassword(id, request, apiConfig()),
+      apply: () => {}, onConfirmed: () => { adminUsersError.value = null },
+      onError: message => { adminUsersError.value = message },
+    })
+    return result.status === 'confirmed' ? result.data?.password ?? null : null
   }
 
   /** Updates a user (role/manager/profile) */
   async function updateUser(id: number, patch: DtoUpdateUserRequest): Promise<boolean> {
-    try {
-      const api = new UsersApi(apiConfig())
-      await api.userIdPut(id, patch)
-      await loadAdminUsers()
-      if (!isOffline.value) scheduleDomainRefresh(['user'])
-      return true
-    } catch (e: unknown) {
-      adminUsersError.value = apiErrorMessage(e as { message?: string; code?: unknown })
-      return false
-    }
+    patch = { ...patch }
+    const result = await runOnlineCommand({
+      key: ['account.update', id, patch],
+      call: request => applicationServices.users.update(id, patch, request),
+      apply: async () => { await loadAdminUsers(); if (!isOffline.value) scheduleDomainRefresh(['user']) },
+      onConfirmed: () => { adminUsersError.value = null },
+      onError: message => { adminUsersError.value = message },
+    })
+    return result.status === 'confirmed'
   }
 
   /** Sets/unsets a user's manager (manager_id: null — no manager) */
   async function updateManager(id: number, managerId: number | null): Promise<boolean> {
-    try {
-      const api = new UsersApi(apiConfig())
-      await api.userIdManagerPut(id, { manager_id: managerId ?? undefined })
-      await loadAdminUsers()
-      // The structure change must refresh the "Руководитель" column on the
-      // Employees page and the roster immediately.
-      if (!isOffline.value) scheduleDomainRefresh(['user'])
-      return true
-    } catch (e: unknown) {
-      adminUsersError.value = apiErrorMessage(e as { message?: string; code?: unknown })
-      return false
-    }
+    const result = await runOnlineCommand({
+      key: ['account.manager', id, managerId],
+      call: request => applicationServices.users.setManager(id, { manager_id: managerId ?? undefined }, request),
+      apply: async () => { await loadAdminUsers(); if (!isOffline.value) scheduleDomainRefresh(['user']) },
+      onConfirmed: () => { adminUsersError.value = null },
+      onError: message => { adminUsersError.value = message },
+    })
+    return result.status === 'confirmed'
   }
 
   /** Deletes (soft) a user — user lifecycle lives in the admin users section */
   async function deleteUser(id: number): Promise<boolean> {
-    try {
-      const api = new UsersApi(apiConfig())
-      await api.userIdDelete(id)
-      await loadAdminUsers()
-      // The deleted account must leave the roster/name catalog immediately.
-      if (!isOffline.value) scheduleDomainRefresh(['user'])
-      return true
-    } catch (e: unknown) {
-      adminUsersError.value = apiErrorMessage(e as { message?: string; code?: unknown })
-      return false
-    }
+    const result = await runOnlineCommand({
+      key: ['account.delete', id],
+      call: request => applicationServices.users.remove(id, request),
+      apply: async () => { await loadAdminUsers(); if (!isOffline.value) scheduleDomainRefresh(['user']) },
+      onConfirmed: () => { adminUsersError.value = null },
+      onError: message => { adminUsersError.value = message },
+    })
+    return result.status === 'confirmed'
   }
 
   // === Admin: auto-creation of projects ===
@@ -1304,32 +1274,48 @@ export const useAppStore = defineStore('app', () => {
     autoCreateLoading.value = true
     autoCreateError.value = null
     try {
-      const api = new AutoCreateApi(apiConfig())
-      const resp = await api.autoCreateConfigGet()
+      const api = applicationServices.template
+      const resp = await readApi('template.configuration', undefined, request => api.get(request))
       autoCreateConfig.value = resp.data?.data ?? null
     } catch (e: unknown) {
+      if (isReadForbidden(e)) { autoCreateConfig.value = null }
+      if (isReadCancelled(e)) return
       autoCreateError.value = apiErrorMessage(e as { message?: string; code?: unknown })
     } finally {
-      autoCreateLoading.value = false
+      autoCreateLoading.value = readPending('template.configuration')
     }
   }
 
   /** Saves the auto-create configuration (full replacement) */
   async function saveAutoCreateConfig(cfg: DtoAutoCreateConfig): Promise<boolean> {
-    try {
-      const api = new AutoCreateApi(apiConfig())
-      await api.autoCreateConfigPut(cfg)
-      autoCreateConfig.value = cfg
-      return true
-    } catch (e: unknown) {
-      autoCreateError.value = apiErrorMessage(e as { message?: string; code?: unknown })
-      return false
-    }
+    cfg = JSON.parse(JSON.stringify(cfg))
+    const result = await runOnlineCommand({
+      key: ['template.save', cfg],
+      call: request => applicationServices.template.save(cfg, request),
+      apply: () => { autoCreateConfig.value = cfg }, onConfirmed: () => { autoCreateError.value = null },
+      onError: message => { autoCreateError.value = message },
+    })
+    return result.status === 'confirmed'
   }
 
   /** Clears the user-scoped payloads on logout/account switch (the GET cache
    *  itself is per-user keyed — see offline/cache.ts). */
   function resetUserData(): void {
+    invalidateApiReads()
+    projects.value = []
+    projectsError.value = null
+    calendar.value = []
+    calendarError.value = null
+    myStaff.value = []
+    adminUsers.value = []
+    adminUsersError.value = null
+    autoCreateConfig.value = null
+    autoCreateError.value = null
+    resourcesTotal.value = 0
+    resourcesError.value = null
+    resourcesLoading.value = false
+    resourcesLoadingMore.value = false
+    usersError.value = null
     users.value = []
     resources.value = []
     resourceMembers.value = {}
@@ -1371,6 +1357,7 @@ export const useAppStore = defineStore('app', () => {
     adminUsersLoading,
     adminUsersError,
     loadAdminUsers,
+    loadAdminUser,
     refreshAdminUsers,
     createUser,
     resetPassword,
@@ -1413,7 +1400,10 @@ export const useTimesheetStore = defineStore('timesheet', () => {
   const employeesLoadedFor = ref<number | null>(null)
   const states = ref<DtoStateResponse[]>([])
   const periodsByEmployee = ref<Record<number, DtoUserStateResponse[]>>({})
+  const periodBaselines = createPeriodBaselines()
+  const stateBaseline = ref<RevisionBaseline | undefined>()
   const periodRevision = ref(0)
+  let periodRead = 0
   const windowStart = ref('')
   const windowEnd = ref('')
   const loading = ref(false)
@@ -1436,15 +1426,6 @@ export const useTimesheetStore = defineStore('timesheet', () => {
    */
   const timesheetRows = computed<DtoUserResponse[]>(() => employeesWithTitles.value)
 
-  /** Date YYYY-MM-DD n days from an ISO date (local timezone) */
-  function shiftDate(iso: string, days: number): string {
-    const d = new Date(`${iso}T00:00:00`)
-    d.setDate(d.getDate() + days)
-    const m = String(d.getMonth() + 1).padStart(2, '0')
-    const dd = String(d.getDate()).padStart(2, '0')
-    return `${d.getFullYear()}-${m}-${dd}`
-  }
-
   function todayISO(): string {
     const d = new Date()
     const m = String(d.getMonth() + 1).padStart(2, '0')
@@ -1453,6 +1434,7 @@ export const useTimesheetStore = defineStore('timesheet', () => {
   }
 
   function setError(e: unknown) {
+    if (isReadCancelled(e)) return
     error.value = e instanceof Error ? e.message || String(e) : String(e)
   }
 
@@ -1461,7 +1443,11 @@ export const useTimesheetStore = defineStore('timesheet', () => {
     const targets = timesheetRows.value.map((emp) => ({
       path: apiPath(`/user/${emp.id ?? 0}/days`),
       filled: () => periodsByEmployee.value[emp.id ?? 0] != null,
-      apply: (body: unknown) => {
+      apply: (body: unknown, metadata?: { key?: string; baseline?: RevisionBaseline }) => {
+        if (metadata?.key) {
+          const query = new URL(metadata.key.replace(/^u\d+:/, ''), 'http://cache.invalid').searchParams
+          periodBaselines.record(emp.id ?? 0, query.get('start_date') || '', query.get('end_date') || '', metadata.baseline)
+        }
         const list = (body as { data?: DtoUserStateResponse[] } | undefined)?.data ?? []
         periodsByEmployee.value[emp.id ?? 0] = [...list].sort((a, b) =>
           (a.start_date ?? '').localeCompare(b.start_date ?? ''),
@@ -1472,38 +1458,12 @@ export const useTimesheetStore = defineStore('timesheet', () => {
   }
 
   /** Merges a fresh [start, end] window response for one employee into the cache */
-  function mergeWindowPeriods(id: number, list: DtoUserStateResponse[], start: string, end: string): void {
+  function mergeWindowPeriods(id: number, list: DtoUserStateResponse[], start: string, end: string, baseline?: RevisionBaseline): void {
     if (busy.value) return
+    periodBaselines.record(id, start, end, baseline)
     const existing = periodsByEmployee.value[id] ?? []
-    // A fresh response for the [start, end] window is authoritative for periods overlapping it:
-    // old overlapping periods (e.g. cleared via DELETE) are removed,
-    // then new ones are merged. Periods outside the window are kept for incremental loading.
-    const kept = existing.filter(
-      (p) =>
-        !(p.start_date != null && p.end_date != null && !(p.end_date < start || p.start_date > end)),
-    )
-    const byId = new Map<number, DtoUserStateResponse>()
-    for (const p of kept) if (p.id != null) byId.set(p.id, p)
-    for (const p of list) if (p.id != null) byId.set(p.id, p)
-    const merged = [...byId.values()].sort((a, b) =>
-      (a.start_date ?? '').localeCompare(b.start_date ?? ''),
-    )
-    // Keep the previous array reference when nothing changed: the grid reads
-    // periodsByEmployee, and replacing it with an equal-but-new array re-renders
-    // every cell on each background refresh (flicker on "Табель").
-    if (!samePeriods(existing, merged)) periodsByEmployee.value[id] = merged
-  }
-
-  /** Field-by-field equality of two sorted periods lists (same ids + fields) */
-  function samePeriods(a: DtoUserStateResponse[], b: DtoUserStateResponse[]): boolean {
-    if (a.length !== b.length) return false
-    for (let i = 0; i < a.length; i++) {
-      if (a[i]?.id !== b[i]?.id) return false
-      for (const key of Object.keys(a[i] ?? {}) as Array<keyof DtoUserStateResponse>) {
-        if (a[i][key] !== b[i]?.[key]) return false
-      }
-    }
-    return true
+    const merged = mergePeriodWindow(existing, list, start, end)
+    if (merged !== existing) periodsByEmployee.value[id] = merged
   }
 
   /**
@@ -1513,25 +1473,24 @@ export const useTimesheetStore = defineStore('timesheet', () => {
    * case — the batch is only an optimization. Lenient: a failed row keeps its
    * previous cached data; returns false only when at least one row failed.
    */
-  async function refreshPeriodsOneByOne(start: string, end: string): Promise<boolean> {
+  async function refreshPeriodsOneByOne(start: string, end: string, read: number, preferCache = false): Promise<boolean> {
     const revision = periodRevision.value
-    const api = new UsersApi(apiConfig())
+    const api = applicationServices.users
     let failed: unknown = null
     const results = await Promise.all(
       timesheetRows.value.map((emp) =>
-        api
-          .userIdDaysGet(emp.id ?? 0, start, end)
-          .then((r) => ({ id: emp.id, list: r.data?.data ?? [] }))
+        readApi('timesheet.periods:' + emp.id, [emp.id, start, end], request => api.employeePeriods(emp.id ?? 0, start, end, request), preferCache)
+          .then((r) => ({ id: emp.id, list: r.data?.data ?? [], baseline: (r as { __erpBaseline?: RevisionBaseline }).__erpBaseline }))
           .catch((e: unknown) => {
             failed = failed ?? e
-            return { id: emp.id, list: null }
+            return { id: emp.id, list: null, baseline: undefined }
           }),
       ),
     )
-    if (revision !== periodRevision.value) return false
-    for (const { id, list } of results) {
+    if (read !== periodRead || revision !== periodRevision.value) return false
+    for (const { id, list, baseline } of results) {
       if (id == null || list == null) continue
-      mergeWindowPeriods(id, list, start, end)
+      mergeWindowPeriods(id, list, start, end, baseline)
     }
     return failed == null
   }
@@ -1547,21 +1506,23 @@ export const useTimesheetStore = defineStore('timesheet', () => {
    * (unexpected payload shape or a request error), falls back to the
    * per-employee path so the timesheet renders even against an older backend.
    */
-  async function refreshPeriodsBatch(start: string, end: string): Promise<boolean> {
+  let foregroundPeriodReads = 0
+
+  async function refreshPeriodsBatch(start: string, end: string, read: number, preferCache = false): Promise<boolean> {
     if (busy.value) return false
     const revision = periodRevision.value
     const ids = timesheetRows.value
       .map((e) => e.id)
       .filter((id): id is number => id != null)
     if (ids.length === 0) return true
-    const api = new UsersApi(apiConfig())
+    const api = applicationServices.users
     try {
       const chunks: number[][] = []
       for (let i = 0; i < ids.length; i += BATCH_IDS_MAX) chunks.push(ids.slice(i, i + BATCH_IDS_MAX))
       const responses = await Promise.all(
-        chunks.map((chunk) => api.userDaysGet(chunk.join(','), start, end)),
+        chunks.map((chunk) => readApi('timesheet.batch:' + chunk.join(','), [chunk, start, end], request => api.periods(chunk.join(','), start, end, request), preferCache)),
       )
-      if (revision !== periodRevision.value) return false
+      if (read !== periodRead || revision !== periodRevision.value) return false
       for (const resp of responses) {
         const entries = resp.data?.data
         // Shape guard: an older backend (or a proxy) answering the URL with a
@@ -1569,7 +1530,7 @@ export const useTimesheetStore = defineStore('timesheet', () => {
         if (!Array.isArray(entries)) throw new Error('batch days response: unexpected payload shape')
         for (const entry of entries) {
           if (entry.user_id == null) continue
-          mergeWindowPeriods(entry.user_id, entry.days ?? [], start, end)
+          mergeWindowPeriods(entry.user_id, entry.days ?? [], start, end, periodRowBaseline(entry as { _baseline?: RevisionBaseline; _pending?: Record<string, string> }))
         }
       }
       // Unsync guard: if the backend omitted some requested ids, their current
@@ -1578,8 +1539,11 @@ export const useTimesheetStore = defineStore('timesheet', () => {
     } catch (e: unknown) {
       // The batch endpoint may be missing on an older backend — fall back to
       // the per-employee path; surface an error only when the fallback fails too.
-      if (revision !== periodRevision.value || busy.value) return false
-      const ok = await refreshPeriodsOneByOne(start, end)
+      if (read !== periodRead || isReadCancelled(e) || revision !== periodRevision.value || busy.value) return false
+      if (preferCache && nativeQueue?.mainSync) return false
+      const status = (e as AxiosError).response?.status
+      if (status === 401 || status === 403) { setError(e); return false }
+      const ok = await refreshPeriodsOneByOne(start, end, read, preferCache)
       if (!ok) setError(e)
       else console.warn('[timesheet] batch days unavailable, fell back to per-employee:', e instanceof Error ? e.message : e)
       return ok
@@ -1587,8 +1551,11 @@ export const useTimesheetStore = defineStore('timesheet', () => {
   }
 
   /** Network refresh (PULL) entry point: keeps the (start, end) signature used by warmup/sync/ensureRange */
-  async function refreshPeriods(start: string, end: string): Promise<boolean> {
-    return refreshPeriodsBatch(start, end)
+  async function refreshPeriods(start: string, end: string, preferCache = false): Promise<boolean> {
+    if (preferCache && foregroundPeriodReads > 0) return false
+    if (!preferCache) foregroundPeriodReads++
+    try { return await refreshPeriodsBatch(start, end, ++periodRead, preferCache) }
+    finally { if (!preferCache) foregroundPeriodReads-- }
   }
 
   /** An employee's period covering a day (binary search over the sorted periods) */
@@ -1648,6 +1615,7 @@ export const useTimesheetStore = defineStore('timesheet', () => {
 
   /** Local-first: hydrate the employee list (scoped by the backend) from the cache */
   async function loadEmployeesList(): Promise<void> {
+    if (apiReadsEnabled) return refreshEmployees(undefined, false, true)
     // The roster is scoped to the authenticated user: reuse it only for the
     // same account (an account switch must never surface another user's rows).
     const uid = useAuthStore().user?.id ?? null
@@ -1669,14 +1637,14 @@ export const useTimesheetStore = defineStore('timesheet', () => {
     ])
   }
 
-  async function refreshEmployees(managerId?: number, silent = false): Promise<void> {
+  async function refreshEmployees(managerId?: number, silent = false, preferCache = false): Promise<void> {
     if (!silent) {
       loading.value = true
       error.value = null
     }
     try {
-      const api = new UsersApi(apiConfig())
-      const resp = await api.userGet(tablePageSize.value, undefined, managerId ?? undefined, undefined, undefined, 0)
+      const api = applicationServices.users
+      const resp = await readApi('employees', [tablePageSize.value, managerId, 0], request => api.employees(tablePageSize.value, undefined, managerId ?? undefined, undefined, undefined, 0, request), preferCache)
       const data = resp.data?.data
       // Sorting is added by the computed employeesWithTitles.
       //
@@ -1693,9 +1661,11 @@ export const useTimesheetStore = defineStore('timesheet', () => {
       if (!sameEmployees(merged, employees.value)) employees.value = merged
       employeesTotal.value = data?.total ?? 0
     } catch (e: unknown) {
+      if (isReadForbidden(e)) { employees.value = []; employeesTotal.value = 0 }
+      if (isReadCancelled(e)) return
       if (!silent) setError(e)
     } finally {
-      if (!silent) loading.value = false
+      if (!silent) loading.value = readPending('employees')
     }
   }
 
@@ -1715,7 +1685,7 @@ export const useTimesheetStore = defineStore('timesheet', () => {
     employeesLoadingMore.value = true
     error.value = null
     try {
-      if (isOffline.value) {
+      if (!apiReadsEnabled && isOffline.value) {
         const pages = await cacheGetAllByPath<EmployeePage>(
           apiPath('/user'),
           (key) => /\blimit=50\b/.test(key),
@@ -1731,17 +1701,18 @@ export const useTimesheetStore = defineStore('timesheet', () => {
         if (!merged) error.value = t('offline.noCachedData')
         return merged
       }
-      const api = new UsersApi(apiConfig())
-      const resp = await api.userGet(tablePageSize.value, undefined, undefined, undefined, undefined, employees.value.length)
+      const api = applicationServices.users
+      const resp = await readApi('employees.more', [tablePageSize.value, employees.value.length], request => api.employees(tablePageSize.value, undefined, undefined, undefined, undefined, employees.value.length, request))
       const data = resp.data?.data
       mergeEmployees(data?.items ?? [])
       employeesTotal.value = data?.total ?? employeesTotal.value
       return true
     } catch (e: unknown) {
+      if (isReadCancelled(e)) return false
       setError(e)
       return false
     } finally {
-      employeesLoadingMore.value = false
+      employeesLoadingMore.value = readPending('employees.more')
     }
   }
 
@@ -1754,24 +1725,31 @@ export const useTimesheetStore = defineStore('timesheet', () => {
 
   /** Loads the states reference — local-first (cache) */
   async function loadStates(): Promise<void> {
+    if (apiReadsEnabled) return refreshStates(true)
     if (states.value.length) return
     await hydrateFromCache([
       {
         path: apiPath('/timesheet/states'),
         filled: () => states.value.length > 0,
-        apply: (body) => {
+        apply: (body, metadata) => {
+          stateBaseline.value = metadata?.baseline
           states.value = (body as { data?: DtoStateResponse[] } | undefined)?.data ?? []
         },
       },
     ])
   }
 
-  async function refreshStates(): Promise<void> {
+  async function refreshStates(preferCache = false): Promise<void> {
+    const rbac = useRbacStore()
+    if (rbac.permsLoaded && !rbac.can('state', 'view')) { states.value = []; return }
     try {
-      const api = new TimesheetStatesApi(apiConfig())
-      const resp = await api.timesheetStatesGet()
+      const api = applicationServices.states
+      const resp = await readApi('timesheet.states', undefined, request => api.list(request), preferCache)
       states.value = resp.data?.data ?? []
+      stateBaseline.value = (resp as { __erpBaseline?: RevisionBaseline }).__erpBaseline
     } catch (e: unknown) {
+      if (isReadForbidden(e)) { states.value = [] }
+      if (isReadCancelled(e)) return
       setError(e)
     }
   }
@@ -1787,20 +1765,23 @@ export const useTimesheetStore = defineStore('timesheet', () => {
 
   /** Creates a status and updates the reference */
   async function createState(payload: StatePayload): Promise<boolean> {
+    payload = { ...payload }
     busy.value = true
     error.value = null
     const tempId = nextTempId()
     try {
       return await runMutation({
         entity: 'state',
+        key: ['state.create', payload],
         tempId,
-        call: () => new TimesheetStatesApi(apiConfig()).timesheetStatesPost(payload),
+        call: (request) => applicationServices.states.create(payload, request),
         apply: async () => {
           await refreshStates()
         },
         optimistic: () => {
           states.value.push({ id: tempId, ...payload } as unknown as DtoStateResponse)
         },
+        onConfirmed: () => { error.value = null },
         onError: (m) => {
           error.value = m
         },
@@ -1812,12 +1793,15 @@ export const useTimesheetStore = defineStore('timesheet', () => {
 
   /** Updates a status and refreshes the reference */
   async function updateState(id: number, payload: StatePayload): Promise<boolean> {
+    payload = { ...payload }
     busy.value = true
     error.value = null
     try {
       return await runMutation({
         entity: 'state',
-        call: () => new TimesheetStatesApi(apiConfig()).timesheetStatesIdPut(id, payload),
+        key: ['state.update', id, payload],
+        targetId: id,
+        call: (request) => applicationServices.states.update(id, payload, request),
         apply: async () => {
           await refreshStates()
         },
@@ -1825,6 +1809,7 @@ export const useTimesheetStore = defineStore('timesheet', () => {
           const i = states.value.findIndex((s) => s.id === id)
           if (i >= 0) states.value[i] = { ...states.value[i], ...payload }
         },
+        onConfirmed: () => { error.value = null },
         onError: (m) => {
           error.value = m
         },
@@ -1845,11 +1830,14 @@ export const useTimesheetStore = defineStore('timesheet', () => {
     try {
       return await runMutation({
         entity: 'state',
-        call: () => new TimesheetStatesApi(apiConfig()).timesheetStatesIdDelete(id),
+        key: ['state.delete', id],
+        targetId: id,
+        call: (request) => applicationServices.states.remove(id, request),
         apply: async () => {
           await refreshStates()
         },
         optimistic: remove,
+        onConfirmed: () => { error.value = null },
         onError: (m) => {
           error.value = m
         },
@@ -1863,7 +1851,8 @@ export const useTimesheetStore = defineStore('timesheet', () => {
   async function loadInitialWindow(): Promise<void> {
     windowStart.value = shiftDate(todayISO(), -WINDOW_BACK_DAYS)
     windowEnd.value = shiftDate(todayISO(), WINDOW_FORWARD_DAYS)
-    await fetchPeriodsLocal()
+    if (apiReadsEnabled) await refreshPeriods(windowStart.value, windowEnd.value)
+    else await fetchPeriodsLocal()
   }
 
   /** Extends the loaded window to cover [start, end] and loads only the new ranges (user-initiated PULL) */
@@ -1910,14 +1899,9 @@ export const useTimesheetStore = defineStore('timesheet', () => {
     const updateCalendar = (from: DtoUserStateResponse[], to: DtoUserStateResponse[]) => {
       if (resource?.id != null) {
         app.calendar = updatePeriodAvailability(app.calendar, resource.id, from, to, startDate, endDate)
-        app.absenceByResource[resource.id] = [
-          ...(previousAbsences ?? []).filter((p) => p.user_id !== employeeId),
-          ...to.filter((p) => p.is_available === false).map((p) => ({
-            start_date: p.start_date, end_date: p.end_date, state_id: p.state_id,
-            state_code: p.state_code, state_name: p.state_name, user_id: employeeId,
-            user_name: employees.value.find((e) => e.id === employeeId)?.name,
-          })),
-        ]
+        app.absenceByResource[resource.id] = replaceEmployeeAbsences(
+          previousAbsences ?? [], to, employeeId, employees.value.find((e) => e.id === employeeId)?.name,
+        )
       }
     }
     periodsByEmployee.value[employeeId] = after
@@ -1926,11 +1910,14 @@ export const useTimesheetStore = defineStore('timesheet', () => {
     try {
       ok = await runMutation({
         entity: 'period',
-        call: () => mode === 'put'
-          ? new UsersApi(apiConfig()).userIdDaysPut(employeeId, { state_id: stateId, start_date: startDate, end_date: endDate })
-          : new UsersApi(apiConfig()).userIdDaysDelete(employeeId, startDate, endDate, stateId),
+        key: ['period.' + mode, employeeId, stateId, startDate, endDate],
+        targetId: employeeId,
+        call: (request) => mode === 'put'
+          ? applicationServices.users.assignPeriod(employeeId, { state_id: stateId, start_date: startDate, end_date: endDate }, request)
+          : applicationServices.users.clearPeriod(employeeId, startDate, endDate, stateId, request),
         apply: () => {},
         optimistic: () => {},
+        onConfirmed: () => { error.value = null },
         onError: (message) => {
           error.value = message
           periodsByEmployee.value[employeeId] = before
@@ -1965,10 +1952,14 @@ export const useTimesheetStore = defineStore('timesheet', () => {
    *  only the in-memory state must not leak across accounts. */
   function resetUserData(): void {
     periodRevision.value++
+    error.value = null
+    states.value = []
     employees.value = []
     employeesTotal.value = 0
     employeesLoadedFor.value = null
     periodsByEmployee.value = {}
+    periodBaselines.clear()
+    stateBaseline.value = undefined
     windowStart.value = ''
     windowEnd.value = ''
   }
@@ -1982,6 +1973,9 @@ export const useTimesheetStore = defineStore('timesheet', () => {
     employeesHasMore,
     states,
     periodsByEmployee,
+    periodBaseline: periodBaselines.capture,
+    confirmPeriodBaseline: periodBaselines.advance,
+    stateBaseline,
     periodRevision,
     windowStart,
     windowEnd,
@@ -2007,6 +2001,10 @@ export const useTimesheetStore = defineStore('timesheet', () => {
 
 // === Planning (data from /planning/* for the three charts) ===
 export const usePlanningStore = defineStore('planning', () => {
+  const injectedTaskData = hasInjectionContext() ? inject(taskDataKey, null) : null
+  const taskData = injectedTaskData ?? (apiReadsEnabled ? createWebTaskData(apiConfig) : createLegacyTaskData(apiConfig))
+  const taskReads = createReadGuard()
+  let taskContext = 0
   const projectPlanning = ref<DtoProjectPlanning | null>(null)
   const processPlanning = ref<DtoProcessPlanning | null>(null)
   const taskPlanning = ref<DtoTaskPlanning | null>(null)
@@ -2018,20 +2016,23 @@ export const usePlanningStore = defineStore('planning', () => {
   const commentsByTask = ref<Record<number, DtoCommentResponse[]>>({})
   const commentsLoading = ref(false)
   const commentsError = ref<string | null>(null)
+  let foregroundLoads = 0
 
   /** Common planning load path: silent mode leaves loading/error untouched,
    *  so a background reload after a mutation does not clear a visible error and does not show a spinner. */
   async function runLoad(silent: boolean, load: () => Promise<unknown>) {
     if (!silent) {
+      foregroundLoads++
       loading.value = true
       error.value = null
     }
     try {
       await load()
     } catch (e: unknown) {
-      if (!silent) error.value = e instanceof Error ? e.message || String(e) : String(e)
+      if (isReadForbidden(e)) { projectPlanning.value = null; processPlanning.value = null; taskPlanning.value = null }
+      if (!silent && !isReadCancelled(e)) error.value = e instanceof Error ? e.message || String(e) : String(e)
     } finally {
-      if (!silent) loading.value = false
+      if (!silent) loading.value = --foregroundLoads > 0
     }
   }
 
@@ -2053,6 +2054,7 @@ export const usePlanningStore = defineStore('planning', () => {
   }
 
   async function loadProjectPlanning(): Promise<void> {
+    if (apiReadsEnabled) return refreshProjectPlanning(false, true)
     await hydratePlanning(
       () => projectPlanning.value,
       (v) => {
@@ -2063,6 +2065,7 @@ export const usePlanningStore = defineStore('planning', () => {
   }
 
   async function loadProcessPlanning(): Promise<void> {
+    if (apiReadsEnabled) return refreshProcessPlanning(false, true)
     await hydratePlanning(
       () => processPlanning.value,
       (v) => {
@@ -2073,43 +2076,50 @@ export const usePlanningStore = defineStore('planning', () => {
   }
 
   async function loadTaskPlanning(): Promise<void> {
-    await hydratePlanning(
-      () => taskPlanning.value,
-      (v) => {
-        taskPlanning.value = v
-      },
-      apiPath('/planning/tasks'),
-    )
+    if (taskPlanning.value != null) return
+    const context = taskContext
+    if (apiReadsEnabled) { loading.value = true; error.value = null }
+    const result = await taskData.readPlanning({ source: 'snapshot' })
+    if (context === taskContext && apiReadsEnabled) loading.value = readPending('planning.tasks')
+    if (context !== taskContext || taskPlanning.value != null) return
+    if (result.status === 'ok') taskPlanning.value = result.data
+    else if (result.status === 'failed') error.value = result.error.message
   }
 
-  async function refreshProjectPlanning(silent = false): Promise<void> {
+  async function refreshProjectPlanning(silent = false, preferCache = false): Promise<void> {
     await runLoad(silent, async () => {
       const stamp = readStamp()
-      const resp = await new PlanningApi(apiConfig()).planningProjectsGet()
+      const resp = await readApi('planning.projects', undefined, request => applicationServices.planning.projects(request), preferCache)
       if (!mayApplyRead(stamp)) return
-      if (pendingRefs.value.size === 0) projectPlanning.value = resp.data?.data ?? null
+      if (pendingRefs.value.size === 0 || nativeQueue) projectPlanning.value = resp.data?.data ?? null
       // A durable queue must preserve edits without blocking the first snapshot.
-      else if (projectPlanning.value == null) await loadProjectPlanning()
+      else if (projectPlanning.value == null) await hydratePlanning(() => projectPlanning.value, value => { projectPlanning.value = value }, apiPath('/planning/projects'))
     })
   }
 
-  async function refreshProcessPlanning(silent = false): Promise<void> {
+  async function refreshProcessPlanning(silent = false, preferCache = false): Promise<void> {
     await runLoad(silent, async () => {
       const stamp = readStamp()
-      const resp = await new PlanningApi(apiConfig()).planningProcessesGet()
+      const resp = await readApi('planning.processes', undefined, request => applicationServices.planning.processes(request), preferCache)
       if (!mayApplyRead(stamp)) return
-      if (pendingRefs.value.size === 0) processPlanning.value = resp.data?.data ?? null
+      if (pendingRefs.value.size === 0 || nativeQueue) processPlanning.value = resp.data?.data ?? null
       // A durable queue must preserve edits without blocking the first snapshot.
-      else if (processPlanning.value == null) await loadProcessPlanning()
+      else if (processPlanning.value == null) await hydratePlanning(() => processPlanning.value, value => { processPlanning.value = value }, apiPath('/planning/processes'))
     })
   }
 
-  async function refreshTaskPlanning(silent = false): Promise<void> {
+  async function refreshTaskPlanning(silent = false, preferCache = false): Promise<void> {
     await runLoad(silent, async () => {
+      const request = taskReads.begin()
       const stamp = readStamp()
-      const resp = await new PlanningApi(apiConfig()).planningTasksGet()
-      if (!mayApplyRead(stamp)) return
-      if (pendingRefs.value.size === 0) taskPlanning.value = resp.data?.data ?? null
+      const result = await taskData.readPlanning({ source: preferCache ? 'snapshot' : 'refresh' })
+      if (!request.isCurrent() || !mayApplyRead(stamp)) return
+      if (result.status === 'failed') {
+        if (result.error.kind === 'forbidden') taskPlanning.value = null
+        throw new Error(result.error.message)
+      }
+      if (result.status === 'cancelled') return
+      if (pendingRefs.value.size === 0 || nativeQueue) taskPlanning.value = result.status === 'ok' ? result.data : null
       // A durable queue must preserve edits without blocking the first snapshot.
       else if (taskPlanning.value == null) await loadTaskPlanning()
     })
@@ -2131,15 +2141,7 @@ export const usePlanningStore = defineStore('planning', () => {
 
   /** Finds a task (top-level or subtask) anywhere in the planning data. */
   function findTaskRow(id: number): DtoDetailedTask | undefined {
-    for (const p of taskPlanning.value?.processes ?? []) {
-      const t = (p.tasks ?? []).find((x: DtoDetailedTask) => x.id === id)
-      if (t) return t
-      const s = (p.tasks ?? [])
-        .flatMap((x: DtoDetailedTask) => x.subtasks ?? [])
-        .find((x: DtoDetailedTask) => x.id === id)
-      if (s) return s
-    }
-    return undefined
+    return findPlanningTask(taskPlanning.value?.processes ?? [], id)
   }
 
   /** Locates the object holding a subtask list (a top-level task with subtasks). */
@@ -2180,41 +2182,65 @@ export const usePlanningStore = defineStore('planning', () => {
     }
   }
 
+  async function mutateTask(
+    id: number,
+    patch: DtoUpdateTaskRequest,
+    apply: (dto: DtoTaskResponse | null) => void,
+    optimistic: () => void,
+    onError: (message: string) => void,
+  ): Promise<boolean> {
+    const context = taskContext
+    if (apiReadsEnabled && !injectedTaskData) {
+      const result = await runWebCommand<DtoTaskResponse>({
+        key: ['task.update', id, patch], entity: 'task', targetId: id,
+        call: request => applicationServices.tasks.update(id, patch, request),
+        apply: data => { if (context === taskContext) { error.value = null; apply(data) } },
+        onError: message => { if (context === taskContext) onError(message) },
+      })
+      return result.status === 'confirmed'
+    }
+    const finish = beginMutation()
+    try {
+      const result = await taskData.update(id, patch)
+      if (context !== taskContext) return false
+      if (result.status === 'confirmed') {
+        apply(result.data)
+        return true
+      }
+      if (result.status === 'queued') {
+        optimistic()
+        return true
+      }
+      onError(result.error.message)
+      return false
+    } finally {
+      finish()
+    }
+  }
+
   /** Bar date shift: local edit first (see patchRow), then the PUT. */
   async function updateTaskDates(id: number, start_date: string, end_date: string): Promise<boolean> {
     const row = findTaskRow(id)
     const previous = { start_date: row?.start_date, end_date: row?.end_date }
     const applyLocally = () => patchRow(findTaskRow(id), { start_date, end_date })
     applyLocally()
-    return runMutation({
-      entity: 'task',
-      call: () => new TasksApi(apiConfig()).taskIdPut(id, { start_date, end_date }),
-      // The PUT echoes the stored row — apply it locally. The aggregate itself is
-      // re-read ONCE by the coalesced post-mutation refresh (scheduleDomainRefresh),
-      // so refreshing here as well would only duplicate that GET.
-      apply: (dto) => {
-        const d = dto as { start_date?: string; end_date?: string } | null
-        patchRow(findTaskRow(id), { start_date: d?.start_date, end_date: d?.end_date })
-      },
-      optimistic: applyLocally,
-      onError: (m) => {
+    return mutateTask(id, { start_date, end_date },
+      (dto) => patchRow(findTaskRow(id), { start_date: dto?.start_date, end_date: dto?.end_date }),
+      applyLocally,
+      (m) => {
         error.value = m
         const current = findTaskRow(id)
         if (current?.start_date === start_date && current?.end_date === end_date) patchRow(current, previous)
         void refreshTaskPlanning(true)
       },
-    })
+    )
   }
 
   // === Dependency constraints (scheduling links between top-level tasks) ===
 
   /** The process whose task list contains the given task (top-level or subtask). */
   function findProcessOfTask(id: number): DtoDetailedProcess | undefined {
-    for (const p of taskPlanning.value?.processes ?? []) {
-      if ((p.tasks ?? []).some((x: DtoDetailedTask) => x.id === id)) return p
-      if ((p.tasks ?? []).some((x: DtoDetailedTask) => (x.subtasks ?? []).some((s: DtoDetailedTask) => s.id === id))) return p
-    }
-    return undefined
+    return findTaskProcess(taskPlanning.value?.processes ?? [], id)
   }
 
   /** Dependency edges of the process containing a task. */
@@ -2256,16 +2282,49 @@ export const usePlanningStore = defineStore('planning', () => {
     }
     const edges = dependencyEdgesOf([...changes.keys()][0])
     const order = persistenceOrder([...changes.keys()], edges)
+    if (apiReadsEnabled && order.length > 1) {
+      const context = taskContext
+      const steps = order.map(id => ({ id, patch: { ...changes.get(id)! } }))
+      let completed = 0
+      const result = await runWebCommand({
+        key: ['task.dates.cascade', steps], entity: 'task', targets: order.map(id => ['task', id]), replayBatch: true,
+        call: async request => {
+          completed = 0
+          for (const { id, patch } of steps) {
+            const dto = commandData<{ start_date?: string; end_date?: string }>(await applicationServices.tasks.update(id, patch, {
+              ...request, headers: { 'Idempotency-Key': String(request.headers?.['Idempotency-Key']) + ':' + id },
+            }))
+            const row = findTaskRow(id)
+            if (context === taskContext && row?.start_date === patch.start_date && row?.end_date === patch.end_date) patchRow(row, { start_date: dto?.start_date, end_date: dto?.end_date })
+            completed++
+          }
+          return { data: { data: null } }
+        },
+        apply: async () => { await refreshTaskPlanning(true) },
+        onConfirmed: () => { error.value = null },
+        onError: message => {
+          error.value = message
+          for (const { id, patch } of steps.slice(completed)) {
+            const row = findTaskRow(id), rollback = taskDateRollback(row, patch, previous.get(id) ?? {})
+            if (rollback) patchRow(row, rollback)
+          }
+          void refreshTaskPlanning(true)
+        },
+      })
+      return result.status === 'confirmed'
+    }
     let ok = true
     for (const tid of order) {
       const patch = changes.get(tid)!
       const okOne = await runMutation({
         entity: 'task',
-        call: () =>
-          new TasksApi(apiConfig()).taskIdPut(tid, {
+        key: ['task.dates', tid, patch],
+        targetId: tid,
+        call: (request) =>
+          applicationServices.tasks.update(tid, {
             start_date: patch.start_date,
             end_date: patch.end_date,
-          }),
+          }, request),
         // The echoed row (already clamped by the server) lands locally; the
         // aggregate is re-read once by the coalesced refresh — a per-task GET
         // here would multiply into one request per cascaded task.
@@ -2277,6 +2336,7 @@ export const usePlanningStore = defineStore('planning', () => {
           const t = findTaskRow(tid)
           if (t) Object.assign(t, patch)
         },
+        onConfirmed: () => { error.value = null },
         onError: (m) => {
           error.value = m
         },
@@ -2286,9 +2346,8 @@ export const usePlanningStore = defineStore('planning', () => {
         for (const pendingId of order.slice(order.indexOf(tid))) {
           const row = findTaskRow(pendingId)
           const proposed = changes.get(pendingId)!
-          if (row?.start_date === proposed.start_date && row?.end_date === proposed.end_date) {
-            patchRow(row, previous.get(pendingId) ?? {})
-          }
+          const rollback = taskDateRollback(row, proposed, previous.get(pendingId) ?? {})
+          if (rollback) patchRow(row, rollback)
         }
         void refreshTaskPlanning(true)
         ok = false
@@ -2328,11 +2387,13 @@ export const usePlanningStore = defineStore('planning', () => {
     }
     return runMutation({
       entity: 'task',
-      call: () =>
-        new TasksApi(apiConfig()).taskIdDependenciesPost(taskId, {
+      key: ['dependency.create', taskId, dependsOnTaskId, type],
+      targetId: taskId,
+      call: (request) =>
+        applicationServices.tasks.createDependency(taskId, {
           depends_on_task_id: dependsOnTaskId,
           type,
-        }),
+        }, request),
       apply: async () => {
         await refreshTaskPlanning(true)
       },
@@ -2347,6 +2408,7 @@ export const usePlanningStore = defineStore('planning', () => {
           })
         }
       },
+      onConfirmed: () => { error.value = null },
       onError: (m) => {
         error.value = m
       },
@@ -2367,7 +2429,9 @@ export const usePlanningStore = defineStore('planning', () => {
     }
     return runMutation({
       entity: 'task',
-      call: () => new TasksApi(apiConfig()).taskIdDependenciesDepIdPut(taskId, depId, { type }),
+      key: ['dependency.update', taskId, depId, type],
+      targetId: taskId,
+      call: (request) => applicationServices.tasks.updateDependency(taskId, depId, { type }, request),
       apply: async () => {
         await refreshTaskPlanning(true)
       },
@@ -2376,6 +2440,7 @@ export const usePlanningStore = defineStore('planning', () => {
         const e = (proc?.dependencies ?? []).find((x: DtoTaskDependency) => x.id === depId)
         if (e) e.type = type
       },
+      onConfirmed: () => { error.value = null },
       onError: (m) => {
         error.value = m
       },
@@ -2386,7 +2451,9 @@ export const usePlanningStore = defineStore('planning', () => {
   async function deleteTaskDependency(depId: number, taskId: number): Promise<boolean> {
     return runMutation({
       entity: 'task',
-      call: () => new TasksApi(apiConfig()).taskIdDependenciesDepIdDelete(taskId, depId),
+      key: ['dependency.delete', taskId, depId],
+      targetId: taskId,
+      call: (request) => applicationServices.tasks.removeDependency(taskId, depId, request),
       apply: async () => {
         await refreshTaskPlanning(true)
       },
@@ -2396,6 +2463,7 @@ export const usePlanningStore = defineStore('planning', () => {
           proc.dependencies = (proc.dependencies ?? []).filter((x: DtoTaskDependency) => x.id !== depId)
         }
       },
+      onConfirmed: () => { error.value = null },
       onError: (m) => {
         error.value = m
       },
@@ -2403,11 +2471,14 @@ export const usePlanningStore = defineStore('planning', () => {
   }
 
   async function updateProcessDates(id: number, start_date: string, end_date: string): Promise<boolean> {
+    const previous = { start_date: findProcessRow(id)?.start_date, end_date: findProcessRow(id)?.end_date }
     const applyLocally = () => patchRow(findProcessRow(id), { start_date, end_date })
     applyLocally()
     return runMutation({
       entity: 'process',
-      call: () => new ProcessesApi(apiConfig()).processIdPut(id, { start_date, end_date }),
+      key: ['process.dates', id, start_date, end_date],
+      targetId: id,
+      call: (request) => applicationServices.processes.update(id, { start_date, end_date }, request),
       // The echoed row (already clamped into the project) lands locally; the
       // aggregate is re-read once by the coalesced refresh below.
       apply: (dto) => {
@@ -2415,8 +2486,11 @@ export const usePlanningStore = defineStore('planning', () => {
         patchRow(findProcessRow(id), { start_date: d?.start_date, end_date: d?.end_date })
       },
       optimistic: applyLocally,
+      onConfirmed: () => { error.value = null },
       onError: (m) => {
         error.value = m
+        const row = findProcessRow(id)
+        if (row?.start_date === start_date && row?.end_date === end_date) Object.assign(row, previous)
         // A rejected span must not stick in the diagram: the server dates win.
         void refreshProcessPlanning(true)
       },
@@ -2427,6 +2501,7 @@ export const usePlanningStore = defineStore('planning', () => {
     // The bar renders from the planning aggregate; the projects table reads the
     // app store list, so both copies take the drop immediately (same pairing as
     // updateProjectMeta — and both are restored on a rejected move).
+    const previous = [findProjectRow(id), useAppStore().projects.find(x => x.id === id)].map(row => ({ row, start_date: row?.start_date, end_date: row?.end_date }))
     const applyLocally = () => {
       const d = { start_date, end_date }
       patchRow(findProjectRow(id), d)
@@ -2435,7 +2510,9 @@ export const usePlanningStore = defineStore('planning', () => {
     applyLocally()
     return runMutation({
       entity: 'project',
-      call: () => new ProjectsApi(apiConfig()).projectIdPut(id, { start_date, end_date }),
+      key: ['project.dates', id, start_date, end_date],
+      targetId: id,
+      call: (request) => applicationServices.projects.update(id, { start_date, end_date }, request),
       apply: (dto) => {
         const d = dto as { start_date?: string; end_date?: string } | null
         const patch = { start_date: d?.start_date, end_date: d?.end_date }
@@ -2443,8 +2520,12 @@ export const usePlanningStore = defineStore('planning', () => {
         patchRow(useAppStore().projects.find((x) => x.id === id), patch)
       },
       optimistic: applyLocally,
+      onConfirmed: () => { error.value = null },
       onError: (m) => {
         error.value = m
+        for (const { row, start_date: beforeStart, end_date: beforeEnd } of previous) {
+          if (row?.start_date === start_date && row?.end_date === end_date) Object.assign(row, { start_date: beforeStart, end_date: beforeEnd })
+        }
         // A rejected span must not stick in the diagram: the server dates win.
         void refreshProjectPlanning(true)
         void useAppStore().refreshProjects()
@@ -2454,11 +2535,14 @@ export const usePlanningStore = defineStore('planning', () => {
 
   /** Milestone shift (single date): PUT /milestone/{id}, applied locally. */
   async function updateMilestoneDate(id: number, date: string): Promise<boolean> {
+    const previous = findMilestoneRow(id)?.date
     const applyLocally = () => patchRow(findMilestoneRow(id), { date })
     applyLocally()
     return runMutation({
       entity: 'milestone',
-      call: () => new MilestonesApi(apiConfig()).milestoneIdPut(id, { date }),
+      key: ['milestone.date', id, date],
+      targetId: id,
+      call: (request) => applicationServices.milestones.update(id, { date }, request),
       // The echoed row lands locally; tasks are re-read once by the coalesced
       // post-mutation refresh (the V4 trigger may shift the process's tasks).
       apply: (dto) => {
@@ -2466,8 +2550,11 @@ export const usePlanningStore = defineStore('planning', () => {
         patchRow(findMilestoneRow(id), { date: d?.date })
       },
       optimistic: applyLocally,
+      onConfirmed: () => { error.value = null },
       onError: (m) => {
         error.value = m
+        const row = findMilestoneRow(id)
+        if (row?.date === date) row.date = previous
         // A rejected date must not stick in the diagram: the server date wins.
         void refreshTaskPlanning(true)
       },
@@ -2478,6 +2565,7 @@ export const usePlanningStore = defineStore('planning', () => {
     id: number,
     patch: { code?: string; owner_id?: number; responsible_id?: number; color?: string; start_date?: string; end_date?: string },
   ): Promise<boolean> {
+    patch = { ...patch }
     /** The PUT echoes the applied values; the aggregate and the app store list
      *  are re-read once by the coalesced post-mutation refresh. The rows carry
      *  `project_code`, while the request payload uses `code` — the previous
@@ -2496,9 +2584,12 @@ export const usePlanningStore = defineStore('planning', () => {
     }
     return runMutation({
       entity: 'project',
-      call: () => new ProjectsApi(apiConfig()).projectIdPut(id, patch),
+      key: ['project.update', id, patch],
+      targetId: id,
+      call: (request) => applicationServices.projects.update(id, patch, request),
       apply: applyLocally,
       optimistic: applyLocally,
+      onConfirmed: () => { error.value = null },
       onError: (m) => {
         error.value = m
       },
@@ -2509,6 +2600,7 @@ export const usePlanningStore = defineStore('planning', () => {
     id: number,
     patch: { title?: string; owner_id?: number; responsible_id?: number; color?: string; start_date?: string; end_date?: string },
   ): Promise<boolean> {
+    patch = { ...patch }
     const previousOwner = taskPlanning.value?.processes?.find((p) => p.id === id)?.owner_id ?? findProcessRow(id)?.owner_id
     const applyLocally = () => {
       patchRow(findProcessRow(id), patch)
@@ -2520,9 +2612,12 @@ export const usePlanningStore = defineStore('planning', () => {
     }
     return runMutation({
       entity: 'process',
-      call: () => new ProcessesApi(apiConfig()).processIdPut(id, patch),
+      key: ['process.update', id, patch],
+      targetId: id,
+      call: (request) => applicationServices.processes.update(id, patch, request),
       apply: applyLocally,
       optimistic: applyLocally,
+      onConfirmed: () => { error.value = null },
       onError: (m) => {
         error.value = m
       },
@@ -2533,15 +2628,10 @@ export const usePlanningStore = defineStore('planning', () => {
     id: number,
     patch: { title?: string; owner_id?: number; responsible_id?: number; color?: string; status?: string },
   ): Promise<boolean> {
+    patch = { ...patch }
     const applyLocally = () => patchRow(findTaskRow(id), patch)
-    return runMutation({
-      entity: 'task',
-      call: () => new TasksApi(apiConfig()).taskIdPut(id, patch),
-      apply: applyLocally,
-      optimistic: applyLocally,
-      onError: (m) => {
-        error.value = m
-      },
+    return mutateTask(id, patch, applyLocally, applyLocally, (m) => {
+      error.value = m
     })
   }
 
@@ -2549,12 +2639,16 @@ export const usePlanningStore = defineStore('planning', () => {
     id: number,
     patch: { title?: string; content?: string; color?: string },
   ): Promise<boolean> {
+    patch = { ...patch }
     const applyLocally = () => patchRow(findMilestoneRow(id), patch)
     return runMutation({
       entity: 'milestone',
-      call: () => new MilestonesApi(apiConfig()).milestoneIdPut(id, patch),
+      key: ['milestone.update', id, patch],
+      targetId: id,
+      call: (request) => applicationServices.milestones.update(id, patch, request),
       apply: applyLocally,
       optimistic: applyLocally,
+      onConfirmed: () => { error.value = null },
       onError: (m) => {
         error.value = m
       },
@@ -2564,6 +2658,8 @@ export const usePlanningStore = defineStore('planning', () => {
   /** Inserts an item into an array by index (shifts rows down); index defaults to the end. */
   function insertAt<T>(list: T[] | null | undefined, index: number | undefined, item: T): void {
     if (!list) return
+    const id = (item as { id?: number })?.id
+    if (id != null && list.some(row => (row as { id?: number }).id === id)) return
     const i = index == null || index < 0 || index > list.length ? list.length : index
     list.splice(i, 0, item)
   }
@@ -2580,13 +2676,15 @@ export const usePlanningStore = defineStore('planning', () => {
       color?: string
     },
   ): Promise<{ ok: boolean; autoCreated: DtoAutoCreatedCounts | null }> {
+    payload = { ...payload }
     const tempId = nextTempId()
     let autoCreated: DtoAutoCreatedCounts | null = null
     const ok = await runMutation({
       entity: 'project',
+      key: ['project.create', payload],
       tempId,
-      call: async () => {
-        const resp = await new ProjectsApi(apiConfig()).projectPost({ ...payload, priority: 100 })
+      call: async (request) => {
+        const resp = await applicationServices.projects.create({ ...payload, priority: 100 }, request)
         const errBody = resp.data?.error as { code?: unknown; message?: string } | undefined
         if (errBody && errBody.code != null) throw new Error(apiErrorMessage(errBody))
         return resp
@@ -2651,6 +2749,7 @@ export const usePlanningStore = defineStore('planning', () => {
           processes: [],
         })
       },
+      onConfirmed: () => { error.value = null },
       onError: (m) => {
         error.value = m
       },
@@ -2668,12 +2767,14 @@ export const usePlanningStore = defineStore('planning', () => {
     },
     index?: number,
   ): Promise<boolean> {
+    payload = { ...payload }
     const tempId = nextTempId()
     return runMutation({
       entity: 'process',
+      key: ['process.create', payload],
       tempId,
-      call: async () => {
-        const resp = await new ProcessesApi(apiConfig()).processPost(payload)
+      call: async (request) => {
+        const resp = await applicationServices.processes.create(payload, request)
         const errBody = resp.data?.error as { code?: unknown; message?: string } | undefined
         if (errBody && errBody.code != null) throw new Error(apiErrorMessage(errBody))
         return resp
@@ -2702,6 +2803,7 @@ export const usePlanningStore = defineStore('planning', () => {
           color: payload.color,
         })
       },
+      onConfirmed: () => { error.value = null },
       onError: (m) => {
         error.value = m
       },
@@ -2719,12 +2821,14 @@ export const usePlanningStore = defineStore('planning', () => {
     },
     index?: number,
   ): Promise<boolean> {
+    payload = { ...payload }
     const tempId = nextTempId()
     return runMutation({
       entity: 'task',
+      key: ['task.create', payload],
       tempId,
-      call: async () => {
-        const resp = await new TasksApi(apiConfig()).taskPost(payload)
+      call: async (request) => {
+        const resp = await applicationServices.tasks.create(payload, request)
         const errBody = resp.data?.error as { code?: unknown; message?: string } | undefined
         if (errBody && errBody.code != null) throw new Error(apiErrorMessage(errBody))
         return resp
@@ -2755,6 +2859,7 @@ export const usePlanningStore = defineStore('planning', () => {
           status: payload.status ?? 'not_started',
         })
       },
+      onConfirmed: () => { error.value = null },
       onError: (m) => {
         error.value = m
       },
@@ -2768,21 +2873,24 @@ export const usePlanningStore = defineStore('planning', () => {
     parentId: number,
     payload: { title: string; color?: string; status?: string },
   ): Promise<boolean> {
+    payload = { ...payload }
     const tempId = nextTempId()
     const parent = findTaskRow(parentId)
+    const processId = parent?.process_id ?? findProcessOfTask(parentId)?.id
     return runMutation({
       entity: 'task',
+      key: ['subtask.create', parentId, payload],
       tempId,
-      call: async () => {
-        const resp = await new TasksApi(apiConfig()).taskPost({
+      call: async (request) => {
+        const resp = await applicationServices.tasks.create({
           parent_id: parentId,
           // The RBAC middleware authorizes task.create by the process from the
           // body; a subtask always lives in its parent's process.
-          process_id: parent?.process_id,
+          process_id: processId,
           title: payload.title,
           color: payload.color,
           status: payload.status,
-        })
+        }, request)
         const errBody = resp.data?.error as { code?: unknown; message?: string } | undefined
         if (errBody && errBody.code != null) throw new Error(apiErrorMessage(errBody))
         return resp
@@ -2792,7 +2900,7 @@ export const usePlanningStore = defineStore('planning', () => {
         const d = dto as { id?: number; title?: string; color?: string; status?: string }
         const p = findTaskRow(parentId)
         if (!p) return
-        ;(p.subtasks ??= []).push({
+        insertAt(p.subtasks ??= [], undefined, {
           id: d.id ?? 0,
           title: d.title ?? payload.title,
           color: d.color ?? payload.color,
@@ -2812,6 +2920,7 @@ export const usePlanningStore = defineStore('planning', () => {
           subtasks: [],
         })
       },
+      onConfirmed: () => { error.value = null },
       onError: (m) => {
         error.value = m
       },
@@ -2823,15 +2932,10 @@ export const usePlanningStore = defineStore('planning', () => {
     id: number,
     patch: { title?: string; color?: string; status?: string },
   ): Promise<boolean> {
+    patch = { ...patch }
     const applyLocally = () => patchRow(findTaskRow(id), patch)
-    return runMutation({
-      entity: 'task',
-      call: () => new TasksApi(apiConfig()).taskIdPut(id, patch),
-      apply: applyLocally,
-      optimistic: applyLocally,
-      onError: (m) => {
-        error.value = m
-      },
+    return mutateTask(id, patch, applyLocally, applyLocally, (m) => {
+      error.value = m
     })
   }
 
@@ -2844,9 +2948,12 @@ export const usePlanningStore = defineStore('planning', () => {
     }
     return runMutation({
       entity: 'task',
-      call: () => new TasksApi(apiConfig()).taskIdDelete(id),
+      key: ['task.delete', id],
+      targetId: id,
+      call: (request) => applicationServices.tasks.remove(id, request),
       apply: remove,
       optimistic: remove,
+      onConfirmed: () => { error.value = null },
       onError: (m) => {
         error.value = m
       },
@@ -2860,12 +2967,14 @@ export const usePlanningStore = defineStore('planning', () => {
     date: string
     color?: string
   }): Promise<boolean> {
+    payload = { ...payload }
     const tempId = nextTempId()
     return runMutation({
       entity: 'milestone',
+      key: ['milestone.create', payload],
       tempId,
-      call: async () => {
-        const resp = await new MilestonesApi(apiConfig()).milestonePost(payload)
+      call: async (request) => {
+        const resp = await applicationServices.milestones.create(payload, request)
         const errBody = resp.data?.error as { code?: unknown; message?: string } | undefined
         if (errBody && errBody.code != null) throw new Error(apiErrorMessage(errBody))
         return resp
@@ -2874,7 +2983,7 @@ export const usePlanningStore = defineStore('planning', () => {
         if (!dto) return
         const d = dto as { id?: number; title?: string; content?: string; date?: string; color?: string }
         const proc = taskPlanning.value?.processes?.find((p: DtoDetailedProcess) => p.id === payload.process_id)
-        proc?.milestones?.push({
+        insertAt(proc?.milestones, undefined, {
           id: d.id ?? 0,
           title: d.title ?? payload.title,
           content: d.content ?? payload.content ?? '',
@@ -2892,6 +3001,7 @@ export const usePlanningStore = defineStore('planning', () => {
           color: payload.color,
         })
       },
+      onConfirmed: () => { error.value = null },
       onError: (m) => {
         error.value = m
       },
@@ -2922,9 +3032,12 @@ export const usePlanningStore = defineStore('planning', () => {
     }
     return runMutation({
       entity: 'project',
-      call: () => new ProjectsApi(apiConfig()).projectIdDelete(id),
+      key: ['project.delete', id],
+      targetId: id,
+      call: (request) => applicationServices.projects.remove(id, request),
       apply: remove,
       optimistic: remove,
+      onConfirmed: () => { error.value = null },
       onError: (m) => {
         error.value = m
       },
@@ -2937,9 +3050,12 @@ export const usePlanningStore = defineStore('planning', () => {
     }
     return runMutation({
       entity: 'process',
-      call: () => new ProcessesApi(apiConfig()).processIdDelete(id),
+      key: ['process.delete', id],
+      targetId: id,
+      call: (request) => applicationServices.processes.remove(id, request),
       apply: remove,
       optimistic: remove,
+      onConfirmed: () => { error.value = null },
       onError: (m) => {
         error.value = m
       },
@@ -2954,9 +3070,12 @@ export const usePlanningStore = defineStore('planning', () => {
     }
     return runMutation({
       entity: 'task',
-      call: () => new TasksApi(apiConfig()).taskIdDelete(id),
+      key: ['task.delete', id],
+      targetId: id,
+      call: (request) => applicationServices.tasks.remove(id, request),
       apply: remove,
       optimistic: remove,
+      onConfirmed: () => { error.value = null },
       onError: (m) => {
         error.value = m
       },
@@ -2969,9 +3088,12 @@ export const usePlanningStore = defineStore('planning', () => {
     }
     return runMutation({
       entity: 'milestone',
-      call: () => new MilestonesApi(apiConfig()).milestoneIdDelete(id),
+      key: ['milestone.delete', id],
+      targetId: id,
+      call: (request) => applicationServices.milestones.remove(id, request),
       apply: remove,
       optimistic: remove,
+      onConfirmed: () => { error.value = null },
       onError: (m) => {
         error.value = m
       },
@@ -3026,11 +3148,10 @@ export const usePlanningStore = defineStore('planning', () => {
     const assignAll = permsReady ? rbac.perm('assignment', 'create') === 'all' : auth.user?.preset === 'admin'
     const process = findProcessOfTask(taskId)
     const resource = useAppStore().resources.find((r) => r.id === resourceId)
-    if (process?.owner_id != null && resource?.owner_id != null && process.owner_id !== resource.owner_id) {
-      error.value = t('offline.assignment.foreignResource')
-      return false
-    }
-    if (!assignAll && resource?.owner_id != null && (resource.owner_id !== auth.user?.id || findTaskRow(taskId)?.owner_id !== auth.user?.id)) {
+    if (!assignmentAllowed({
+      processOwner: process?.owner_id, resourceOwner: resource?.owner_id,
+      taskOwner: findTaskRow(taskId)?.owner_id, userId: auth.user?.id, all: assignAll,
+    })) {
       error.value = t('offline.assignment.foreignResource')
       return false
     }
@@ -3038,16 +3159,19 @@ export const usePlanningStore = defineStore('planning', () => {
     const add = () => {
       const task = findTaskRow(taskId)
       if (!task) return
-      task.resources ??= []
-      if (task.resources.some((r) => r.id === resourceId)) return
       const meta = useAppStore().resources.find((r) => r.id === resourceId)
-      task.resources.push({ id: resourceId, assignment_id: tempId, quantity, code: meta?.code, title: meta?.title, color: meta?.color })
+      task.resources = addResourceAssignment(task.resources ?? [], {
+        id: resourceId, assignment_id: tempId, quantity, code: meta?.code, title: meta?.title, color: meta?.color,
+      })
     }
     add()
     return runMutation({
       entity: 'assignment',
+      key: ['assignment.create', taskId, resourceId, quantity],
+      targetId: taskId,
+      target: ['assignment', taskId, resourceId],
       tempId,
-      call: () => new AssignmentsApi(apiConfig()).assignmentPost({ task_id: taskId, resource_id: resourceId, quantity }),
+      call: (request) => applicationServices.assignments.create({ task_id: taskId, resource_id: resourceId, quantity }, request),
       apply: async (dto) => {
         const assignment = dto as DtoAssignmentResponse | null
         const row = findTaskRow(taskId)?.resources?.find((r) => r.assignment_id === tempId)
@@ -3055,10 +3179,11 @@ export const usePlanningStore = defineStore('planning', () => {
         await refreshTaskPlanning(true)
       },
       optimistic: add,
+      onConfirmed: () => { error.value = null },
       onError: (m) => {
         error.value = m
         const task = findTaskRow(taskId)
-        if (task) task.resources = (task.resources ?? []).filter((r) => r.assignment_id !== tempId)
+        if (task) task.resources = removeResourceAssignment(task.resources ?? [], tempId, 'assignment')
       },
     })
   }
@@ -3073,7 +3198,7 @@ export const usePlanningStore = defineStore('planning', () => {
       assignmentId = found.assignment_id
     } else {
       try {
-        const resp = await new AssignmentsApi(apiConfig()).assignmentGet(500, undefined, 0)
+        const resp = await applicationServices.assignments.list(500, undefined, 0)
         const data = resp.data?.data
         const list = data?.items ?? []
         const a = list.find((x: DtoAssignmentResponse) => x.task_id === taskId && x.resource_id === resourceId)
@@ -3091,16 +3216,20 @@ export const usePlanningStore = defineStore('planning', () => {
     const removed = task?.resources?.find((r) => r.id === resourceId)
     const remove = () => {
       const row = findTaskRow(taskId)
-      if (row) row.resources = (row.resources ?? []).filter((r) => r.id !== resourceId)
+      if (row) row.resources = removeResourceAssignment(row.resources ?? [], resourceId, 'resource')
     }
     remove()
     return runMutation({
       entity: 'assignment',
-      call: () => new AssignmentsApi(apiConfig()).assignmentIdDelete(assignmentId!),
+      key: ['assignment.delete', assignmentId],
+      targetId: taskId,
+      target: ['assignment', taskId, resourceId],
+      call: (request) => applicationServices.assignments.remove(assignmentId!, request),
       apply: async () => {
         await refreshTaskPlanning(true)
       },
       optimistic: remove,
+      onConfirmed: () => { error.value = null },
       onError: (m) => {
         error.value = m
         const row = findTaskRow(taskId)
@@ -3117,24 +3246,44 @@ export const usePlanningStore = defineStore('planning', () => {
   async function reorderProjects(from: number, to: number): Promise<boolean> {
     const list = projectPlanning.value?.projects
     if (!Array.isArray(list) || from === to) return true
-    if (from < 0 || from >= list.length || to < 0 || to >= list.length) return false
-    const moved = list.splice(from, 1)[0]
-    list.splice(to, 0, moved)
+    const before = list.map(row => ({ ...row }))
+    const reordered = reorderItems(list, from, to)
+    if (!reordered) return false
+    for (let i = 0; i < reordered.length; i++) list[i] = reordered[i]
 
-    const changes: { id: number; priority: number }[] = []
-    list.forEach((p: DtoProject, i: number) => {
-      const priority = i + 1
-      if (p.priority !== priority) changes.push({ id: p.id as number, priority })
-    })
+    const changes = projectPriorityChanges(list)
     if (!changes.length) return true
+
+    if (apiReadsEnabled) {
+      const ids = list.map(row => row.id)
+      const stillCurrent = () => JSON.stringify(projectPlanning.value?.projects?.map(row => row.id)) === JSON.stringify(ids)
+      const result = await runWebCommand({
+        key: ['project.order', changes], target: ['project.order'], entity: 'project', replayBatch: true,
+        call: async request => {
+          for (const change of changes) {
+            commandData(await applicationServices.projects.update(change.id, { priority: change.priority }, {
+              ...request, headers: { 'Idempotency-Key': String(request.headers?.['Idempotency-Key']) + ':' + change.id },
+            }))
+          }
+          return { data: { data: null } }
+        },
+        apply: async () => { await refreshProjectPlanning(true); await useAppStore().refreshProjects(true) },
+        onConfirmed: () => { error.value = null },
+        onError: message => {
+          error.value = message
+          if (stillCurrent() && projectPlanning.value) projectPlanning.value.projects = before
+        },
+      })
+      return result.status === 'confirmed'
+    }
 
     try {
       await Promise.all(
-        changes.map((c) => new ProjectsApi(apiConfig()).projectIdPut(c.id, { priority: c.priority })),
+        changes.map((c) => applicationServices.projects.update(c.id, { priority: c.priority })),
       )
     } catch (e: unknown) {
       const err = e as AxiosError
-      if (err?.config && isNetworkError(e)) {
+      if (!nativeQueue && err?.config && isNetworkError(e)) {
         // Offline: the local reorder is already applied; the PUTs go to the queue.
         const base = axios.getUri(err.config).replace(/\d+$/, '')
         for (const c of changes) {
@@ -3178,19 +3327,32 @@ export const usePlanningStore = defineStore('planning', () => {
     const project = processPlanning.value?.projects?.find((p: DtoDetailedProject) => p.id === projectId)
     const list = project?.processes
     if (!Array.isArray(list) || from === to) return true
-    if (from < 0 || from >= list.length || to < 0 || to >= list.length) return false
-    const moved = list.splice(from, 1)[0]
-    list.splice(to, 0, moved)
+    const before = list.map(row => ({ ...row }))
+    const reordered = reorderItems(list, from, to)
+    if (!reordered) return false
+    for (let i = 0; i < reordered.length; i++) list[i] = reordered[i]
     list.forEach((p: DtoProcess, i: number) => {
       p.order = i + 1
     })
     const ids = list.map((p: DtoProcess) => p.id as number)
 
+    if (apiReadsEnabled) return runMutation({
+      key: ['process.order', projectId, ids], entity: 'reorder', targetId: projectId,
+      target: ['process.order', projectId],
+      call: request => applicationServices.processes.reorder({ project_id: projectId, ids }, request),
+      apply: async () => { await refreshProcessPlanning(true) }, optimistic: () => {},
+      onConfirmed: () => { error.value = null },
+      onError: message => {
+        error.value = message
+        if (project && JSON.stringify(project.processes?.map(row => row.id)) === JSON.stringify(ids)) project.processes = before
+      },
+    })
+
     try {
-      await new ProcessesApi(apiConfig()).processOrderPut({ project_id: projectId, ids })
+      await applicationServices.processes.reorder({ project_id: projectId, ids })
     } catch (e: unknown) {
       const err = e as AxiosError
-      if (err?.config && isNetworkError(e)) {
+      if (!nativeQueue && err?.config && isNetworkError(e)) {
         try {
           await enqueueMutation({
             entity: 'reorder',
@@ -3220,19 +3382,32 @@ export const usePlanningStore = defineStore('planning', () => {
     const process = taskPlanning.value?.processes?.find((p: DtoDetailedProcess) => p.id === processId)
     const list = process?.tasks
     if (!Array.isArray(list) || from === to) return true
-    if (from < 0 || from >= list.length || to < 0 || to >= list.length) return false
-    const moved = list.splice(from, 1)[0]
-    list.splice(to, 0, moved)
+    const before = list.map(row => ({ ...row }))
+    const reordered = reorderItems(list, from, to)
+    if (!reordered) return false
+    for (let i = 0; i < reordered.length; i++) list[i] = reordered[i]
     list.forEach((t: DtoDetailedTask, i: number) => {
       t.order = i + 1
     })
     const ids = list.map((t: DtoDetailedTask) => t.id as number)
 
+    if (apiReadsEnabled) return runMutation({
+      key: ['task.order', processId, ids], entity: 'reorder', targetId: processId,
+      target: ['task.order', processId],
+      call: request => applicationServices.tasks.reorder({ process_id: processId, ids }, request),
+      apply: async () => { await refreshTaskPlanning(true) }, optimistic: () => {},
+      onConfirmed: () => { error.value = null },
+      onError: message => {
+        error.value = message
+        if (process && JSON.stringify(process.tasks?.map(row => row.id)) === JSON.stringify(ids)) process.tasks = before
+      },
+    })
+
     try {
-      await new TasksApi(apiConfig()).taskOrderPut({ process_id: processId, ids })
+      await applicationServices.tasks.reorder({ process_id: processId, ids })
     } catch (e: unknown) {
       const err = e as AxiosError
-      if (err?.config && isNetworkError(e)) {
+      if (!nativeQueue && err?.config && isNetworkError(e)) {
         try {
           await enqueueMutation({
             entity: 'reorder',
@@ -3261,13 +3436,14 @@ export const usePlanningStore = defineStore('planning', () => {
    *  - offline — cache only (online-only). */
   async function loadTaskComments(taskId: number, opts?: { fresh?: boolean }): Promise<void> {
     if (commentsByTask.value[taskId] != null && !opts?.fresh) return
-    if (isOffline.value && commentsByTask.value[taskId] != null) return
+    if (!apiReadsEnabled && isOffline.value && commentsByTask.value[taskId] != null) return
     commentsLoading.value = true
     commentsError.value = null
     try {
-      const resp = await new TasksApi(apiConfig()).taskIdCommentsGet(taskId)
+      const resp = await readApi('task.comments:' + taskId, taskId, request => applicationServices.tasks.comments(taskId, request), !nativeQueue?.mainSync && !opts?.fresh)
       commentsByTask.value[taskId] = (resp.data?.data as DtoCommentResponse[] | undefined) ?? []
     } catch (e: unknown) {
+      if (isReadCancelled(e)) return
       commentsError.value = e instanceof Error ? e.message || String(e) : String(e)
     } finally {
       commentsLoading.value = false
@@ -3280,50 +3456,33 @@ export const usePlanningStore = defineStore('planning', () => {
     content: string,
     parentId?: number,
   ): Promise<boolean> {
-    try {
-      const resp = await new TasksApi(apiConfig()).taskIdCommentsPost(taskId, {
-        content,
-        parent_id: parentId,
-      })
-      const errBody = resp.data?.error as { code?: unknown; message?: string } | undefined
-      if (errBody && errBody.code != null) throw new Error(apiErrorMessage(errBody))
-      const dto = resp.data?.data as DtoCommentResponse | undefined
-      if (dto) {
-        const list = commentsByTask.value[taskId] ?? []
-        list.push(dto)
-        commentsByTask.value[taskId] = [...list]
-      }
-      // Keep the task-bar comment badge in sync with the comment list
-      const task = findTaskRow(taskId)
-      if (task) task.comments_count = (task.comments_count ?? 0) + 1
-      return true
-    } catch {
-      // A failed comment mutation is reported by the global toast (http.ts) —
-      // the inline modal error stays for load failures only (loadTaskComments).
-      return false
-    }
+    const result = await runOnlineCommand({
+      key: ['comment.create', taskId, content, parentId],
+      call: request => applicationServices.tasks.createComment(taskId, { content, parent_id: parentId }, request),
+      apply: async () => { await loadTaskComments(taskId, { fresh: true }); await refreshTaskPlanning(true) },
+      onConfirmed: () => { commentsError.value = null },
+      onError: message => { commentsError.value = message },
+    })
+    return result.status === 'confirmed'
   }
 
   /** Deletes a comment (softly; replies stay — they become "orphaned" in the tree). */
   async function deleteTaskComment(taskId: number, commentId: number): Promise<boolean> {
-    try {
-      await new TasksApi(apiConfig()).taskIdCommentsCommentIdDelete(taskId, commentId)
-      const list = commentsByTask.value[taskId]
-      if (list) commentsByTask.value[taskId] = list.filter((c) => c.id !== commentId)
-      // Keep the task-bar comment badge in sync (floor at 0 in case of drift)
-      const task = findTaskRow(taskId)
-      if (task) task.comments_count = Math.max(0, (task.comments_count ?? 0) - 1)
-      return true
-    } catch {
-      // A failed comment mutation is reported by the global toast (http.ts) —
-      // the inline modal error stays for load failures only (loadTaskComments).
-      return false
-    }
+    const result = await runOnlineCommand({
+      key: ['comment.delete', taskId, commentId],
+      call: request => applicationServices.tasks.removeComment(taskId, commentId, request),
+      apply: async () => { await loadTaskComments(taskId, { fresh: true }); await refreshTaskPlanning(true) },
+      onConfirmed: () => { commentsError.value = null },
+      onError: message => { commentsError.value = message },
+    })
+    return result.status === 'confirmed'
   }
 
   /** Clears the user-scoped planning payloads on logout/account switch (the GET
    *  cache itself is per-user keyed — see offline/cache.ts). */
   function resetUserData(): void {
+    taskContext++
+    taskReads.invalidate()
     projectPlanning.value = null
     processPlanning.value = null
     taskPlanning.value = null
@@ -3406,6 +3565,7 @@ export const useRbacStore = defineStore('rbac', () => {
   const userPermissionsError = ref<string | null>(null)
 
   function setError(e: unknown) {
+    if (isReadCancelled(e)) return
     error.value = e instanceof Error ? e.message : String(e)
   }
 
@@ -3415,13 +3575,13 @@ export const useRbacStore = defineStore('rbac', () => {
     loading.value = true
     error.value = null
     try {
-      const api = new RBACApi(apiConfig())
+      const api = applicationServices.rbac
       const [presetsR, rulesR, matrixR, routesR, kindsR] = await Promise.all([
-        api.rbacPresetsGet(),
-        api.rbacPresetRulesGet(),
-        api.rbacMatrixGet(),
-        api.rbacPoliciesGet(),
-        api.rbacKindsGet(),
+        readApi('rbac.presets', undefined, request => api.presets(request)),
+        readApi('rbac.rules', undefined, request => api.rules(request)),
+        readApi('rbac.matrix', undefined, request => api.matrix(request)),
+        readApi('rbac.routes', undefined, request => api.policies(request)),
+        readApi('rbac.kinds', undefined, request => api.kinds(request)),
       ])
       presets.value = presetsR.data?.data ?? []
       presetRules.value = rulesR.data?.data ?? []
@@ -3440,6 +3600,8 @@ export const useRbacStore = defineStore('rbac', () => {
   /** My permissions (by the matrix) — the source of UI capabilities instead of roles. */
   const myPermissions = ref<DtoPermission[]>([])
   const permsLoaded = ref(false)
+  const permissionsError = ref<string | null>(null)
+  const viewRevision = ref(0)
 
   /**
    * Ownership (ABAC) satisfaction by scope — the client-side mirror of the
@@ -3483,6 +3645,7 @@ export const useRbacStore = defineStore('rbac', () => {
    */
   async function loadMyPermissions(): Promise<boolean> {
     if (permsLoaded.value) return true
+    if (apiReadsEnabled) return refreshPermissions(true)
     try {
       const cached = localStorage.getItem(permsKey(useAuthStore().user?.id))
       if (cached) {
@@ -3502,12 +3665,22 @@ export const useRbacStore = defineStore('rbac', () => {
   }
 
   /** Network refresh of my permissions (PULL). Falls back to cache when offline. */
-  async function refreshPermissions(): Promise<boolean> {
-    if (isOffline.value) return loadMyPermissions()
+  async function refreshPermissions(preferCache = false): Promise<boolean> {
+    if (!apiReadsEnabled && isOffline.value) return loadMyPermissions()
     try {
-      const resp = await new PermissionsApi(apiConfig()).permissionsMeGet()
-      myPermissions.value = resp.data?.data ?? []
+      const resp = await readApi('permissions.current', undefined, request => applicationServices.permissions.current(request), preferCache)
+      const next = resp.data?.data ?? []
+      const signature = (rules: DtoPermission[]) => JSON.stringify(rules.map(rule => JSON.stringify([rule.resource, rule.action, rule.scope, !!rule.inherited])).sort())
+      if (permsLoaded.value && signature(next) !== signature(myPermissions.value)) {
+        invalidateApiReads()
+        if (signature(next.filter(rule => rule.action === 'view')) !== signature(myPermissions.value.filter(rule => rule.action === 'view'))) {
+          resetReadModels()
+          viewRevision.value++
+        }
+      }
+      myPermissions.value = next
       permsLoaded.value = true
+      permissionsError.value = null
       try {
         localStorage.setItem(
           permsKey(useAuthStore().user?.id),
@@ -3517,7 +3690,15 @@ export const useRbacStore = defineStore('rbac', () => {
         /* localStorage may be unavailable */
       }
       return true
-    } catch {
+    } catch (e) {
+      if (isReadForbidden(e)) {
+        myPermissions.value = []
+        permsLoaded.value = true
+        resetReadModels()
+        viewRevision.value++
+        try { localStorage.setItem(permsKey(useAuthStore().user?.id), '[]') } catch { /* Persisted rights must not block revocation. */ }
+      }
+      if (!isReadCancelled(e)) permissionsError.value = e instanceof Error ? e.message : String(e)
       return false
     }
   }
@@ -3528,12 +3709,21 @@ export const useRbacStore = defineStore('rbac', () => {
    * /permissions/me (login refresh / router-guard load / TTL pull) fills it.
    */
   function resetPermissions() {
+    invalidateApiReads()
     myPermissions.value = []
     permsLoaded.value = false
+    permissionsError.value = null
+    userPermissions.value = null
+    userPermissionRead++
+    presets.value = []
+    presetRules.value = []
+    matrix.value = []
+    routePolicies.value = []
+    kinds.value = []
   }
 
   /** Periodic permissions sync (TTL polling following the backend). */
-  function startPermissionSync(ms = 30000): () => void {
+  function startPermissionSync(ms = 60000): () => void {
     let timer: number | undefined
     const stopVisibility = () => document.removeEventListener('visibilitychange', onVisibility)
     const tick = () => {
@@ -3560,7 +3750,7 @@ export const useRbacStore = defineStore('rbac', () => {
   async function ensurePresets(): Promise<void> {
     if (presets.value.length) return
     try {
-      const presetsR = await new RBACApi(apiConfig()).rbacPresetsGet()
+      const presetsR = await readApi('rbac.presets', undefined, request => applicationServices.rbac.presets(request), true)
       presets.value = presetsR.data?.data ?? []
     } catch {
       // catalog unavailable — the UI works off a static preset list
@@ -3570,8 +3760,8 @@ export const useRbacStore = defineStore('rbac', () => {
   /** Re-reads the preset rules and matrix after a change (an "immediate" effect). */
   async function reloadRules(): Promise<boolean> {
     try {
-      const api = new RBACApi(apiConfig())
-      const [rulesR, matrixR] = await Promise.all([api.rbacPresetRulesGet(), api.rbacMatrixGet()])
+      const api = applicationServices.rbac
+      const [rulesR, matrixR] = await Promise.all([readApi('rbac.rules', undefined, request => api.rules(request)), readApi('rbac.matrix', undefined, request => api.matrix(request))])
       presetRules.value = rulesR.data?.data ?? []
       matrix.value = matrixR.data?.data ?? []
       return true
@@ -3583,41 +3773,33 @@ export const useRbacStore = defineStore('rbac', () => {
 
   /** Writes a preset rule (upsert by preset+resource+action). */
   async function upsertRule(input: DtoPresetRuleInput): Promise<boolean> {
-    try {
-      await new RBACApi(apiConfig()).rbacPresetRulesPut(input)
-      return true
-    } catch (e) {
-      setError(e)
-      return false
-    }
+    input = { ...input }
+    const result = await runOnlineCommand({
+      key: ['rbac.rule', input], call: request => applicationServices.rbac.upsertRule(input, request),
+      apply: () => {}, onConfirmed: () => { error.value = null }, onError: setError,
+    })
+    return result.status === 'confirmed'
   }
 
   /** Soft deletion of a preset rule (the "no access" zone). */
   async function deleteRule(id: number): Promise<boolean> {
-    try {
-      await new RBACApi(apiConfig()).rbacPresetRulesIdDelete(id)
-      return true
-    } catch (e) {
-      setError(e)
-      return false
-    }
+    const result = await runOnlineCommand({
+      key: ['rbac.deleteRule', id], call: request => applicationServices.rbac.removeRule(id, request),
+      apply: () => {}, onConfirmed: () => { error.value = null }, onError: setError,
+    })
+    return result.status === 'confirmed'
   }
 
   /** Creates (or revives) a preset and updates the local catalog. */
   async function createPreset(input: { tag: string; name: string; description?: string }): Promise<boolean> {
-    try {
-      const resp = await new RBACApi(apiConfig()).rbacPresetsPost({
-        tag: input.tag,
-        name: input.name,
-        description: input.description ?? '',
-      })
-      if (resp.data?.data) {
-        presets.value = [...presets.value.filter((r) => r.tag !== resp.data?.data?.tag), resp.data.data]
-      }
-      return true
-    } catch {
-      return false
-    }
+    input = { ...input }
+    const result = await runOnlineCommand<DtoPresetView>({
+      key: ['rbac.createPreset', input],
+      call: request => applicationServices.rbac.createPreset({ ...input, description: input.description ?? '' }, request),
+      apply: dto => { if (dto) presets.value = [...presets.value.filter(row => row.tag !== dto.tag), dto] },
+      onConfirmed: () => { error.value = null }, onError: setError,
+    })
+    return result.status === 'confirmed'
   }
 
   /** Updates a preset: optional tag rename (patch.tag) plus name and description. */
@@ -3625,33 +3807,23 @@ export const useRbacStore = defineStore('rbac', () => {
     tag: string,
     patch: { tag?: string; name: string; description: string },
   ): Promise<boolean> {
-    try {
-      const resp = await new RBACApi(apiConfig()).rbacPresetsTagPut(tag, {
-        tag: patch.tag,
-        name: patch.name,
-        description: patch.description,
-      })
-      const saved = resp.data?.data
-      if (saved) {
-        presets.value = presets.value
-          .filter((r) => r.tag !== tag)
-          .concat({ tag: saved.tag ?? tag, name: saved.name ?? '', description: saved.description ?? '' })
-      }
-      return true
-    } catch {
-      return false
-    }
+    patch = { ...patch }
+    const result = await runOnlineCommand<DtoPresetView>({
+      key: ['rbac.updatePreset', tag, patch],
+      call: request => applicationServices.rbac.updatePreset(tag, patch, request),
+      apply: saved => { if (saved) presets.value = presets.value.filter(row => row.tag !== tag).concat({ tag: saved.tag ?? tag, name: saved.name ?? '', description: saved.description ?? '' }) },
+      onConfirmed: () => { error.value = null }, onError: setError,
+    })
+    return result.status === 'confirmed'
   }
 
   /** Softly deletes a preset (and its rules) and removes it from the local catalog. */
   async function deletePreset(tag: string): Promise<boolean> {
-    try {
-      await new RBACApi(apiConfig()).rbacPresetsTagDelete(tag)
-      presets.value = presets.value.filter((r) => r.tag !== tag)
-      return true
-    } catch {
-      return false
-    }
+    const result = await runOnlineCommand({
+      key: ['rbac.deletePreset', tag], call: request => applicationServices.rbac.removePreset(tag, request),
+      apply: () => { presets.value = presets.value.filter(row => row.tag !== tag) }, onConfirmed: () => { error.value = null }, onError: setError,
+    })
+    return result.status === 'confirmed'
   }
 
   let userPermissionRead = 0
@@ -3666,50 +3838,42 @@ export const useRbacStore = defineStore('rbac', () => {
     // Keep same-user refreshes usable while concealing another user's snapshot.
     if (userPermissions.value?.user_id !== id) userPermissions.value = null
     try {
-      const resp = await new RBACApi(apiConfig()).rbacUsersIdPermissionsGet(id)
+      const resp = await readApi('permissions.user', id, request => applicationServices.rbac.user(id, request))
       if (read !== userPermissionRead) return false
       userPermissions.value = resp.data?.data ?? null
       return true
     } catch (e: unknown) {
+      if (isReadCancelled(e)) return false
       if (read === userPermissionRead) userPermissionsError.value = apiErrorMessage(e as { message?: string; code?: unknown })
       return false
     } finally {
-      if (read === userPermissionRead) userPermissionsLoading.value = false
+      if (read === userPermissionRead) userPermissionsLoading.value = readPending('permissions.user')
     }
   }
 
   /** Replaces the user's overrides (full replacement, applied immediately). */
   async function saveUserPermissions(id: number, overrides: DtoUserPermissionsInput['overrides']): Promise<boolean> {
-    try {
-      const body: DtoUserPermissionsInput = { overrides }
-      await new RBACApi(apiConfig()).rbacUsersIdPermissionsPut(id, body)
-      if (userPermissionReadId === id) {
-        userPermissionRead++
-        userPermissionsLoading.value = false
-      }
-      if (userPermissions.value?.user_id === id) {
-        userPermissions.value = { ...userPermissions.value, overrides: (overrides ?? []).map((rule) => ({ ...rule })) }
-      }
-      if (userPermissionReadId === id || userPermissions.value?.user_id === id) userPermissionsError.value = null
-      return true
-    } catch (e: unknown) {
-      if (userPermissionReadId === id || userPermissions.value?.user_id === id) {
-        userPermissionsError.value = apiErrorMessage(e as { message?: string; code?: unknown })
-      }
-      return false
-    }
+    const body: DtoUserPermissionsInput = { overrides: (overrides ?? []).map(rule => ({ ...rule })) }
+    const result = await runOnlineCommand({
+      key: ['rbac.user', id, body],
+      call: request => applicationServices.rbac.saveUser(id, body, request),
+      apply: () => {
+        if (userPermissionReadId === id) { userPermissionRead++; userPermissionsLoading.value = false }
+        if (userPermissions.value?.user_id === id) userPermissions.value = { ...userPermissions.value, overrides: body.overrides }
+        if (userPermissionReadId === id || userPermissions.value?.user_id === id) userPermissionsError.value = null
+      },
+      onError: message => { if (userPermissionReadId === id || userPermissions.value?.user_id === id) userPermissionsError.value = message },
+    })
+    return result.status === 'confirmed'
   }
 
   /** Resets the rules and route checks to the backend defaults. */
   async function resetRbac(): Promise<boolean> {
-    try {
-      await new RBACApi(apiConfig()).rbacResetPost()
-      await reloadRules()
-      return true
-    } catch (e) {
-      setError(e)
-      return false
-    }
+    const result = await runOnlineCommand({
+      key: ['rbac.reset'], call: request => applicationServices.rbac.reset(request),
+      apply: async () => { await reloadRules() }, onConfirmed: () => { error.value = null }, onError: setError,
+    })
+    return result.status === 'confirmed'
   }
 
   return {
@@ -3728,6 +3892,8 @@ export const useRbacStore = defineStore('rbac', () => {
     deletePreset,
     myPermissions,
     permsLoaded,
+    permissionsError,
+    viewRevision,
     resetPermissions,
     can,
     perm,
@@ -3785,7 +3951,7 @@ export const useAuditStore = defineStore('audit', () => {
     loading.value = true
     error.value = null
     try {
-      const resp = await new AuditApi(apiConfig()).auditEventsGet(
+      const resp = await readApi('audit.events', filters, request => applicationServices.audit.events(
         filters.limit,
         filters.offset,
         filters.userId,
@@ -3798,7 +3964,8 @@ export const useAuditStore = defineStore('audit', () => {
         filters.search,
         filters.id,
         filters.ip,
-      )
+        request,
+      ))
       const data = resp.data?.data
       items.value = data?.items ?? []
       total.value = data?.total ?? 0
@@ -3807,6 +3974,8 @@ export const useAuditStore = defineStore('audit', () => {
       disabled.value = false
       return true
     } catch (e: unknown) {
+      if (isReadCancelled(e)) return false
+      if (isReadForbidden(e)) { items.value = []; total.value = 0 }
       if ((e as AxiosError | undefined)?.response?.status === 404) {
         // The backend does not register the audit route: treat it as "the
         // journal is disabled" rather than a real load error (raw "404" text).
@@ -3818,9 +3987,17 @@ export const useAuditStore = defineStore('audit', () => {
       }
       return false
     } finally {
-      loading.value = false
+      loading.value = readPending('audit.events')
     }
   }
 
-  return { items, total, loading, error, disabled, load }
+  function resetUserData(): void {
+    invalidateApiReads()
+    items.value = []
+    total.value = 0
+    loading.value = false
+    error.value = null
+    disabled.value = false
+  }
+  return { items, total, loading, error, disabled, load, resetUserData }
 })

@@ -1,11 +1,8 @@
 import { computed, type ComputedRef } from 'vue'
-import { pendingRefs, type MutationEntity } from '@/offline/outbox'
+import { pendingRefs, type MutationEntity } from '@/store/data/uiServices'
+import { webPendingRefs } from '@/store/data/webCommands'
 
-/**
- * Reactive "awaiting sync" mark for a list row: true while the object has at
- * least one unsent mutation in the offline queue. The mark key is
- * `${entity}:${id}` — it is maintained by the outbox refreshPendingCount().
- */
+/** Both transports keep the pending mark visible until their own confirmation. */
 export function usePendingMark(entity: MutationEntity, id: number | undefined): ComputedRef<boolean> {
-  return computed(() => id != null && pendingRefs.value.has(`${entity}:${id}`))
+  return computed(() => id != null && (pendingRefs.value.has(`${entity}:${id}`) || webPendingRefs.value.has(`${entity}:${id}`)))
 }

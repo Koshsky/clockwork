@@ -1,14 +1,40 @@
 <script setup lang="ts">
+import { ConfirmDialog } from '../components/common'
+import { useConfirm } from '../composables/useConfirm'
+import { queueService } from '@/store/data/uiServices'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { t } from '@/i18n'
 import { fmtDateTime } from '@/i18n/date'
-import { queueItems, refreshPendingCount, getFailedEntries } from '../offline/outbox'
-import { retryFailed, discardFailed, syncNotice, dismissSyncNotice } from '../offline/sync'
-import { isOffline } from '../offline/state'
+import { queueItems, refreshPendingCount, getFailedEntries } from '@/store/data/uiServices'
+import { retryFailed, discardFailed, syncNotice, dismissSyncNotice } from '@/store/data/uiServices'
+import { legacyQueueAvailability } from '@/platform/state'
+import { isOffline } from '@/store/data/uiServices'
 import { notifyError, notifySuccess } from '../notify/state'
 
 const failedEntries = ref<Array<{ method: string; url: string; message: string }>>([])
+const conflicts = ref<string[]>([])
+const conflictReview = ref<{ contextId: string; operationId: string; local: unknown; server: unknown; status: number; operationIds: string[] } | null>(null)
 const busy = ref(false)
+async function reviewConflict(operationId: string) {
+  if (busy.value) return
+  busy.value = true
+  try {
+    const contextId = await queueService.context()
+    const review = await queueService.review(operationId, contextId)
+    conflictReview.value = { ...review, contextId }
+  } catch (error) { notifyError(error instanceof Error ? error.message : t('offline.queue.storageUnavailable')) }
+  finally { busy.value = false }
+}
+function useServerVersion() {
+  const review = conflictReview.value
+  if (!review) return
+  ask(t('adminSystem.queue.messages.discardConfirm', { count: review.operationIds.length }), () => {
+    conflictReview.value = null
+    void discardSelected(review.operationIds, review.contextId)
+  }, t('adminSystem.queue.conflict.useServer'))
+}
+const { confirm: confirmDialog, ask, proceed, cancel } = useConfirm()
+const queueKnown = computed(() => legacyQueueAvailability.value === 'empty' || legacyQueueAvailability.value === 'pending')
 
 let refreshTimer: number | null = null
 
@@ -47,6 +73,9 @@ function shortUrl(url: string): string {
 
 async function refreshStatus() {
   await refreshPendingCount().catch(() => {})
+  if (queueService.native) {
+    try { conflicts.value = (await queueService.list()).filter(row => row.status === 'conflict').map(row => row.operationId) } catch { /* A leaving session cannot populate another account's review. */ }
+  }
   failedEntries.value = (await getFailedEntries().catch(() => [])).map((e) => ({
     method: e.method,
     url: e.url,
@@ -55,7 +84,7 @@ async function refreshStatus() {
 }
 
 async function onRetry() {
-  if (busy.value) return
+  if (busy.value || !queueKnown.value) return
   busy.value = true
   try {
     await retryFailed()
@@ -69,17 +98,26 @@ async function onRetry() {
   }
 }
 
-async function onDiscard() {
-  if (busy.value) return
+async function discardSelected(operationIds?: string[], contextId?: string) {
   busy.value = true
   try {
-    await discardFailed()
+    if (operationIds) await queueService.discard(operationIds, contextId)
+    else await discardFailed()
     dismissSyncNotice()
     notifySuccess(t('adminSystem.queue.messages.discarded'))
     await refreshStatus()
-  } finally {
-    busy.value = false
-  }
+  } catch (error) { notifyError(error instanceof Error ? error.message : t('offline.queue.storageUnavailable')) }
+  finally { busy.value = false }
+}
+
+async function onDiscard() {
+  if (busy.value || !queueKnown.value) return
+  if (queueService.native) {
+    const contextId = await queueService.context()
+    const ids = queueService.discardPlan(await queueService.list())
+    if (!ids.length) { notifyError(t('offline.queue.unknownOutcome')); return }
+    ask(t('adminSystem.queue.messages.discardConfirm', { count: ids.length }), () => { void discardSelected(ids, contextId) }, t('adminSystem.queue.messages.discardConfirmLabel'))
+  } else await discardSelected()
 }
 
 onMounted(() => {
@@ -95,6 +133,11 @@ onBeforeUnmount(() => {
 <template>
   <section class="sq">
     <h2 class="sq-title">{{ t('adminSystem.queue.title') }}</h2>
+
+    <div v-if="!queueKnown" class="sq-card" role="status">
+      <h3 class="sq-card-title">{{ t('adminSystem.queue.storage.title') }}</h3>
+      <p class="sq-hint">{{ t('adminSystem.queue.storage.hint') }}</p>
+    </div>
 
     <div v-if="queueItems.length > 0" class="sq-card">
       <h3 class="sq-card-title">
@@ -167,12 +210,12 @@ onBeforeUnmount(() => {
       </ul>
     </div>
 
-    <div v-else class="sq-card">
+    <div v-else-if="queueKnown" class="sq-card">
       <h3 class="sq-card-title">{{ t('adminSystem.queue.empty.title') }}</h3>
       <p class="sq-hint">{{ t('adminSystem.queue.empty.hint') }}</p>
     </div>
 
-    <div class="sq-card">
+    <div v-if="queueKnown" class="sq-card">
       <h3 class="sq-card-title">{{ t('adminSystem.queue.errors.title') }}</h3>
       <div v-if="!canRetry" class="sq-hint no-errors">{{ t('adminSystem.queue.errors.none') }}</div>
       <div v-else class="sp-errors">
@@ -195,6 +238,24 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </div>
+    <div v-if="conflicts.length" class="sq-card">
+      <h3 class="sq-card-title">{{ t('adminSystem.queue.conflict.title') }}</h3>
+      <p class="sq-hint">{{ t('adminSystem.queue.conflict.hint') }}</p>
+      <div class="sp-actions">
+        <button v-for="id in conflicts" :key="id" type="button" class="sp-btn" :disabled="busy" @click="reviewConflict(id)">{{ t('adminSystem.queue.conflict.review') }}</button>
+      </div>
+      <div v-if="conflictReview" class="queue-info">
+        <h4>{{ t('adminSystem.queue.conflict.local') }}</h4>
+        <pre class="queue-info-body">{{ jsonBody(conflictReview.local) }}</pre>
+        <h4>{{ t('adminSystem.queue.conflict.server') }}</h4>
+        <pre class="queue-info-body">{{ conflictReview.status === 200 ? jsonBody(conflictReview.server) : t('adminSystem.queue.conflict.unavailable') }}</pre>
+        <div class="sp-actions">
+          <button type="button" class="sp-btn" :disabled="busy" @click="useServerVersion">{{ t('adminSystem.queue.conflict.useServer') }}</button>
+          <button type="button" class="sp-btn ghost" @click="conflictReview = null">{{ t('adminSystem.queue.conflict.keep') }}</button>
+        </div>
+      </div>
+    </div>
+    <ConfirmDialog :open="!!confirmDialog" :message="confirmDialog?.message ?? ''" :confirm-label="confirmDialog?.confirmLabel" @confirm="proceed" @close="cancel" />
   </section>
 </template>
 

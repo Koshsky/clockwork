@@ -1,14 +1,20 @@
-import { readStamp, mayApplyRead } from './offline/mutationGuard'
+import { beginMutation, readStamp, mayApplyRead } from './offline/mutationGuard'
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios'
+import { offlineFailFastAdapter } from './offline/failFast'
+import { desktopSession, desktopSessionAdapter } from './session/desktop'
 import router from './router'
 import { apiErrorMessage } from './utils'
 import { currentLocale, t } from './i18n'
 import { notifyError } from './notify/state'
+import { prepareCacheOverlay } from './platform/legacyRead'
 import { cacheGet, cacheGetByPath, cachePut, userCachePrefix } from './offline/cache'
-import { replayOutboxToCache, scheduleReplayOutboxToCache, createMutationKey } from './offline/outbox'
+import { scheduleReplayOutboxToCache, createMutationKey } from './offline/outbox'
+import { platformCapabilities } from './platform/context'
+import { backendReachability } from './platform/state'
 import { isOffline } from './offline/state'
 import { getAccessToken, accessTokenExpired } from './token'
 import { ensureAutoSession } from './offline/sync'
+import { sessionEpoch } from './sessionSync'
 import { isLoggedOut } from './loggedOut'
 
 /** Paths where 401 does not mean "token expired" — we leave them alone (loop protection) */
@@ -48,14 +54,27 @@ function redirectToLogin() {
  * generated API clients (src/api/base.ts: globalAxios).
  */
 export function setupHttp() {
-  const reads = new WeakMap<object, number | null>()
+  const epochs = new WeakMap<object, string>()
+  const staleSession = (config: object) => epochs.has(config) && epochs.get(config) !== sessionEpoch()
+  const cancelledSession = (config: InternalAxiosRequestConfig) => new axios.CanceledError('Session context changed', config)
+  const reads = new WeakMap<object, { stamp: number | null; prefix: string; key: string }>()
+  const writes = new WeakMap<object, () => void>()
+  const finishWrite = (config: object | undefined) => {
+    if (!config) return
+    writes.get(config)?.()
+    writes.delete(config)
+  }
   // Never attach an EMPTY Authorization header ("Bearer ") — the backend
   // answers such requests with INVALID_TOKEN (invalid authorization format),
   // which the UI misreads as «Сессия истекла». Without a token the header is
   // simply omitted; protected endpoints then return a plain 401 that flows
   // through the normal refresh/retry path below.
   axios.interceptors.request.use((config) => {
-    if ((config.method ?? 'get').toLowerCase() === 'get') reads.set(config, readStamp())
+    if (platformCapabilities.kind === 'web') epochs.set(config, sessionEpoch())
+    if ((config.method ?? 'get').toLowerCase() === 'get') {
+      reads.set(config, { stamp: readStamp(), prefix: userCachePrefix(), key: cacheKey(config) })
+    }
+    if (desktopSession && (window.erpDesktop?.queue || config.adapter !== offlineFailFastAdapter)) config.adapter = desktopSessionAdapter
     const token = getAccessToken()
     config.headers = config.headers ?? {}
     const auth = String(config.headers['authorization'] || config.headers['Authorization'] || '')
@@ -69,50 +88,60 @@ export function setupHttp() {
     config.headers['Accept-Language'] = currentLocale()
     const method = (config.method ?? 'get').toLowerCase()
     if (!['get', 'head', 'options'].includes(method) && !config.url?.includes('/auth/')) {
+      writes.set(config, beginMutation())
       if (!config.headers.get('Idempotency-Key')) config.headers.set('Idempotency-Key', createMutationKey())
     }
     return config
   })
 
-  // Successful GETs are written to the offline cache (network is up — data is fresh).
-  // The cache and write-through overlay work in every environment (web and desktop).
+  // Desktop retains durable snapshots; web reads use the scoped HTTP request cache.
   axios.interceptors.response.use(
     async (response) => {
       const { config, status } = response
+      finishWrite(config)
+      if (staleSession(config)) throw cancelledSession(config)
+      if (platformCapabilities.kind === 'web' && !AUTH_PATHS.some(path => config.url?.includes(path))) {
+        isOffline.value = false
+        backendReachability.value = 'reachable'
+      }
+      const read = reads.get(config)
       if (
+        platformCapabilities.kind !== 'web' &&
         status >= 200 &&
         status < 300 &&
         config.method === 'get' &&
         config.url &&
         !AUTH_PATHS.some((path) => config.url!.includes(path)) &&
         !config.headers.get('X-View-User-ID') &&
-        mayApplyRead(reads.get(config) ?? null)
+        read != null && read.prefix === userCachePrefix() && mayApplyRead(read.stamp)
       ) {
-        await cachePut(cacheKey(config), response.data)
-        // Invariant "cache = server + queue": after a fresh write we re-apply
-        // unsynchronized mutations — warmup/reconcile must not erase them with
-        // server truth (otherwise offline edits are lost after a reload).
-        // Coalesced: a burst of parallel GETs schedules a single replay for the
-        // whole tick instead of one full outbox+cache scan per response.
+        // A delayed reply must never be written under a newly logged-in account.
+        await cachePut(read.key, response.data)
         scheduleReplayOutboxToCache()
       }
       return response
     },
     async (error: AxiosError) => {
+      finishWrite(error.config)
+      if (axios.isCancel(error)) return Promise.reject(error)
       const { config } = error
       if (!config) {
         return Promise.reject(error)
       }
+      if (staleSession(config)) return Promise.reject(cancelledSession(config))
+      const read = reads.get(config)
+      if (read && read.prefix !== userCachePrefix()) return Promise.reject(error)
 
       // Server unreachable (network, timeout, abort — any request without an HTTP response):
       // serve the last saved response from the cache (same { data, error } format). Read-time
       // overlay: before reading we apply unsynchronized mutations on top of the warmed cache.
-      // This runs in every environment — web and desktop share the same offline read path.
+      // The web never hydrates an old browser profile after a failed HTTP request.
       if (!error.response && config.headers?.get('X-View-User-ID')) return Promise.reject(error)
       if (!error.response) {
-        if ((config.method ?? 'get').toLowerCase() === 'get') {
-          await replayOutboxToCache()
-          const key = cacheKey(config)
+        if ((config.method ?? 'get').toLowerCase() === 'get' && platformCapabilities.kind !== 'web') {
+          await prepareCacheOverlay()
+          if (read?.prefix !== userCachePrefix()) return Promise.reject(error)
+          const key = read.key
           let cached = await cacheGet<unknown>(key)
           // The exact key may not match (a GET with a date window depends on "today"
           // and differs after warmup) — look up the fresh response by endpoint.
@@ -126,10 +155,12 @@ export function setupHttp() {
             })()
             cached = await cacheGetByPath<unknown>(pathname)
           }
+          if (read.prefix !== userCachePrefix()) return Promise.reject(error)
           if (cached != null) {
             isOffline.value = true
             console.log(`[offline] served cache: ${key}`)
             return {
+              __erpLocalSnapshot: true,
               data: cached,
               status: 200,
               statusText: 'OK',
@@ -141,6 +172,7 @@ export function setupHttp() {
           ;(error as AxiosError & { message: string }).message = t('offline.noCachedData')
           console.log(`[offline] cache miss: ${key}`)
         }
+        if (platformCapabilities.kind === 'web') { isOffline.value = true; backendReachability.value = 'unreachable' }
         // Network error diagnostics (timeout/drop/CORS/abort) — detailed output to the console.
         const ax = error as AxiosError & { code?: string; timeout?: number }
         console.error(
@@ -151,13 +183,16 @@ export function setupHttp() {
             code: ax.code,
             timeout_ms: ax.timeout,
             message: ax.message,
-            data: config.data,
           },
         )
         return Promise.reject(error)
       }
 
       const { response } = error
+      if (response && response.status < 500 && platformCapabilities.kind === 'web' && !AUTH_PATHS.some(path => config.url?.includes(path))) {
+        isOffline.value = false
+        backendReachability.value = 'reachable'
+      }
       if (!response) {
         return Promise.reject(error)
       }
@@ -187,6 +222,10 @@ export function setupHttp() {
         notifyError(apiErrorMessage(body?.error, error.message))
       }
 
+      if (desktopSession && response.status === 401) {
+        redirectToLogin()
+        return Promise.reject(error)
+      }
       if (response.status !== 401) {
         return Promise.reject(error)
       }
@@ -218,7 +257,9 @@ export function setupHttp() {
         refreshing ??= ensureAutoSession().finally(() => {
           refreshing = null
         })
-        if (!(await refreshing)) {
+        const renewed = await refreshing
+        if (staleSession(config)) return Promise.reject(cancelledSession(config))
+        if (!renewed) {
           redirectToLogin()
           return Promise.reject(error)
         }
@@ -228,6 +269,7 @@ export function setupHttp() {
       // authorization format» (INVALID_TOKEN) and the UI shows a misleading
       // «Сессия истекла». If no token could be restored, send the user to the
       // login page instead of firing a request that is guaranteed to fail.
+      if (staleSession(config)) return Promise.reject(cancelledSession(config))
       const token = getAccessToken()
       if (!token) {
         redirectToLogin()

@@ -79,3 +79,43 @@ describe('cross-tab refresh ownership', () => {
   })
 
 })
+
+describe('web credential separation', () => {
+  it('never persists access or refresh credentials in a fallback storage event', () => {
+    session.publishSession({ access: 'private-access', user: { id: 7, username: 'verified' } })
+    expect([...storage.values()].join('')).not.toContain('private-access')
+    expect(storage.has('mvs_erp_session_state')).toBe(false)
+    expect(storage.has('mvs_erp_session_token')).toBe(false)
+  })
+
+  it('keeps logout generations and uncertain rotation metadata credential-free', () => {
+    const previous = session.sessionEpoch()
+    expect(session.advanceSessionEpoch()).not.toBe(previous)
+    session.markSessionUncertain(true)
+    expect(session.sessionUncertain()).toBe(true)
+    session.markSessionUncertain(false)
+    expect(session.sessionUncertain()).toBe(false)
+  })
+
+  it('fails closed when neither atomic locks nor a storage lease is available', async () => {
+    vi.stubGlobal('navigator', {})
+    vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => { throw new Error('blocked') } })
+    const run = vi.fn(async () => true)
+    expect(await session.withRefreshLock(run)).toBeNull()
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  it('rechecks a competing storage claim before sending refresh', async () => {
+    vi.stubGlobal('navigator', {})
+    const run = vi.fn(async () => true)
+    const pending = session.withRefreshLock(run)
+    storage.set('mvs_erp_refresh_lock', JSON.stringify({ owner: 'winner', ts: Date.now() }))
+    expect(await pending).toBeNull()
+    expect(run).not.toHaveBeenCalled()
+    expect(JSON.parse(storage.get('mvs_erp_refresh_lock')!).owner).toBe('winner')
+  })
+})
+it('does not send a cookie refresh if its replay fence cannot be persisted', () => {
+  vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => { throw new Error('storage blocked') } })
+  expect(session.markSessionUncertain(true)).toBe(false)
+})

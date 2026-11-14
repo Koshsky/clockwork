@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+vi.mock('@/platform/context', () => ({ platformCapabilities: { kind: 'desktop', optionalStorage: false } }))
 import { effectScope, ref } from 'vue'
 import type { DtoResourceResponse } from '@/api'
 import { isOffline } from '@/offline/state'
@@ -7,7 +8,7 @@ const calls = vi.hoisted(() => ({ get: vi.fn(), read: vi.fn(), write: vi.fn() })
 vi.mock('@/api', () => ({ TimesheetResourcesApi: class { resourcesGet(...args: unknown[]) { return calls.get(...args) } } }))
 vi.mock('@/offline/outbox', async () => { const { ref } = await import('vue'); return { pendingRefs: ref(new Set()) } })
 vi.mock('@/store', () => ({ apiConfig: () => ({}) }))
-vi.mock('@/offline/cache', () => ({ cacheGet: calls.read, cachePut: calls.write, userCachePrefix: () => 'u7:' }))
+vi.mock('@/offline/cache', () => ({ cacheGet: calls.read, cachePut: calls.write, userCachePrefix: () => 'u7:', currentUserId: () => 7 }))
 import { useOwnedResources } from './useOwnedResources'
 let scope: ReturnType<typeof effectScope>
 beforeEach(() => { vi.clearAllMocks(); calls.read.mockResolvedValue(null); pendingRefs.value = new Set(); isOffline.value = false; scope = effectScope() })
@@ -53,7 +54,8 @@ describe('administrator whole-system resource header', () => {
     const result = scope.run(() => useOwnedResources(ref<DtoResourceResponse[]>([]), ref(7), ref(true), ref(true)))!
     await vi.waitFor(() => expect(calls.write).toHaveBeenCalled())
     expect(result.value).toEqual([])
-    expect(calls.get).toHaveBeenCalledExactlyOnceWith(500, undefined, 0)
+    expect(calls.get).toHaveBeenCalledOnce()
+    expect(calls.get.mock.calls[0].slice(0, 3)).toEqual([500, undefined, 0])
   })
 
   it('restores all owners offline and merges local resource changes by id', async () => {

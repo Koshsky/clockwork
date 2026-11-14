@@ -16,7 +16,7 @@
  * and SystemSettingsPage).
  */
 
-import { isElectron } from './electron'
+import { platformCapabilities } from './platform/context'
 import { t } from './i18n'
 
 const API_URL_KEY = 'mvs_erp_api_url'
@@ -29,7 +29,7 @@ let override: string | null = null
 
 // In the web build a stale override (e.g. left over from a desktop session in
 // the same browser profile) must not affect the app — clear it right away.
-if (!isElectron) {
+if (!platformCapabilities.serverSelection) {
   override = null
   try {
     localStorage.removeItem(API_URL_KEY)
@@ -41,7 +41,7 @@ if (!isElectron) {
 function isValidApiUrl(url: string): boolean {
   try {
     const u = new URL(url)
-    return u.protocol === 'http:' || u.protocol === 'https:'
+    return (u.protocol === 'http:' || u.protocol === 'https:') && !u.username && !u.password && !u.search && !u.hash && ['', '/', '/api/v1', '/api/v1/'].includes(u.pathname)
   } catch {
     return false
   }
@@ -63,7 +63,7 @@ function readStored(): string | null {
 export function getApiUrl(): string | undefined {
   // Override (server change) — only in the desktop build; in the web the address
   // always comes from env (same-origin nginx proxy).
-  const stored = isElectron ? (override ?? readStored()) : null
+  const stored = platformCapabilities.serverSelection ? (override ?? readStored()) : null
   if (stored) return stored.replace(/\/+$/, '')
   const env = import.meta.env.VITE_API_URL
   return env ? env.replace(/\/+$/, '') : undefined
@@ -101,7 +101,7 @@ export function normalizeServerToApiUrl(input: string): string | null {
  * persist=true saves to localStorage. Returns false for an invalid URL.
  */
 export function setServerBase(input: string, persist: boolean): boolean {
-  if (!isElectron) return false
+  if (!platformCapabilities.serverSelection) return false
   const full = normalizeServerToApiUrl(input)
   if (!full) return false
   return setApiUrl(full, persist)
@@ -113,7 +113,7 @@ export function setServerBase(input: string, persist: boolean): boolean {
  * Returns false if the URL is invalid (not http(s)).
  */
 export function setApiUrl(url: string, persist: boolean): boolean {
-  if (!isElectron) return false
+  if (!platformCapabilities.serverSelection) return false
   const full = normalizeServerToApiUrl(url)
   if (!full) return false
   override = full
@@ -138,12 +138,10 @@ export function resetApiUrl(): void {
 
 /** Whether a saved runtime URL exists (to show "override in use") */
 export function hasApiUrlOverride(): boolean {
-  return isElectron && Boolean(override ?? readStored())
+  return platformCapabilities.serverSelection && Boolean(override ?? readStored())
 }
 
-/** Warning for an http scheme on a non-loopback host: the Secure refresh
- *  cookie is not stored/sent, so login and auto-sync may not work. For
- *  localhost/127.0.0.1 — null (local development). */
+/** Warn about unencrypted remote transport; loopback development is exempt. */
 export function httpSchemeWarning(url: string): string | null {
   try {
     const u = new URL(url)

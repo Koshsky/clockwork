@@ -25,9 +25,8 @@ function policy(connect) {
 }
 
 const webPolicy = policy(["'self'"])
-// The desktop server address is editable at runtime, including local HTTP
-// installations. Only network requests get this exception, never scripts.
-const desktopPolicy = policy(["'self'", 'https:', 'http:'])
+// Configurable backend traffic belongs to main; renderer requests stay local.
+const desktopPolicy = policy(["'self'"])
 
 function securityHeaders(contentSecurityPolicy = desktopPolicy) {
   return {
@@ -38,4 +37,14 @@ function securityHeaders(contentSecurityPolicy = desktopPolicy) {
   }
 }
 
-module.exports = { webPolicy, desktopPolicy, securityHeaders }
+function isWebUrl(value) {
+  try {
+    const url = new URL(value)
+    return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password
+  } catch { return false }
+}
+function isApplicationDocument(value, origin) {
+  return isWebUrl(value) && new URL(value).origin === origin
+}
+
+module.exports = { webPolicy, desktopPolicy, securityHeaders, isWebUrl, isApplicationDocument }

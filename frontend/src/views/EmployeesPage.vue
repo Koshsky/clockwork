@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { usePageReadRefresh } from '@/composables/usePageReadRefresh'
+usePageReadRefresh(async () => { if (!ts.employees.length) await ts.loadEmployees(); else await ts.refreshEmployees(undefined, true, true) })
 import { computed, onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { ContextMenu, ModalForm, PendingMark, DataTable } from '../components/common'
@@ -10,8 +12,7 @@ import { useEditModal } from '../composables/useEditModal'
 import { useRoleAccess } from '../composables/useRoleAccess'
 import { useEmployeeFilters } from '../composables/useEmployeeFilters'
 import { useAppStore, useTimesheetStore, useRbacStore } from '../store'
-import { isOffline } from '../offline/state'
-import { scheduleNamedRefresh } from '../offline/sync'
+import { isOffline, scheduleNamedRefresh } from '@/store/data/uiServices'
 import { useColumnWidths } from '../composables/useColumnWidths'
 import { compareByName } from '../utils'
 import { fmtDate as fmtDateValue } from '../i18n/date'

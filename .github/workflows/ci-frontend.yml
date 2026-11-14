@@ -5,6 +5,9 @@ on:
       checks_result:
         description: Frontend check and build job result
         value: ${{ jobs.frontend.outputs.result }}
+      native_result:
+        description: Native SQLite and ASAR checks on every supported OS
+        value: ${{ jobs.native-gate.outputs.result }}
 permissions:
   contents: read
 jobs:
@@ -26,8 +29,44 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
+      - run: node scripts/desktop-api-routes.cjs --check
+      - run: node scripts/desktop-domain.cjs --check
+      - run: node scripts/application-services.cjs --check
       - run: npm run check
       - run: npm run lint
       - run: npm run test:stories -- --project unit
-      - run: node --test tests/security.test.cjs
+      - run: node --test tests/security.test.cjs tests/desktop-service.test.cjs tests/desktop-business.test.cjs tests/platform-session.test.cjs tests/desktop-storage.test.cjs tests/desktop-command-queue.test.cjs tests/desktop-sync.test.cjs tests/desktop-baseline.test.cjs tests/app-version.test.cjs tests/desktop-security-boundary.test.cjs tests/build-targets.test.cjs tests/desktop-storage-stress.test.cjs tests/desktop-read-concurrency.test.cjs tests/native-storage-runner.test.cjs
       - run: npm run build
+  native-storage:
+    name: SQLite and ASAR (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/desktop/package-lock.json
+      - run: npm ci --prefix frontend/desktop
+      - name: Native storage and packaged worker on Linux
+        if: runner.os == 'Linux'
+        run: xvfb-run -a node frontend/scripts/test-desktop-storage.cjs
+      - name: Native storage and packaged worker on Windows/macOS
+        if: runner.os != 'Linux'
+        run: node frontend/scripts/test-desktop-storage.cjs
+  native-gate:
+    name: Native storage results
+    if: always()
+    needs: native-storage
+    runs-on: ubuntu-latest
+    outputs:
+      result: ${{ job.status }}
+    steps:
+      - name: Require every native platform
+        env:
+          NATIVE_RESULT: ${{ needs.native-storage.result }}
+        run: test "$NATIVE_RESULT" = success

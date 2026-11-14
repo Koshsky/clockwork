@@ -91,6 +91,8 @@ export default {
     sync: {
       title: 'Sync',
       auto: 'Auto-sync on startup and when the network returns',
+      refreshTitle: 'Data updates',
+      autoRefresh: 'Automatically refresh data every minute',
     },
     connection: {
       title: 'Connection',
@@ -166,6 +168,20 @@ export default {
   },
 
   queue: {
+    conflict: {
+      title: 'Conflicting changes',
+      hint: 'The server version changed after your edit. Compare the data. To edit again, cancel this operation and reopen the current object in the editor. Dependent unsent changes must also be cancelled.',
+      review: 'Compare versions',
+      local: 'Your changes',
+      server: 'Current server data',
+      unavailable: 'The object was deleted or is no longer accessible.',
+      useServer: 'Use server data',
+      keep: 'Decide later',
+    },
+    storage: {
+      title: 'Queue is not available yet',
+      hint: 'The local queue could not be read. Saved changes have not been deleted; an empty queue cannot be confirmed yet.',
+    },
     title: 'Change queue',
     sending: {
       title: 'Uploading changes',
@@ -196,6 +212,8 @@ export default {
     messages: {
       retryFailed: '{ok} sent, {failed} failed',
       retryDone: 'Sent without errors',
+      discardConfirm: 'Discard {count} rejected and dependent changes? Edits not saved on the server will be lost.',
+      discardConfirmLabel: 'Discard changes',
       discarded: 'Discarded entries deleted',
     },
   },

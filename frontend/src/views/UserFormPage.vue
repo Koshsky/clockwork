@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { applicationData } from '@/store/data/uiServices'
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
@@ -161,9 +162,10 @@ onMounted(async () => {
     return
   }
   loadingEdit.value = adminUsers.value.length === 0
-  await app.loadAdminUsers()
+  const id = editingUserId.value
+  const u = id == null ? null : await app.loadAdminUser(id)
   loadingEdit.value = false
-  const u = adminUsers.value.find((x) => x.id === editingUserId.value)
+  error.value = app.adminUsersError
   if (u) fillForm(u)
   else missing.value = true
 })
@@ -254,7 +256,8 @@ async function onResetPassword() {
   if (id == null) return
   resetBusy.value = true
   try {
-    const password = await app.resetPassword(id)
+    const result = await applicationData.session.resetPassword(id)
+    const password = result.status === 'confirmed' ? result.data.password : null
     // The generated password comes back from the backend once — show it.
     if (password) {
       resetPasswordModal.value = {

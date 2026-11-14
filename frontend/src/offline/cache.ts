@@ -1,4 +1,7 @@
-import { idbClear, idbGet, idbKeys, idbPut } from './db'
+import { desktopSession, desktopSessionState } from '@/session/desktop'
+import { getApiUrl } from '@/config'
+import { platformCapabilities } from '@/platform/context'
+import { optionalCacheClear as idbClear, optionalCacheGet as idbGet, optionalCacheKeys as idbKeys, optionalCachePut as idbPut } from '@/platform/cacheStore'
 
 const CACHE_STORE = 'cache'
 /** Marker entry storing the app version the current cache was written with */
@@ -22,6 +25,10 @@ const USER_PREFIX_RE = /^u\d+:/
 
 /** Current user id from localStorage (null — not known yet / logged out). */
 export function currentUserId(): number | null {
+  if (desktopSession) {
+    const state = desktopSessionState.value
+    return state?.mode !== 'signedOut' ? state?.user?.id ?? null : null
+  }
   try {
     const raw = localStorage.getItem(USER_KEY)
     if (!raw) return null
@@ -77,6 +84,7 @@ export function keyMatchesUser(key: string, userId: number | null): boolean {
  */
 
 export interface CachedEntry<T> {
+  baseline?: Record<string, string>
   ts: number
   /** App version the entry was written by (for cache invalidation on upgrade) */
   version?: string
@@ -104,6 +112,15 @@ export async function cacheGet<T>(key: string): Promise<T | null> {
   } catch {
     return null
   }
+}
+
+function belongsToServer(key: string): boolean {
+  if (platformCapabilities.kind === 'web') return true
+  try {
+    const base = new URL(getApiUrl() || '')
+    const url = new URL(stripUserPrefix(key))
+    return url.origin === base.origin && url.pathname.startsWith(base.pathname + '/')
+  } catch { return false }
 }
 
 function pathnameOf(key: string): string | null {
@@ -136,7 +153,7 @@ export async function cacheGetByPath<T>(
     let best: { ts: number; data: T } | null = null
     for (const key of keys) {
       // Never serve another user's cached responses (per-user key prefix).
-      if (!keyMatchesUser(key, userId)) continue
+      if (!keyMatchesUser(key, userId) || !belongsToServer(key)) continue
       if (pathnameOf(key) !== pathname) continue
       if (keyPredicate && !keyPredicate(key)) continue
       const entry = await idbGet<CachedEntry<T>>(CACHE_STORE, key)
@@ -151,6 +168,8 @@ export async function cacheGetByPath<T>(
 
 /** Cached value together with its write time (for the freshness UX) */
 export interface FreshEntry<T> {
+  key?: string
+  baseline?: Record<string, string>
   data: T
   /** Write time (epoch ms). For UI freshness only — never used to delete data. */
   ts: number
@@ -171,7 +190,7 @@ export async function cacheGetAllByPath<T>(
     const userId = currentUserId()
     const out: Array<{ key: string; ts: number; data: T }> = []
     for (const key of keys) {
-      if (!keyMatchesUser(key, userId)) continue
+      if (!keyMatchesUser(key, userId) || !belongsToServer(key)) continue
       if (pathnameOf(key) !== pathname) continue
       if (keyPredicate && !keyPredicate(key)) continue
       const entry = await idbGet<CachedEntry<T>>(CACHE_STORE, key)
@@ -200,12 +219,12 @@ export async function cacheGetFresh<T>(
     const userId = currentUserId()
     let best: FreshEntry<T> | null = null
     for (const key of keys) {
-      if (!keyMatchesUser(key, userId)) continue
+      if (!keyMatchesUser(key, userId) || !belongsToServer(key)) continue
       if (pathnameOf(key) !== pathname) continue
       if (keyPredicate && !keyPredicate(key)) continue
       const entry = await idbGet<CachedEntry<T>>(CACHE_STORE, key)
       if (!entry) continue
-      if (!best || entry.ts > best.ts) best = { data: entry.data, ts: entry.ts }
+      if (!best || entry.ts > best.ts) best = { data: entry.data, ts: entry.ts, ...(entry.baseline ? { key, baseline: entry.baseline } : {}) }
     }
     return best
   } catch {

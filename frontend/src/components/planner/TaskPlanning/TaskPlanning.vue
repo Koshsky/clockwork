@@ -7,12 +7,12 @@ import ResourceHeader from '@/components/common/ResourceHeader/ResourceHeader.vu
 import TaskGantt from './components/TaskGantt/TaskGantt.vue'
 import { provideDragPreview } from '@/composables/useDragPreview'
 import type { DragPreviewState } from '@/composables/useDragPreview'
-import type { DtoDetailedProcess, DtoResourceResponse, DtoResourceCalendar, DtoResourceAbsenceResponse, DtoAvailabilityPeriod, DtoUserInfo, DtoCommentResponse, DtoDetailedTask, DtoTaskDependency } from '@/api'
+import type { DtoDetailedProcess, DtoResourceResponse, DtoResourceCalendar, DtoResourceAbsenceResponse, DtoUserInfo, DtoCommentResponse, DtoDetailedTask, DtoTaskDependency } from '@/api'
 import type { Resource } from '@/components/common/ResourceHeader/types'
 import type { Process } from './types'
 import type { PlanningUnit } from '../calendar'
 import type { DependencyType } from '../dependencies'
-import { toDate, fmtDate } from '../calendar'
+import { indexResourceDemand, indexedResourceUsage, indexResourcePeriods, resourceAvailableForDay } from '@/domain/resourceUsage'
 import { shortName } from '@/utils'
 
 const props = withDefaults(defineProps<{
@@ -156,69 +156,15 @@ const displayResources = computed<Resource[]>(() =>
   })),
 )
 
-/** Availability periods per resource (for quick date lookup) */
-const periodByResource = computed(() => {
-  const map = new Map<number, DtoAvailabilityPeriod[]>()
-  for (const rc of props.calendar ?? []) {
-    if (rc.resource_id != null && Array.isArray(rc.periods)) {
-      map.set(rc.resource_id, rc.periods)
-    }
-  }
-  return map
-})
+const periodByResource = computed(() => indexResourcePeriods(props.calendar ?? []))
+const demandIndex = computed(() => indexResourceDemand(displayProcesses.value))
 
-/** Resource availability for a day from /timesheet/calendar (null — outside the ±year load window) */
 function availableForDay(resourceId: number, day: Date): number | null {
-  const periods = periodByResource.value.get(resourceId)
-  if (!periods || !periods.length) return null
-  const iso = fmtDate(day)
-  for (const p of periods) {
-    if (p.start_date != null && p.end_date != null && iso >= p.start_date && iso <= p.end_date) {
-      return p.available ?? 0
-    }
-  }
-  return null
+  return resourceAvailableForDay(periodByResource.value, resourceId, day)
 }
 
-function usageForDay(resourceId: number, day: Date): number {
-  let used = 0
-  for (const proc of displayProcesses.value) {
-    if (!proc.tasks) continue
-    for (const t of proc.tasks) {
-      const d = day.getTime()
-      if (d < toDate(t.start_date).getTime() || d > toDate(t.end_date).getTime()) continue
-      const a = (t.resources || []).find((r) => r.resource_id === resourceId)
-      if (a) used += a.quantity
-    }
-  }
-  return used
-}
-
-/** Find a task by id across all processes (for the live-load preview) */
-function findTaskRow(taskId: number) {
-  for (const proc of displayProcesses.value) {
-    const t = (proc.tasks || []).find((x) => x.id === taskId)
-    if (t) return t
-  }
-  return null
-}
-
-/** usageForDay + the dragged task's delta: add its quantity to the new range,
- *  subtract it from the abandoned old one. Cell colors update in real time
- *  while the mouse button is held. */
 function usageForDayPreview(resourceId: number, day: Date): number {
-  const used = usageForDay(resourceId, day)
-  const p = dragPreview.value
-  if (!p.active || p.taskId == null || p.startDate == null || p.endDate == null) return used
-  const t = findTaskRow(p.taskId)
-  if (!t) return used
-  const a = (t.resources || []).find((r) => r.resource_id === resourceId)
-  if (!a || a.quantity === 0) return used
-  const dayT = day.getTime()
-  const inNew = dayT >= toDate(p.startDate).getTime() && dayT <= toDate(p.endDate).getTime()
-  const inOld = dayT >= toDate(t.start_date).getTime() && dayT <= toDate(t.end_date).getTime()
-  if (inNew === inOld) return used
-  return inNew ? used + a.quantity : used - a.quantity
+  return indexedResourceUsage(demandIndex.value, resourceId, day, dragPreview.value)
 }
 
 /** Right-click on empty space inside a process group — create a task/milestone in that process */

@@ -1,3 +1,7 @@
+-- name: LockProcessAppendOrder :exec
+-- A separate command gives the following MAX query a snapshot after prior writers commit.
+SELECT pg_advisory_xact_lock(718226341);
+
 -- name: CreateProcess :one
 INSERT INTO processes (project_id, title, start_date, end_date, owner_id, responsible_id, color, sort_order)
 VALUES (

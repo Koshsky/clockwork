@@ -39,25 +39,146 @@ Frontend service of the MVS ERP monorepo (repo root is `..`, sibling `backend` i
 - When a user-facing change lands, add a **brief, laconic, one-line bullet** (no long descriptions, no examples) under `## [Unreleased]` in BOTH `Changelog_ENG.md` (English) and `Changelog_RU.md` (Russian) in the same commit (see root `AGENTS.md` → Changelog (between releases)).
 - **Notable changes only**: cosmetic polish (spacing, sizes, row or card layout, tab order, hint and label texts) gets no bullet — fold it into the bullet of the feature it belongs to, or skip it. The criteria and examples live in the root `AGENTS.md`.
 
-## Desktop releases — always via `desktop/build-portable.sh`
-- Produce desktop artifacts **only** through `desktop/build-portable.sh` from
-  `desktop/`. It always rebuilds `dist/` from sources (deletes `dist/`, purges
-  the vite caches) and verifies the result, because the Electron wrapper embeds
-  `dist/` into the release as `resources/web` (`extraResources` in
-  `desktop/package.json`).
-- Versioning: web and desktop share ONE version — the single source of truth
-  is this service's `package.json`; `build-portable.sh` always builds that
-  version as is (it never bumps) and syncs `desktop/package.json` (+ its
-  lockfile) to the same value automatically.
-- **Never** run `electron-builder` / `npm run dist*` by hand against a
-  pre-existing `dist/`: a stale `dist/` gets embedded into a newly versioned
-  release, so the app shows old UI (removed pages still visible) while its
-  version says otherwise. `--build-web` is a deprecated no-op — the web build is
-  unconditional.
-- Diagnosing "the packaged app shows old UI": read
-  `desktop/release/<version>/<app>-unpacked/resources/web/precache-manifest.json`
-  — `version` must equal the release version. A git-hash value
-  (e.g. `1808c37-mtx0hk8x`) means a stale bundle was embedded.
+## Desktop source builds
+
+From the repository root, use:
+
+```sh
+node scripts/build-desktop.cjs --dry-run
+node scripts/build-desktop.cjs
+# Optional explicit architecture for every selected target:
+node scripts/build-desktop.cjs --arch arm64
+```
+
+The script asks about Windows, Linux and macOS before making changes. Only a
+trimmed, case-insensitive `n` skips a target; empty or any other submitted answer
+means yes. EOF before all three answers aborts. Dry-run prints versions, targets,
+architectures and host restrictions without running commands or creating output.
+Windows/Linux default to x64; macOS defaults to the running Node architecture.
+Targets are Windows portable ZIP (containing the EXE), Linux AppImage and macOS
+ZIP (containing the app). The original product name and application/profile IDs
+are preserved. Cross-built files do not establish runtime acceptance on that OS.
+
+Actual builds run `npm ci` once in frontend and desktop, verify generated code
+and the host SQLite runtime, then compile a fresh desktop renderer in a new
+per-run staging directory. They never reuse or delete the existing `dist/`.
+Packaging uses the existing `desktop/build.cjs`, verifies embedded renderer bytes
+and native storage files, and always passes `--publish never`. The script does
+not bump versions or publish. Outputs and SHA256 results are under root
+`bin/vX.Y.Z/<os>-<arch>/`; the per-run manifest is in `bin/vX.Y.Z/.build-*/result.json`.
+Existing selected target directories and output symlinks are rejected before any
+installation/build. Failures stop the run with a nonzero exit, retaining previous
+successful and partial artifacts for inspection; they are never silently skipped
+or automatically deleted. A checkout-wide `bin/.desktop-build.lock` prevents
+concurrent dependency installations/builds. It is released on normal success or
+failure; a crash leaves the lock for inspection. Never automatically clear a
+stale lock or kill its recorded PID; remove it manually only after confirming
+that no build is still running.
+
+macOS targets require a macOS build host. This wrapper builds Linux AppImage on
+Linux/macOS; on Windows use WSL/Linux for that target. Windows ZIP cross-building
+uses the pinned builder's resource tooling; signing credentials/toolchain needs
+remain those of electron-builder and any failure is explicit. See the
+[electron-builder v26 platform guidance](https://www.electron.build/v26/docs/features/multi-platform-build/).
+No TLS or Electron isolation settings are weakened for cross-building.
+
+The older `desktop/build-portable.sh` remains available for its existing
+Windows/Linux targets. It always rebuilds `dist/`, checks the target/version and
+compares embedded payloads; never invoke electron-builder against an old renderer
+by hand. `desktop/build.cjs` accepts `ERP_DESKTOP_RENDERER_DIR` only with one plain
+`--config` JSON file mapping its single absolute `extraResources` entry to the
+same renderer directory as `web`; inherited/platform mappings, CLI config
+overrides and prepackaged inputs are rejected in this custom mode. The root
+wrapper supplies that configuration and its fresh staging path together.
+
+Web and desktop share one version from `frontend/package.json`; neither wrapper
+bumps it or accepts an independent version override. npm manages its lockfile;
+Electron gets the canonical version through generated package metadata. Before
+publishing a future release, finalize its version in both frontend changelogs.
+Published versions remain immutable.
+
+## Renderer targets and acceptance
+
+Production builds require an explicit platform composition: `npm run build`
+defaults to web; use `node scripts/build-renderer.cjs web` or
+`node scripts/build-renderer.cjs desktop` to select it portably. Development keeps
+runtime platform selection unless `ERP_BUILD_TARGET` is explicitly supplied.
+Web artifacts use only same-origin `/api/v1` and contain no persistent offline
+engine, native session or IPC implementation. Desktop renderers keep the native
+adapters; never package a web artifact into Electron.
+
+Each artifact includes `build-target.json` with the compiled module graph and the
+canonical frontend version. Verify with
+`node scripts/verify-renderer.cjs <directory> web|desktop`. This proves target and
+version consistency, not freshness against source; the mandatory clean build and
+embedded byte comparison in the root desktop wrapper or `desktop/build-portable.sh` remain required.
+`desktop/build.cjs` refuses missing or wrong-target renderer evidence before
+packaging. Local acceptance uses `scripts/package-acceptance.cjs` with explicit
+`ERP_TEST_ISOLATED=1`, an empty output directory and a verified desktop renderer;
+its temporary ASAR is a test fixture, not a distributable release.
+
+Electron uses normal Chromium/OS TLS verification. Private HTTPS deployments must
+trust their CA in the OS store; do not reintroduce certificate bypasses. Privileged
+IPC and renderer recovery accept actual credential-free application HTTP(S)
+documents only. External links require a native user gesture; popup documents
+cannot acquire an unmanaged privileged window.
+
+## Desktop storage
+
+Electron's durable store lives in `desktop/storage*.cjs`, outside the renderer.
+Use the pinned Electron runtime's built-in `node:sqlite` only in its Node worker;
+do not add a native npm driver or expose SQL/filesystem access through preload.
+Namespaces use the normalized remote server and account ID, never the loopback
+port. Projection changes, queued intents and receipts share a transaction; a
+renderer acknowledgement must follow durable commit. Never reset an incompatible
+or damaged database automatically. Back up before schema upgrades and restore
+only into an empty profile. Keep credentials in the OS-protected session vault.
+The owner treats the future SQLite desktop as its first release: no legacy
+IndexedDB importer is required. Web must not read, replay, prune or clear legacy
+IndexedDB; its GET cache is in memory and its session uses the HttpOnly cookie.
+Queue/cache diagnostics and server selection are desktop-only, including direct
+URLs. The main-owned HTTP queue intercepts allowlisted planning/timesheet mutations,
+commits projections and intents atomically, and sends frozen Operation-Id requests
+only after the durable/revision capability handshake. Renderer windows only submit
+intents and request status/controls; they never replay their own IndexedDB queue.
+Renderer submissions require baselines from their actual loaded rows. Only an
+explicitly observed pending operation can advance them through its ordered own
+receipt; another window cannot borrow that version. Cache confirmation watermarks
+are private and never become read baselines. A fresh token fetched just before
+delivery cannot authorize a stale edit. Unknown outcomes require receipt lookup
+and cannot be silently discarded. Explicit cancellation includes unsent dependents.
+A single main-owned scheduler refreshes scoped snapshots each minute, after
+sleep/wake and on manual sync; renderers hydrate committed projections without
+background GET loops. Permission revocation invalidates cached access while
+retaining queued intents. Conflict review never rebases an old intent onto a
+fresh token; choosing the server version explicitly cancels unsent dependents.
+Views and widgets share the application services in `src/store/data/`; they do not
+select transports. Native business ports use typed, bounded IPC and the same
+main-owned queue; web adapters use generated HTTP clients. Credentials and
+passwords remain separate online-only session operations. Missing snapshots are
+unavailable data, not empty successful lists. Future SQLite updates must preserve
+snapshots and unsynchronized commands.
+
+`src/data/business-bindings.json` declares the UI business operations. After
+changing a binding or `src/data/businessRequest.ts`, run
+`node scripts/application-services.cjs` and verify `--check`. The generator emits
+the shared UI facade, HTTP senders and main request descriptors. Never edit these
+generated outputs manually or construct generated API clients outside
+`src/store/data/adapters/`. Keep the native descriptors in the package and ASAR
+verification. Session/queue context IDs must stay bound to the session in which
+the request began, including same-account re-login.
+
+The deterministic `scripts/desktop-domain.cjs` generator shares the pure cache,
+planning and timesheet transforms with main. Edit their TypeScript sources, run
+`node scripts/desktop-domain.cjs`, and verify with `--check`; never edit the
+files carrying the `Generated by scripts/desktop-domain.cjs` header by hand. Keep their runtime dependencies
+in both the package file list and ASAR unpack verification.
+
+Run `node --test tests/desktop-storage.test.cjs` and
+`node scripts/test-desktop-storage.cjs` from `frontend/`; the latter uses native
+Electron and a temporary ASAR fixture. CI runs it on Windows, Linux and macOS.
+For GUI integration, set `ELECTRON_EXECUTABLE` and run
+`node tests/desktop-storage.mjs` with an isolated temporary profile.
 
 ## `src/api/` is generated — do not hand-edit
 - Generated by OpenAPI Generator v7.24.0 (see `openapitools.json`) from `../backend/docs/swagger/swagger.yaml`. After the backend contract changes, regenerate the client; manual edits to `src/api/*.ts` are lost on regeneration (respect `.openapi-generator-ignore`).
@@ -69,9 +190,9 @@ Frontend service of the MVS ERP monorepo (repo root is `..`, sibling `backend` i
 - Docker build bakes `VITE_API_BASE` in as a build-arg (Dockerfile); `.env` is gitignored.
 
 ## Architecture rules (repo conventions, keep them)
-- API calls are allowed **only** in `views/`, `composables/`, and `store/`. Components under `src/components/` must never import `@/api` or fetch; they receive data via props/emit or read Pinia. Views load via stores and pass down props (see `views/PlannerPage.vue`).
+- Generated HTTP clients are instantiated **only** in `src/store/data/adapters/`. Views and composables use application services or stores. Components under `src/components/` must never import runtime clients from `@/api` or fetch; they receive data via props/emit or read Pinia. Views load via stores and pass down props (see `views/PlannerPage.vue`).
 - Backend always returns `{ data, error }`; unwrap the payload via `data` and never read other top-level fields. `data` is an object/list container, not a bare array.
-- Auth: JWT tokens + user cached in localStorage keys `mvs_erp_*`; the router guard redirects unauthenticated users to `/login` (add `meta: { requiresAuth: true }` on protected routes).
+- Auth: web access tokens stay in memory and refresh uses the same-origin HttpOnly cookie. Electron owns all tokens and API authorization in main, with OS-protected persistence; renderer session state contains no tokens. Public identity metadata may be cached in localStorage. The router guard redirects unauthenticated users to `/login` (add `meta: { requiresAuth: true }` on protected routes).
 
 ## Component conventions
 - Each component dir ships `X.vue` + `types.ts` + `argTypes.ts` + `X.stories.ts` + `index.ts` (barrel re-export, aggregated in `src/components/planner/index.ts`).

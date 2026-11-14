@@ -4,6 +4,8 @@ import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore, useRbacStore } from '../store'
 import { applyCategoryOrder, applyItemOrder } from './useNavigationOrder'
+import { platformCapabilities } from '@/platform/context'
+import { platformPageAvailable } from '@/platform/capabilities'
 
 export interface NavItem {
   label: string
@@ -116,6 +118,7 @@ export function useNavigation() {
           items: applyItemOrder(
             c.label,
             c.items.filter((i) => {
+              if (!platformPageAvailable(i.name, platformCapabilities)) return false
               if (permsReady.value) {
                 if (i.name === 'timesheet') return timesheetPageAccessible(rbac.can)
                 if (i.name === 'auto-create') return rbac.can('auto_create', 'view') || rbac.can('auto_create', 'update')

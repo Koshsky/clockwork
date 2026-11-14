@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, useSlots, onBeforeUnmount } from 'vue'
+import { ref, useSlots, onBeforeUnmount, watch } from 'vue'
 import type { TooltipCellProps } from './types'
 
 const props = withDefaults(defineProps<TooltipCellProps>(), {
@@ -55,6 +55,9 @@ function onMouseLeave() {
   if (showTimer) clearTimeout(showTimer)
   visible.value = false
 }
+
+// A recycled timeline slot must not keep the previous date's hover or timer.
+watch(() => props.contextKey, onMouseLeave)
 
 onBeforeUnmount(() => {
   if (showTimer) clearTimeout(showTimer)

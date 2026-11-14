@@ -3,8 +3,8 @@ import { ref, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../store'
 import { PasswordField } from '../components/common'
-import { isOffline, probeBackend } from '../offline/state'
-import { isElectron } from '../electron'
+import { applicationData, isOffline, probeBackend } from '@/store/data/uiServices'
+import { platformCapabilities } from '@/platform/context'
 import { getServerBase } from '../config'
 import { t } from '../i18n'
 
@@ -71,15 +71,15 @@ function getError(): string | null {
  * go to a queue), the password is neither checked nor saved. Identity: typed
  * login → the saved profile (see the prefilled value below).
  */
-function enterOffline() {
+async function enterOffline() {
   const typed = username.value.trim()
   const identity = typed || auth.user?.username
   if (!identity) {
     localError.value = t('auth.noSession')
     return
   }
-  auth.enterOffline(identity)
-  goToRedirect()
+  if ((await applicationData.session.enterOffline(identity)).status === 'ok') goToRedirect()
+  else localError.value = t('auth.noSession')
 }
 
 async function onSubmit() {
@@ -88,7 +88,7 @@ async function onSubmit() {
     localError.value = t('auth.fillAll')
     return
   }
-  const ok = await auth.login(username.value, password.value)
+  const ok = (await applicationData.session.login(username.value, password.value)).status === 'ok'
   if (ok) {
     goToRedirect()
   }
@@ -168,7 +168,7 @@ function goToRedirect() {
         </button>
       </div>
 
-      <RouterLink v-if="isElectron" to="/login/settings" class="lp-settings-link">{{ t('auth.settingsLink') }}</RouterLink>
+      <RouterLink v-if="platformCapabilities.serverSelection" to="/login/settings" class="lp-settings-link">{{ t('auth.settingsLink') }}</RouterLink>
     </div>
   </div>
 </template>

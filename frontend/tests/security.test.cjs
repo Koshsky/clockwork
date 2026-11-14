@@ -57,9 +57,9 @@ for (const [name, policy] of Object.entries({ web: webPolicy, desktop: desktopPo
     assert.deepEqual(d['manifest-src'], ["'self'"])
   })
 }
-test('only desktop network requests can use the configurable HTTP(S) backend', () => {
+test('renderer network requests stay local on both platforms; main owns backend traffic', () => {
   assert.deepEqual(directives(webPolicy)['connect-src'], ["'self'"])
-  assert.deepEqual(directives(desktopPolicy)['connect-src'], ["'self'", 'https:', 'http:'])
+  assert.deepEqual(directives(desktopPolicy)['connect-src'], ["'self'"])
   assert.ok(!desktopPolicy.includes('*'))
 })
 test('nginx policy is identical to its source, including headers on error responses', () => {

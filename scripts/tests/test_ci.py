@@ -310,7 +310,8 @@ class WorkflowWiringTest(unittest.TestCase):
             "backend": {"backend": ("build_result", ("go build ./...", "go vet ./...", "go test ./...")),
                         "backend-lint": ("lint_result", ("golangci-lint@v2.15.0 run ./...",))},
             "frontend": {"frontend": ("checks_result", ("npm ci", "npm run check", "npm run lint",
-                         "npm run test:stories -- --project unit", "node --test tests/security.test.cjs", "npm run build"))},
+                         "npm run test:stories -- --project unit", "node --test tests/security.test.cjs", "npm run build")),
+                         "native-gate": ("native_result", ('test "$NATIVE_RESULT" = success',))},
             "common": {"policy": ("policy_result", ("python3 scripts/check-repository.py",
                        "python3 -m unittest discover -s scripts/tests -v", "rhysd/actionlint:", "Verify topic branch")),
                        "api-client": ("api_result", ("scripts/generate-api.sh --check",))},
@@ -318,7 +319,7 @@ class WorkflowWiringTest(unittest.TestCase):
         for group, expected_jobs in expected.items():
             workflow = self.workflow(f"ci-{group}.yml")
             jobs = self.jobs(f"ci-{group}.yml")
-            self.assertEqual(set(jobs), set(expected_jobs))
+            self.assertEqual(set(jobs), set(expected_jobs) | ({"native-storage"} if group == "frontend" else set()))
             for job, (output, commands) in expected_jobs.items():
                 with self.subTest(group=group, job=job):
                     self.assertIn(f"      {output}:\n", workflow)
@@ -329,10 +330,14 @@ class WorkflowWiringTest(unittest.TestCase):
                     self.assertIn("    outputs:\n      result: ${{ job.status }}\n", jobs[job])
                     for command in commands:
                         self.assertIn(command, jobs[job])
-                    self.assertNotIn("    needs:", jobs[job])
+                    if job == "native-gate":
+                        self.assertIn("    needs: native-storage\n", jobs[job])
+                        self.assertIn("    if: always()\n", jobs[job])
+                    else:
+                        self.assertNotIn("    needs:", jobs[job])
                     if job == "api-client":
                         self.assertIn("    if: inputs.check-api\n", jobs[job])
-                    else:
+                    elif job != "native-gate":
                         self.assertNotRegex(jobs[job], r"(?m)^    if:")
 
     def test_final_gate_waits_for_all_three_groups_even_when_skipped_or_failed(self):
@@ -353,3 +358,14 @@ class WorkflowWiringTest(unittest.TestCase):
         self.assertEqual(re.findall(r"^  ([a-z_]+):", events, re.MULTILINE), ["workflow_dispatch"])
         self.assertEqual(re.findall(r"run: python3 scripts/release.py (\w+)", workflow), ["plan", "build", "publish", "promote"])
         self.assertIn("cancel-in-progress: false", workflow)
+
+
+class DesktopStorageWiringTest(unittest.TestCase):
+    def test_native_storage_matrix_is_required_and_covers_all_target_systems(self):
+        native = WorkflowWiringTest.jobs("ci-frontend.yml")["native-storage"]
+        self.assertIn("os: [ubuntu-latest, windows-latest, macos-latest]", native)
+        self.assertIn("fail-fast: false", native)
+        self.assertIn("node-version: 24", native)
+        self.assertIn("xvfb-run -a node frontend/scripts/test-desktop-storage.cjs", native)
+        self.assertNotIn("    needs:", native)
+        self.assertIn("native_result", ci.SERVICE_RESULTS["frontend"])

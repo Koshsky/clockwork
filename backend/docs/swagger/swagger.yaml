@@ -1639,6 +1639,38 @@ definitions:
         example: "2026-08-09T10:30:00Z"
         type: string
     type: object
+  idempotency.OperationCapabilities:
+    properties:
+      durable:
+        type: boolean
+      operations:
+        items:
+          type: string
+        type: array
+      protocol:
+        type: integer
+      revision_protocol:
+        type: integer
+    type: object
+  idempotency.OperationReceipt:
+    properties:
+      completed_at:
+        type: string
+      method:
+        type: string
+      operation_id:
+        type: string
+      path:
+        type: string
+      request_hash:
+        type: string
+      response:
+        type: object
+      response_status:
+        type: integer
+      state:
+        type: string
+    type: object
   response.ErrorResponse:
     properties:
       data: {}
@@ -1675,7 +1707,7 @@ info:
     url: http://www.apache.org/licenses/LICENSE-2.0.html
   termsOfService: http://swagger.io/terms/
   title: Enterprise Resource Planning
-  version: 1.4.3
+  version: 1.5.0
 paths:
   /assignment:
     get:
@@ -2100,8 +2132,9 @@ paths:
     post:
       consumes:
       - application/json
-      description: Rotate the refresh session; the token is read from the body ({refresh_token})
-        or the HttpOnly cookie, and a new refresh token is returned in both
+      description: Rotate the refresh session using a body token or the HttpOnly cookie.
+        Cookie-based responses never expose the new refresh token in JSON; native
+        clients supplying a body token receive the rotated token in JSON too.
       parameters:
       - description: Refresh token (optional; falls back to the HttpOnly cookie)
         in: body
@@ -2466,6 +2499,115 @@ paths:
       summary: Update milestone
       tags:
       - Milestones
+  /operations:
+    get:
+      description: 'Check protocol=1, durable=true and a matching operations route/verb
+        pattern before sending Operation-Id. Only planning/timesheet mutations are
+        eligible; credentials, users, comments and administrative configuration are
+        excluded. The ID is bound to the actor, method, complete request URI, exact
+        body bytes and content type. An optional Idempotency-Key must exactly equal
+        Operation-Id; without Operation-Id legacy TTL semantics remain unchanged.
+        Successful durable receipts have no TTL. revision_protocol=1 enables Revision-Protocol:
+        1 reads and guarded mutations. Those successful replies wrap original data
+        as data.snapshot and data._revisions (opaque aggregate tokens); guarded 204
+        becomes 200. Send _preconditions in the immutable JSON body plus Operation-Id
+        and Revision-Protocol: 1. Never obtain fresh tokens separately from the edited
+        snapshot. Strict process/project/resource/day aggregates may conservatively
+        conflict; no field merging occurs. Existing clients without opt-in retain
+        their original shapes and legacy writes still invalidate tokens. Non-2xx transactions
+        roll back and remain unrecorded. Never change an existing legacy request into
+        a durable request, or fall back to an unprotected request on an unsupported
+        server.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/idempotency.OperationCapabilities'
+                error:
+                  type: object
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.ErrorResponse'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - ApiKeyAuth: []
+      summary: Durable operation capabilities
+      tags:
+      - Operations
+  /operations/{operation_id}:
+    get:
+      description: Returns confirmed, in_progress or not_found for the authenticated
+        actor only. Administrators cannot select another actor. A receipt is historical
+        acknowledgement, not current resource access. not_found means no committed
+        durable receipt was visible; retry only with the original Operation-Id and
+        request. Authentication failures or unavailable storage never imply not_found.
+        Exact byte equality is required on retries; the original response envelope
+        is nested in response.
+      parameters:
+      - description: Stable operation ID, 1..128 ASCII letters/digits or ._:-, excluding
+          dot segments
+        in: path
+        name: operation_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/idempotency.OperationReceipt'
+                error:
+                  type: object
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.ErrorResponse'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.ErrorResponse'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.ErrorResponse'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - ApiKeyAuth: []
+      summary: Inspect an owned durable operation
+      tags:
+      - Operations
   /permissions/me:
     get:
       produces:

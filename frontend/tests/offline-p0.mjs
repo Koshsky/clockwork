@@ -2,6 +2,12 @@ import { chromium, expect } from 'playwright/test'
 import fs from 'node:fs'
 import { launchElectronFixture } from './helpers/electron.mjs'
 
+// SQLite-owned delivery must be observed through native controls, never through the renderer's legacy IndexedDB.
+if (process.env.ERP_TEST_DESKTOP === '1' && process.env.ELECTRON_EXECUTABLE) {
+  await import('./desktop-command-delivery.mjs')
+  process.exit(0)
+}
+
 const base = process.env.ERP_TEST_URL || 'http://127.0.0.1:5173'
 if (!['localhost', '127.0.0.1'].includes(new URL(base).hostname)) throw new Error('Local backend tests only')
 const envPath = process.env.ERP_TEST_ENV || new URL('../../local/dev.env', import.meta.url)
@@ -11,6 +17,46 @@ const env = process.env.ERP_TEST_PASSWORD ? {} : Object.fromEntries(fs.readFileS
 }))
 const password = process.env.ERP_TEST_PASSWORD || env.ADMIN_PASSWORD
 if (!password) throw new Error('Set ERP_TEST_PASSWORD or ERP_TEST_ENV')
+let fault = null
+let lost = null
+let held = false
+let heldKey = null
+let releaseHold = () => {}
+const replays = []
+// Native API traffic belongs to main. Faults must be injected at the network
+// boundary, rather than relying on renderer-only Playwright routing.
+let nativeProxy = null
+if (process.env.ERP_TEST_DESKTOP === '1' && process.env.ELECTRON_EXECUTABLE) {
+  const { createServer } = await import('node:http')
+  const target = process.env.ERP_TEST_API
+  if (!target || !['127.0.0.1', 'localhost'].includes(new URL(target).hostname)) throw new Error('An isolated local backend is required')
+  nativeProxy = createServer(async (request, response) => {
+    try {
+      const path = new URL(request.url, target).pathname, method = request.method
+      const f = fault, mutation = ['POST','PUT','PATCH','DELETE'].includes(method) && !path.includes('/auth/')
+      if (f?.type === 'offline-all' || f?.type === 'offline' && !path.includes('/auth/') || f?.type === 'interrupt' && f.sends >= 2 && path.endsWith('/health')) return response.destroy()
+      if (mutation && f?.type === 'interrupt' && method === 'PUT' && ++f.sends >= 2) return response.destroy()
+      const chunks=[];for await(const chunk of request) chunks.push(chunk)
+      const headers={...request.headers};delete headers.host;delete headers.connection;delete headers['content-length']
+      const result=await fetch(target + request.url,{method,headers,body: ['GET','HEAD'].includes(method)?undefined:Buffer.concat(chunks),redirect:'manual'})
+      const body=Buffer.from(await result.arrayBuffer())
+      if(result.headers.get('idempotency-replayed')==='true') replays.push({path,key:request.headers['idempotency-key']})
+      if(mutation&&f?.type==='lose'&&path==='/api/v1/task'&&method==='POST') {
+        expect(result.status).toBe(201)
+        if (!f.hit) { f.hit=true;lost={body:JSON.parse(body.toString()),key:request.headers['idempotency-key']} }
+        else expect(request.headers['idempotency-key']).toBe(lost.key)
+        return response.destroy()
+      }
+      if(mutation&&f?.type==='hold'&&!f.hit&&/\/task\/\d+$/.test(path)&&method==='PUT') {
+        f.hit=true;expect(result.status).toBe(200);heldKey=request.headers['idempotency-key'];held=true
+        await new Promise(resolve=>{releaseHold=resolve});return response.destroy()
+      }
+      response.writeHead(result.status,{'Content-Type':'application/json'});response.end(body)
+    } catch {response.destroy()}
+  })
+  await new Promise(resolve=>nativeProxy.listen(0,'127.0.0.1',resolve))
+  process.env.ERP_TEST_API='http://127.0.0.1:'+nativeProxy.address().port
+}
 const native = process.env.ERP_TEST_DESKTOP === '1' && process.env.ELECTRON_EXECUTABLE ? await launchElectronFixture() : null
 const browser = native ? null : await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || 'chrome', headless: true })
 const context = native ? native.app.context() : await browser.newContext()
@@ -27,17 +73,14 @@ if (process.env.ERP_TEST_DESKTOP === '1') {
 }
 const page = native ? await native.app.firstWindow() : await context.newPage()
 page.setDefaultTimeout(20_000)
-let fault = null
-let lost = null
-let held = false
-let heldKey = null
-let releaseHold = () => {}
-const replays = []
 const created = { project: null, resource: null }
 const prefix = `Offline-P0-${Date.now()}`
 const report = []
 
 async function runtime() {
+  const module = await (await fetch(base + '/src/http.ts')).text()
+  const axiosModule = process.env.ERP_TEST_AXIOS_PATH || module.match(/from ["']([^"']*axios\.js[^"']*)["']/)?.[1]
+  if (!axiosModule) throw new Error('The running Vite Axios module was not found')
   await page.evaluate(async (axiosPath) => {
     const store = await import('/src/store/index.ts')
     const token = await import('/src/token.ts')
@@ -50,7 +93,7 @@ async function runtime() {
     const { default: axios } = await import(axiosPath)
     settings.autoSync.value = false
     window.p0 = { planning: store.usePlanningStore(), app: store.useAppStore(), auth: store.useAuthStore(), outbox, db, cache, state, sync, axios, token }
-  }, process.env.ERP_TEST_AXIOS_PATH || '/node_modules/.vite/deps/axios.js')
+  }, axiosModule)
 }
 async function api(method, path, data) {
   return page.evaluate(async ({ method, path, data }) => {
@@ -343,4 +386,5 @@ try {
     if (created.resource) await api('delete', '/resources/' + created.resource)
   } catch (error) { console.error('Fixture cleanup failed:', error.message) }
   if (native) await native.close(); else await browser.close()
+  if (nativeProxy) { nativeProxy.closeAllConnections(); await new Promise(resolve => nativeProxy.close(resolve)) }
 }

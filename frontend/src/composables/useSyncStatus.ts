@@ -1,8 +1,9 @@
 import { computed, ref } from 'vue'
-import { isOffline } from '../offline/state'
-import { pendingCount } from '../offline/outbox'
-import { lastPullAt } from '../offline/connection'
+import { isOffline } from '@/store/data/uiServices'
+import { pendingCount } from '@/store/data/uiServices'
+import { lastPullAt } from '@/store/data/uiServices'
 import { t } from '../i18n'
+import { platformCapabilities } from '@/platform/context'
 
 /**
  * Shared sync/freshness status: how long ago the background PULL last updated
@@ -31,7 +32,7 @@ export function useSyncStatus() {
   ensureClock()
 
   const offline = computed(() => isOffline.value)
-  const pending = computed(() => pendingCount.value)
+  const pending = computed(() => platformCapabilities.offlineBootstrap ? pendingCount.value : 0)
 
   // Data freshness: how long ago the background PULL last updated the cache
   const lastPullLabel = computed(() => {

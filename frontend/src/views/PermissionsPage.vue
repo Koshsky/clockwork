@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { usePageReadRefresh } from '@/composables/usePageReadRefresh'
+usePageReadRefresh(async () => { if (dirtyKeys.value.length || saving.value) return false; return rbac.loadRbac() })
 /**
  * Access permissions — a preset-centric editor.
  * Presets on the left, capabilities of the selected preset by section on the right.

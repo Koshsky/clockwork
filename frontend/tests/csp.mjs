@@ -12,15 +12,10 @@ import { launchElectronFixture } from './helpers/electron.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const { webPolicy, desktopPolicy, securityHeaders } = createRequire(import.meta.url)('../desktop/security.cjs')
-const envPath = process.env.ERP_TEST_ENV || path.join(root, '../local/dev.env')
-const env = process.env.ERP_TEST_PASSWORD ? {} : Object.fromEntries(readFileSync(envPath, 'utf8').split('\n').filter(line => /^[A-Z_]+=/.test(line)).map(line => {
-  const i = line.indexOf('=')
-  return [line.slice(0, i), line.slice(i + 1).replace(/^['"]|['"]$/g, '')]
-}))
-const password = process.env.ERP_TEST_PASSWORD || env.ADMIN_PASSWORD
-const api = process.env.ERP_TEST_API || 'http://127.0.0.1:8080'
-if (!['127.0.0.1', 'localhost'].includes(new URL(api).hostname)) throw new Error('CSP integration tests require a loopback backend')
-const output = '/tmp/erp-csp-tests'
+const password = process.env.ERP_TEST_PASSWORD
+const api = process.env.ERP_TEST_API
+if (process.env.ERP_TEST_ISOLATED !== '1' || !password || !api || !['127.0.0.1', 'localhost'].includes(new URL(api).hostname)) throw new Error('CSP fixtures require an explicit isolated loopback API and password')
+const output = process.env.ERP_TEST_OUTPUT || '/tmp/erp-csp-tests'
 mkdirSync(output, { recursive: true })
 const browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || 'chrome', headless: true })
 const foreign = http.createServer((req, res) => {
@@ -33,17 +28,18 @@ const profiles = process.env.CSP_PROFILE ? [process.env.CSP_PROFILE] : ['web', '
 
 async function checkFeatures(server, profile) {
   const base = server.resolvedUrls.local[0].replace(/\/$/, '')
-  const native = profile === 'desktop' && process.env.ELECTRON_EXECUTABLE ? await launchElectronFixture() : null
+  process.env.ERP_TEST_URL = base
+  if (profile === 'desktop' && !process.env.ELECTRON_EXECUTABLE) throw new Error('Set ELECTRON_EXECUTABLE for the real desktop CSP acceptance')
+  const native = profile === 'desktop' ? await launchElectronFixture() : null
   console.log(`Checking ${profile} CSP in ${native ? 'native Electron' : 'Chromium'}`)
   const context = native ? native.app.context() : await browser.newContext({ viewport: { width: 1440, height: 1000 } })
   const violations = [], errors = []
   try {
     await context.exposeBinding('reportCspViolation', (_, value) => violations.push(value))
-    await context.addInitScript(desktop => {
+    await context.addInitScript(() => {
       localStorage.setItem('mvs_erp_auto_sync', '0')
       document.addEventListener('securitypolicyviolation', event => void window.reportCspViolation({ directive: event.effectiveDirective, blocked: event.blockedURI }))
-      if (desktop && !window.erpDesktop) window.erpDesktop = { isElectron: true, appVersion: async () => ({ version: '1.6.1', electron: 'csp-test' }) }
-    }, profile === 'desktop')
+    })
     const page = native ? await native.app.firstWindow() : await context.newPage()
     page.on('pageerror', error => errors.push(error.message))
     const response = await page.goto(base + '/login')
@@ -53,18 +49,28 @@ async function checkFeatures(server, profile) {
     await page.locator('button[type=submit]').click()
     await expect(page).not.toHaveURL(/\/login/)
     await page.waitForLoadState('networkidle')
+    await page.evaluate(async () => (await import('/src/platform/current.ts')).currentRuntime.value?.stop())
+    if (native) {
+      await native.app.evaluate(async () => { await globalThis.syncFixture.stop(); await globalThis.sessionFixture.enterOffline('admin') })
+      await expect.poll(() => page.evaluate(async () => (await import('/src/store/index.ts')).useAuthStore().sessionMode)).toBe('offline')
+    }
     // Seed only client state: PDF checks must not create production-like records.
     await page.evaluate(async desktop => {
       const store = await import('/src/store/index.ts'), offline = await import('/src/offline/state.ts')
+      window.cspMutation = (await import('/src/offline/mutationGuard.ts')).beginMutation()
       offline.isOffline.value = true
       const app = store.useAppStore(), planning = store.usePlanningStore(), auth = store.useAuthStore(), rbac = store.useRbacStore()
       const userId = auth.user.id
-      auth.user = { ...auth.user, preset: 'vp' }
+      if (!window.erpDesktop?.session) auth.user = { ...auth.user, preset: 'vp' }
       rbac.permsLoaded = true
       rbac.myPermissions = ['project', 'process', 'task', 'resource', 'assignment'].map(resource => ({ resource, action: 'view', scope: 'all' }))
       app.users = [{ id: userId, name: 'CSP Test', first_name: 'Test', last_name: 'CSP' }]
       app.myStaff = app.users
       app.resources = [{ id: 90001, owner_id: userId, code: 'CSP', title: 'CSP resource', employees_count: 3 }]
+      if (window.erpDesktop?.queue?.mainSync) {
+        const contextId = (await window.erpDesktop.session.status()).contextId
+        for (const owner of ['all', String(userId)]) await window.erpDesktop.queue.request({ action: 'cachePut', key: '/local/resource-header?owner_id=' + owner, value: { ts: Date.now(), data: JSON.parse(JSON.stringify(app.resources)) }, contextId })
+      }
       app.calendar = [{ resource_id: 90001, periods: [{ start_date: '2026-01-01', end_date: '2027-12-31', available: 3 }] }]
       const dates = { start_date: '2026-11-01', end_date: '2026-12-31' }
       planning.taskPlanning = { processes: [{ id: 90002, owner_id: userId, project_id: 90003, project_owner_id: userId, project_code: 'CSP', title: 'CSP process', ...dates,
@@ -181,10 +187,10 @@ async function checkFeatures(server, profile) {
     await expect.poll(() => violations.some(v => v.directive === 'object-src')).toBe(true)
     await expect.poll(() => violations.some(v => v.directive === 'frame-src')).toBe(true)
     expect(await page.evaluate(() => document.baseURI)).toBe(base + '/planner?process=90002')
-    expect(await page.evaluate(() => window.foreignFetch)).toBe(profile === 'desktop')
+    expect(await page.evaluate(() => window.foreignFetch)).toBe(false)
     await expect.poll(() => violations.some(v => v.directive === 'script-src-elem' && v.blocked === 'inline')).toBe(true)
     expect(violations.some(v => v.directive === 'base-uri')).toBe(true)
-    expect(violations.some(v => v.directive === 'connect-src')).toBe(profile === 'web')
+    expect(violations.some(v => v.directive === 'connect-src')).toBe(true)
     console.log(`PASS ${profile}: inline/foreign scripts and base injection blocked; network scope enforced`)
   } finally { if (native) await native.close(); else await context.close() }
 }
@@ -210,17 +216,18 @@ try {
           })
         },
       }],
-      cacheDir: `node_modules/${cacheName}`,
+      cacheDir: process.env.ERP_TEST_CACHE_DIR ? path.join(process.env.ERP_TEST_CACHE_DIR, cacheName) : `node_modules/${cacheName}`,
       resolve: { alias: { '@': path.join(root, 'src') } },
       define: { __APP_VERSION__: JSON.stringify('1.6.1'), 'import.meta.env.VITE_API_URL': JSON.stringify(profile === 'desktop' ? api + '/api/v1' : '/api/v1') },
-      server: { host: '127.0.0.1', port: 0, hmr: false, headers: securityHeaders(profile === 'desktop' ? desktopPolicy : webPolicy), proxy: { '/api': { target: api, changeOrigin: true } } },
+      server: { host: '127.0.0.1', port: Number(process.env.ERP_TEST_SECURITY_PORT || 0), strictPort: Boolean(process.env.ERP_TEST_SECURITY_PORT), hmr: false, headers: securityHeaders(profile === 'desktop' ? desktopPolicy : webPolicy), proxy: { '/api': { target: api, changeOrigin: true } } },
     })
     try {
       await server.listen()
       await checkFeatures(server, profile)
       if (process.env.CSP_SKIP_P0 !== '1') {
         await new Promise((resolve, reject) => {
-          const child = spawn(process.execPath, ['tests/offline-p0.mjs'], { cwd: root, stdio: 'inherit', env: { ...process.env, ERP_TEST_URL: server.resolvedUrls.local[0].replace(/\/$/, ''), ERP_TEST_CSP: '1', ERP_TEST_DESKTOP: profile === 'desktop' ? '1' : '0', ERP_TEST_AXIOS_PATH: `/node_modules/${cacheName}/deps/axios.js` } })
+          const suite = profile === 'desktop' ? 'desktop-command-delivery' : 'web-api-commands'
+          const child = spawn(process.execPath, [`tests/${suite}.mjs`], { cwd: root, stdio: 'inherit', env: { ...process.env, ERP_TEST_URL: server.resolvedUrls.local[0].replace(/\/$/, ''), ERP_TEST_CSP: '1', RBAC_TEST_API_URL: api + '/api/v1', RBAC_TEST_WEB_URL: server.resolvedUrls.local[0].replace(/\/$/, ''), RBAC_TEST_ADMIN_PASSWORD: password, ERP_TEST_DESKTOP: profile === 'desktop' ? '1' : '0', ERP_TEST_AXIOS_PATH: `/node_modules/${cacheName}/deps/axios.js` } })
           child.on('error', reject)
           child.on('exit', code => code === 0 ? resolve() : reject(new Error(`${profile} offline P0 suite failed: ${code}`)))
         })

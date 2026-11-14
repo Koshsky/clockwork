@@ -1,10 +1,12 @@
 import axios, { AxiosError, type AxiosResponse, type InternalAxiosRequestConfig } from 'axios'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+vi.mock('@/platform/context', () => ({ platformCapabilities: { get kind() { return mocks.kind }, optionalStorage: false } }))
 import { beginMutation } from './offline/mutationGuard'
 
-const mocks = vi.hoisted(() => ({ put: vi.fn(), get: vi.fn(), byPath: vi.fn(), replay: vi.fn(), scheduledReplay: vi.fn(), offline: { value: false }, loggedOut: false, renew: vi.fn(), token: 'test-token', expired: false }))
+const mocks = vi.hoisted(() => ({ kind: 'desktop', epoch: 'initial', put: vi.fn(), get: vi.fn(), byPath: vi.fn(), replay: vi.fn(), scheduledReplay: vi.fn(), offline: { value: false }, loggedOut: false, renew: vi.fn(), token: 'test-token', expired: false, prefix: 'u51:' }))
+vi.mock('./sessionSync', () => ({ sessionEpoch: () => mocks.epoch }))
 vi.mock('./router', () => ({ default: { currentRoute: { value: { name: 'planner', fullPath: '/planner' } }, push: vi.fn() } }))
-vi.mock('./offline/cache', () => ({ cachePut: mocks.put, cacheGet: mocks.get, cacheGetByPath: mocks.byPath, userCachePrefix: () => 'u51:' }))
+vi.mock('./offline/cache', () => ({ cachePut: mocks.put, cacheGet: mocks.get, cacheGetByPath: mocks.byPath, userCachePrefix: () => mocks.prefix }))
 vi.mock('./offline/outbox', () => ({ replayOutboxToCache: mocks.replay, scheduleReplayOutboxToCache: mocks.scheduledReplay, createMutationKey: () => crypto.randomUUID() }))
 vi.mock('./offline/state', () => ({ isOffline: mocks.offline }))
 vi.mock('./offline/sync', () => ({ ensureAutoSession: mocks.renew }))
@@ -16,10 +18,12 @@ import router from './router'
 const adapter = axios.defaults.adapter
 beforeEach(() => {
   vi.clearAllMocks()
+  mocks.kind = 'desktop'; mocks.epoch = 'initial'
   mocks.offline.value = false
   mocks.loggedOut = false
   mocks.token = 'test-token'
   mocks.expired = false
+  mocks.prefix = 'u51:'
   mocks.get.mockResolvedValue(null)
   mocks.byPath.mockResolvedValue(null)
   axios.interceptors.request.clear()
@@ -88,6 +92,7 @@ describe('offline cache and in-flight read safety', () => {
     axios.defaults.adapter = async (config) => { throw new AxiosError('Network Error', 'ERR_NETWORK', config) }
     const response = await axios.get('/api/v1/planning/tasks')
     expect(response.data).toEqual(cached)
+    expect(response).toHaveProperty('__erpLocalSnapshot', true)
     expect(mocks.offline.value).toBe(true)
     expect(mocks.replay).toHaveBeenCalledTimes(1)
     expect(mocks.put).not.toHaveBeenCalled()
@@ -96,6 +101,50 @@ describe('offline cache and in-flight read safety', () => {
     axios.defaults.adapter = async (config) => ({ status: 200, statusText: 'OK', headers: {}, config, data: fresh })
     await axios.get('/api/v1/planning/tasks')
     expect(mocks.put).toHaveBeenCalledExactlyOnceWith('u51:/api/v1/planning/tasks', fresh)
+  })
+
+  it('does not cache a previous account response after account switching', async () => {
+    let reply!: () => void
+    axios.defaults.adapter = config => new Promise<AxiosResponse>(resolve => {
+      reply = () => resolve({ status: 200, statusText: 'OK', headers: {}, config, data: { data: 'previous user data' } })
+    })
+    const pending = axios.get('/api/v1/planning/tasks')
+    await tick()
+    mocks.prefix = 'u52:'
+    reply()
+    await pending
+    expect(mocks.put).not.toHaveBeenCalled()
+    expect(mocks.scheduledReplay).not.toHaveBeenCalled()
+  })
+
+  it('does not read the new account cache for an older failed request', async () => {
+    axios.defaults.adapter = async config => {
+      mocks.prefix = 'u52:'
+      throw new AxiosError('Network Error', 'ERR_NETWORK', config)
+    }
+    await expect(axios.get('/api/v1/planning/tasks')).rejects.toThrow('Network Error')
+    expect(mocks.get).not.toHaveBeenCalled()
+    expect(mocks.byPath).not.toHaveBeenCalled()
+  })
+
+  it('does not deliver cached data if the account changes during lookup', async () => {
+    mocks.get.mockImplementationOnce(async () => {
+      mocks.prefix = 'u52:'
+      return { data: 'previous user data' }
+    })
+    axios.defaults.adapter = async config => { throw new AxiosError('Network Error', 'ERR_NETWORK', config) }
+    await expect(axios.get('/api/v1/planning/tasks')).rejects.toThrow('Network Error')
+    expect(mocks.offline.value).toBe(false)
+  })
+
+  it('does not refresh another account because an older GET returned 401', async () => {
+    axios.defaults.adapter = async config => {
+      mocks.prefix = 'u52:'
+      throw new AxiosError('Unauthorized', 'ERR_BAD_REQUEST', config, undefined, { config, status: 401, statusText: 'Unauthorized', headers: {}, data: {} })
+    }
+    await expect(axios.get('/api/v1/planning/tasks')).rejects.toMatchObject({ response: { status: 401 } })
+    expect(mocks.renew).not.toHaveBeenCalled()
+    expect(router.push).not.toHaveBeenCalled()
   })
 })
 
@@ -137,4 +186,34 @@ it.each(['projects', 'processes', 'tasks'])('clears stale online auth before red
   expect(mocks.renew).toHaveBeenCalledTimes(1)
   expect(send).toHaveBeenCalledTimes(1)
   expect(router.push).toHaveBeenCalledWith({ name: 'login', query: { redirect: '/planner' } })
+})
+
+it('does not log password-bearing request bodies when an online command loses its response', async () => {
+  const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+  const password = 'Private-test-password'
+  axios.defaults.adapter = async config => { throw new AxiosError('Lost response', 'ERR_NETWORK', config) }
+  try {
+    await expect(axios.post('/api/v1/user/change-password', { old_password: password, new_password: password })).rejects.toThrow('Lost response')
+    expect(log).toHaveBeenCalled()
+    expect(JSON.stringify(log.mock.calls)).not.toContain(password)
+  } finally { log.mockRestore() }
+})
+it.each([200, 401])('does not apply or retry a late web %s response under a different login generation', async status => {
+  mocks.kind = 'web'
+  let finish!: () => void
+  let calls = 0
+  axios.defaults.adapter = config => {
+    calls++
+    return new Promise((resolve, reject) => { finish = () => {
+      const response = { config, status, statusText: '', headers: {}, data: { data: 'old-account' } }
+      if (status === 401) reject(new AxiosError('Unauthorized', 'ERR_BAD_REQUEST', config, undefined, response))
+      else resolve(response)
+    } })
+  }
+  const pending = axios.post('/api/v1/task', { title: 'Old account edit' })
+  await tick(); mocks.epoch = 'new-login'; finish()
+  await expect(pending).rejects.toMatchObject({ code: 'ERR_CANCELED' })
+  expect(calls).toBe(1)
+  expect(mocks.renew).not.toHaveBeenCalled()
+  expect(mocks.put).not.toHaveBeenCalled()
 })

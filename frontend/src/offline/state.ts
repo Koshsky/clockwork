@@ -1,6 +1,8 @@
+import { desktopSession, prepareDesktopSession } from '@/session/desktop'
 import { ref } from 'vue'
 import type { Ref } from 'vue'
 import { getApiUrl } from '@/config'
+import { backendReachability } from '@/platform/state'
 
 /**
  * Reactive backend-connection state, active in EVERY environment (web and
@@ -26,7 +28,15 @@ function probeUrl(): string | null {
 }
 
 /** Whether the backend is alive: any status <500 = reachable, network error/5xx = not */
-export async function probeBackend(): Promise<boolean> {
+export async function probeBackend({ publish = true }: { publish?: boolean } = {}): Promise<boolean> {
+  if (desktopSession) {
+    try {
+      await prepareDesktopSession()
+      const reachable = await desktopSession.probe()
+      if (publish) backendReachability.value = reachable ? 'reachable' : 'unreachable'
+      return reachable
+    } catch { if (publish) backendReachability.value = 'unreachable'; return false }
+  }
   const url = probeUrl()
   if (!url) return false
   try {
@@ -34,11 +44,13 @@ export async function probeBackend(): Promise<boolean> {
     const timer = window.setTimeout(() => ctrl.abort(), PROBE_TIMEOUT_MS)
     try {
       const res = await fetch(url, { cache: 'no-store', signal: ctrl.signal })
+      if (publish) backendReachability.value = res.status < 500 ? 'reachable' : 'unreachable'
       return res.status < 500
     } finally {
       window.clearTimeout(timer)
     }
   } catch {
+    if (publish) backendReachability.value = 'unreachable'
     return false
   }
 }

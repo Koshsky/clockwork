@@ -3,6 +3,8 @@ import { expect } from 'storybook/test'
 import SystemSettingsPage from './SystemSettingsPage.vue'
 import { LINK_STYLES } from '@/components/planner/linkStyle'
 import { viewSettings } from '@/settings'
+import { platformCapabilities } from '@/platform/context'
+import { t } from '@/i18n'
 
 /**
  * The settings screen (a view, not a component): its own stories exist for the
@@ -76,7 +78,7 @@ export const SectionSwitcher: Story = {
       expect(list?.getAttribute('aria-label')?.trim()).not.toBe('')
 
       const labels = sectionTabs(canvasElement).map((tab) => tab.textContent?.trim() ?? '')
-      expect(labels).toEqual(['Интерфейс', 'Диаграммы', 'Таблицы', 'Сервер'])
+      expect(labels).toEqual(['Интерфейс', 'Диаграммы', 'Таблицы', t(platformCapabilities.serverSelection ? 'adminSystem.settings.sections.server' : 'adminSystem.settings.sync.refreshTitle')])
       for (const label of labels) {
         // A missing catalog key would render the raw key instead of a label.
         expect(label, label).not.toContain('adminSystem.')
@@ -105,27 +107,28 @@ export const SectionSwitcher: Story = {
       expect(selected[0].textContent?.trim()).toBe('Интерфейс')
     })
 
-    await step('sync and connection share one section and one card', async () => {
-      await openSection(canvasElement, 'Сервер')
+    await step('refresh settings follow platform capabilities in one card', async () => {
+      const title = t(platformCapabilities.serverSelection ? 'adminSystem.settings.server.title' : 'adminSystem.settings.sync.refreshTitle')
+      await openSection(canvasElement, title)
       const cards = Array.from(canvasElement.querySelectorAll<HTMLElement>('.st-card'))
       expect(cards.length).toBe(1)
-      expect(cardTitles(canvasElement)).toEqual(['Сервер'])
+      expect(cardTitles(canvasElement)).toEqual([title])
 
-      // Both groups live in that single card, under their own headings.
       const groups = Array.from(
         cards[0].querySelectorAll<HTMLElement>('.st-group-title'),
       ).map((el) => el.textContent?.trim() ?? '')
-      expect(groups).toEqual(['Синхронизация', 'Подключение'])
+      expect(groups).toEqual(platformCapabilities.serverSelection ? ['Синхронизация', 'Подключение'] : [])
 
-      // Both groups are really mounted: the auto-sync switch and the API URL field.
       expect(cards[0].querySelector('.st-option input[type="checkbox"]')).toBeTruthy()
-      expect(cards[0].querySelector('.st-field input[type="text"]')).toBeTruthy()
+      const address = cards[0].querySelector('.st-field input[type="text"]')
+      if (platformCapabilities.serverSelection) expect(address).toBeTruthy()
+      else expect(address).toBeNull()
       // The "Source: default." hint under the field is gone.
       expect(cards[0].textContent ?? '').not.toContain('Источник:')
 
       // ...and they belong to that section only.
       await openSection(canvasElement, 'Диаграммы')
-      expect(cardTitles(canvasElement)).not.toContain('Сервер')
+      expect(cardTitles(canvasElement)).not.toContain(title)
       expect(canvasElement.querySelector('.st-field input[type="text"]')).toBeNull()
     })
   },

@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-11-14
+
+- Cookie-based session renewal never exposes refresh credentials in JSON.
+
+- Concurrent task and process creation preserves sibling order without false conflicts.
+
+- Offline edits detect newer planning and timesheet changes before confirming a write.
+
+- Durable operation receipts prevent duplicate writes after long offline periods.
+
+- Support cookie-only sessions with browser origin checks.
+
 ## [1.4.3] - 2026-11-11
 
 ### Changed

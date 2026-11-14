@@ -1,11 +1,13 @@
+import { applicationServices } from '@/store/data/applicationClients'
 import { ref } from 'vue'
+import { nativeSync, queueRequest } from './desktopQueue'
 import { hasActiveMutations } from './mutationGuard'
 import { pendingCount, pendingRefs } from './outbox'
-import { AssignmentsApi } from '@/api'
-import { apiConfig, useAppStore, useAuthStore, usePlanningStore, useRbacStore, useTimesheetStore } from '@/store'
+import { useAppStore, useAuthStore, usePlanningStore, useRbacStore, useTimesheetStore } from '@/store'
 import { isOffline } from './state'
 import { cacheGetFresh } from './cache'
 import { apiPath } from './hydrate'
+import { platformCapabilities } from '@/platform/context'
 import { warmupEnabled } from '@/settings'
 
 /**
@@ -31,6 +33,10 @@ export const PULL_TTL_MS = 60 * 1000
 
 let running = false
 let scheduled = false
+let suspended = false
+let generation = 0
+let cancelScheduled: (() => void) | null = null
+const cancelPauses = new Set<() => void>()
 
 const LAST_WARMED_KEY = 'mvs_erp_last_warmed_at'
 
@@ -64,19 +70,30 @@ export interface PullStep {
   cycle?: boolean
 }
 
-function runWhenIdle(fn: () => void): void {
+function runWhenIdle(fn: () => void): () => void {
   const w = window as Window & {
     requestIdleCallback?: (cb: () => void, opts: { timeout: number }) => number
+    cancelIdleCallback?: (id: number) => void
   }
   if (typeof w.requestIdleCallback === 'function') {
-    w.requestIdleCallback(fn, { timeout: IDLE_TIMEOUT_MS })
+    const id = w.requestIdleCallback(fn, { timeout: IDLE_TIMEOUT_MS })
+    return () => w.cancelIdleCallback?.(id)
   } else {
-    window.setTimeout(fn, IDLE_TIMEOUT_MS)
+    const id = window.setTimeout(fn, IDLE_TIMEOUT_MS)
+    return () => window.clearTimeout(id)
   }
 }
 
 function pause(): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, PAUSE_MS))
+  return new Promise((resolve) => {
+    const finish = () => {
+      window.clearTimeout(timer)
+      cancelPauses.delete(finish)
+      resolve()
+    }
+    const timer = window.setTimeout(finish, PAUSE_MS)
+    cancelPauses.add(finish)
+  })
 }
 
 /**
@@ -131,7 +148,7 @@ export function buildPullSteps(): PullStep[] {
     // `/project`, singular); the cache key must match store hydration
     // (loadProjects) so offline reads and the PULL freshness gate find the
     // same keys. Re-check both after regenerating src/api.
-    steps.push({ name: 'projects', path: apiPath('/project'), refresh: () => app.refreshProjects() })
+    steps.push({ name: 'projects', path: apiPath('/project'), refresh: () => app.refreshProjects(true) })
   }
   if (resourceList || planningData) {
     steps.push({ name: 'users', path: apiPath('/user/all'), refresh: () => app.refreshUsers() })
@@ -165,7 +182,7 @@ export function buildPullSteps(): PullStep[] {
     steps.push({
       name: 'assignments',
       path: apiPath('/assignment'),
-      refresh: () => new AssignmentsApi(apiConfig()).assignmentGet(500, undefined, 0),
+      refresh: () => applicationServices.assignments.list(500, undefined, 0),
     })
   }
   if (planningData) {
@@ -233,6 +250,9 @@ export function buildPullSteps(): PullStep[] {
 
 /** Whether the cached copy of `step` is still fresh (younger than its TTL). */
 async function isStepFresh(step: PullStep): Promise<boolean> {
+  // A pathname can belong to several owners, windows and pagination queries.
+  // Web entry reads have exact query caching; the minute refresh is explicit.
+  if (platformCapabilities.kind === 'web') return false
   const ttl = step.ttl ?? PULL_TTL_MS
   if (!step.path) return false
   const entry = await cacheGetFresh<unknown>(step.path, step.keyPredicate)
@@ -251,7 +271,7 @@ async function isStepFresh(step: PullStep): Promise<boolean> {
  * made the grid re-render/flicker. `refreshAll` (the explicit "Обновить" /
  * manual warm) is the only caller allowed to bypass the gate.
  */
-async function runPull(settings: { cycle: boolean; refreshAll?: boolean }): Promise<number> {
+async function runPull(settings: { cycle: boolean; refreshAll?: boolean; generation: number }): Promise<number> {
   const steps = buildPullSteps()
   const targets = settings.cycle ? steps.filter((s) => s.cycle !== false) : steps
   const total = targets.length
@@ -259,20 +279,21 @@ async function runPull(settings: { cycle: boolean; refreshAll?: boolean }): Prom
   let refreshed = 0
   warmupProgress.value = total > 0 ? 0 : null
   for (const step of targets) {
-    if (isOffline.value || !useAuthStore().isAuthenticated || hasActiveMutations() || pendingCount.value > 0 || pendingRefs.value.size > 0) break
+    if (suspended || settings.generation !== generation || isOffline.value || !useAuthStore().isAuthenticated || hasActiveMutations() || pendingCount.value > 0 || pendingRefs.value.size > 0) break
     // Fresh cached copies are left alone in every mode, unless an explicit
     // full refresh was requested.
     if (!settings.refreshAll && (await isStepFresh(step))) {
       done++
       continue
     }
-    if (isOffline.value || hasActiveMutations() || pendingCount.value > 0 || pendingRefs.value.size > 0) break
+    if (suspended || settings.generation !== generation || isOffline.value || hasActiveMutations() || pendingCount.value > 0 || pendingRefs.value.size > 0) break
     try {
       await step.refresh()
       refreshed++
     } catch {
       // a single request failed — don't abort the whole warmup
     }
+    if (suspended || settings.generation !== generation) break
     done++
     warmupProgress.value = total > 0 ? Math.round((done / total) * 100) : null
     if (isOffline.value) break
@@ -291,10 +312,13 @@ async function runPull(settings: { cycle: boolean; refreshAll?: boolean }): Prom
  * callers (login, reconnect) leave it false so repeat triggers are cheap.
  */
 export function warmNow(force = false): Promise<boolean> {
-  if (running || isOffline.value) return Promise.resolve(false)
+  if (nativeSync) return queueRequest<{ lastPullAt: number | null; reachable: boolean | null; code?: string }>({ action: 'sync', force, pullOnly: true }).then(state => state.lastPullAt != null && state.reachable !== false && !state.code)
+  if (suspended || running || isOffline.value) return Promise.resolve(false)
   running = true
-  return runPull({ cycle: false, refreshAll: force })
+  const own = generation
+  return runPull({ cycle: false, refreshAll: force, generation: own })
     .then(() => {
+      if (suspended || own !== generation) return false
       lastWarmedAt.value = Date.now()
       try {
         localStorage.setItem(LAST_WARMED_KEY, String(lastWarmedAt.value))
@@ -304,8 +328,7 @@ export function warmNow(force = false): Promise<boolean> {
       return true
     })
     .finally(() => {
-      running = false
-      warmupProgress.value = null
+      if (own === generation) { running = false; warmupProgress.value = null }
     })
 }
 
@@ -315,10 +338,13 @@ export function warmNow(force = false): Promise<boolean> {
  * refreshed (0 — everything was already fresh).
  */
 export function pullStaleCycle(): Promise<number> {
-  if (running) return Promise.resolve(0)
+  if (nativeSync) return queueRequest({ action: 'sync', force: false, pullOnly: true }).then(() => 0)
+  if (suspended || running) return Promise.resolve(0)
   running = true
-  return runPull({ cycle: true })
+  const own = generation
+  return runPull({ cycle: true, generation: own })
     .then((refreshed) => {
+      if (suspended || own !== generation) return 0
       if (refreshed > 0) {
         lastWarmedAt.value = Date.now()
         try {
@@ -330,19 +356,35 @@ export function pullStaleCycle(): Promise<number> {
       return refreshed
     })
     .finally(() => {
-      running = false
-      warmupProgress.value = null
+      if (own === generation) { running = false; warmupProgress.value = null }
     })
 }
 
 /** Schedules full warmup when idle. Idempotent (one run at a time). */
 export function scheduleWarmup(): void {
-  if (running || scheduled) return
+  if (nativeSync) return
+  if (suspended || running || scheduled) return
   if (isOffline.value) return
   if (!useAuthStore().isAuthenticated) return
   scheduled = true
-  runWhenIdle(() => {
+  const own = generation
+  cancelScheduled = runWhenIdle(() => {
+    if (suspended || own !== generation) return
+    cancelScheduled = null
     scheduled = false
     void warmNow()
   })
 }
+
+export function stopWarmup(): void {
+  suspended = true
+  generation++
+  cancelScheduled?.()
+  cancelScheduled = null
+  for (const cancel of [...cancelPauses]) cancel()
+  scheduled = false
+  running = false
+  warmupProgress.value = null
+}
+
+export function resumeWarmup(): void { suspended = false }

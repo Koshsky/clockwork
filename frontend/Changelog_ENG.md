@@ -6,10 +6,50 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 The web app and the desktop wrapper are versioned together.
 
-## [Unreleased]
+## [2.0.0] - 2026-11-14
+
+### Changed
+
+- Electron isolates pending session requests across account and server changes and persists sessions on Windows.
+
+- Large diagrams use indexed permissions, reusable resource cells and scoped desktop refreshes to reduce memory pressure.
+- Large task diagrams recalculate resource headers faster in days and weeks.
+
+- Complete resource headers stay visible during refresh and clear when access changes.
+
+- Web and Electron artifacts use explicit platform compositions with verified package targets.
+
+- Electron keeps normal TLS trust and restricts privileged documents, popups and renderer network access.
+
+- Concurrent native reads preserve pending changes and access revocations.
+
+- Electron loads uncached discussions and saves tasks without a responsible person.
+
+- Web and Electron share typed application services, session actions and capability-driven queue controls while preserving native offline delivery and diagram export.
+
+- Electron shares minute synchronization, resource snapshots and explicit conflict review across windows.
+
+- Electron persists and delivers offline changes from SQLite in the main process with durable replay and explicit conflicts.
+
+- Web no longer uses the legacy IndexedDB queue or exposes Electron offline tools.
+
+- Web and Electron builds use the version from frontend/package.json.
+
+- Electron initializes transactional SQLite storage independently of windows and local ports.
+
+- Separate web cookie sessions from OS-protected Electron sessions.
 
 ### Fixed
 
+- Electron adds a shared IPC service with request validation and renderer recovery.
+
+- Web edits require API confirmation without an offline queue; lost replies support safe retries and rejected changes roll back.
+
+- Web pages load from the API without IndexedDB reads, with scoped request caching and protection against stale replies.
+
+- Web startup and online sessions tolerate unavailable IndexedDB; platform runtimes release background work on teardown.
+
+- Task planning ignores stale replies across refreshes, cache hydration and account changes.
 - Session restoration avoids duplicate refreshes and restores authorization before manually sending offline changes.
 
 ## [1.6.3] - 2026-11-11

@@ -1,7 +1,6 @@
 {
   "name": "mvs-erp-desktop",
-  "version": "1.6.3",
-  "description": "Настольная обвязка MVS ERP (Electron) вокруг собранного vite-фронтенда",
+  "description": "\u041d\u0430\u0441\u0442\u043e\u043b\u044c\u043d\u0430\u044f \u043e\u0431\u0432\u044f\u0437\u043a\u0430 MVS ERP (Electron) \u0432\u043e\u043a\u0440\u0443\u0433 \u0441\u043e\u0431\u0440\u0430\u043d\u043d\u043e\u0433\u043e vite-\u0444\u0440\u043e\u043d\u0442\u0435\u043d\u0434\u0430",
   "main": "main.js",
   "author": {
     "name": "MVS ERP",
@@ -11,15 +10,16 @@
   "license": "UNLICENSED",
   "private": true,
   "scripts": {
-    "build:web": "npm run build",
+    "build:web": "npm run build:renderer",
+    "build:renderer": "node ../scripts/build-renderer.cjs desktop",
     "start": "electron .",
-    "dist": "electron-builder",
-    "dist:win": "electron-builder --win",
-    "dist:mac": "electron-builder --mac",
-    "dist:linux": "electron-builder --linux"
+    "dist": "node build.cjs",
+    "dist:win": "node build.cjs --win",
+    "dist:mac": "node build.cjs --mac",
+    "dist:linux": "node build.cjs --linux"
   },
   "devDependencies": {
-    "electron": "^43.4.1",
+    "electron": "43.4.1",
     "electron-builder": "^26.15.3"
   },
   "build": {
@@ -31,10 +31,41 @@
     },
     "files": [
       "main.js",
+      "storage.cjs",
+      "storage-worker.cjs",
+      "storage-db.cjs",
+      "storage-schema.cjs",
+      "storage-validation.cjs",
+      "session-vault.cjs",
+      "session-service.cjs",
+      "session-ipc.cjs",
+      "api-routes.json",
+      "application.cjs",
+      "renderer-recovery.cjs",
+      "profile.cjs",
+      "protocol.cjs",
+      "protocol-operations.json",
+      "service.cjs",
+      "ipc.cjs",
       "preload.js",
       "security.cjs",
       "static-server.cjs",
-      "package.json"
+      "package.json",
+      "command-request.cjs",
+      "command-queue.cjs",
+      "sync-service.cjs",
+      "command-cacheProjection.cjs",
+      "command-planning.cjs",
+      "command-timesheet.cjs",
+      "command-revisions.cjs",
+      "command-baseline.cjs",
+      "command-periodAvailability.cjs",
+      "command-calendar.cjs",
+      "command-date.cjs",
+      "command-clamp.cjs",
+      "business-adapters.cjs",
+      "business-request.cjs",
+      "business-bindings.json"
     ],
     "extraResources": [
       {
@@ -86,6 +117,28 @@
       ],
       "artifactName": "${productName}-${version}-linux-${arch}.${ext}",
       "category": "Office;Business"
-    }
+    },
+    "asarUnpack": [
+      "storage*.cjs",
+      "protocol.cjs",
+      "protocol-operations.json",
+      "session-service.cjs",
+      "api-routes.json",
+      "command-request.cjs",
+      "command-queue.cjs",
+      "sync-service.cjs",
+      "command-cacheProjection.cjs",
+      "command-planning.cjs",
+      "command-timesheet.cjs",
+      "command-revisions.cjs",
+      "command-baseline.cjs",
+      "command-periodAvailability.cjs",
+      "command-calendar.cjs",
+      "command-date.cjs",
+      "command-clamp.cjs",
+      "business-adapters.cjs",
+      "business-request.cjs",
+      "business-bindings.json"
+    ]
   }
 }

@@ -2,6 +2,7 @@ import type ru from '../ru/common'
 import type { Translation } from '../types'
 
 export default {
+  localDataMissing: 'These data are not saved on this device yet. Connect to the server and refresh the data.',
   save: 'Save',
   cancel: 'Cancel',
   close: 'Close',
@@ -11,6 +12,7 @@ export default {
   confirmTitle: 'Confirmation',
   dragHeaderTitle: 'Drag the header to reorder sections',
   loading: 'Loading…',
+  networkError: 'Could not load data. Check your connection and try again.',
   noData: 'No data',
   yes: 'Yes',
   no: 'No',
@@ -22,4 +24,12 @@ export default {
   copy: 'Copy',
   copied: 'Copied',
   more: 'Show more',
+  commandChecked: 'Result checked',
+  commandCheckResult: 'The result is unconfirmed. Check the data before sending another operation: safe retry is unavailable.',
+  commandUnknown: 'Saving could not be confirmed. Check the data or retry with the same operation key. Changes are not considered saved until confirmed.',
+  commandSecretUnknown: 'The operation could not be confirmed. Check the account before repeating it; passwords and one-time data are not retained for retry.',
+  commandSessionChanged: 'The session changed. Check the operation result in the current account.',
+  commandRetry: 'Retry sending',
+  commandDismiss: 'Dismiss notice',
+  commandUncertainCount: 'Unconfirmed changes: {count}.',
 } satisfies Translation<typeof ru>
