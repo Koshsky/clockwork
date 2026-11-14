@@ -76,13 +76,30 @@ test('cross-platform build wrapper pins target and source directory without inde
   }
   assert.throws(() => rendererBuildPlan('auto'))
 })
-test('desktop builder refuses unverified renderers before invoking packaging', async () => {
-  const source = await fs.readFile(path.join(__dirname, '../desktop/build.cjs'), 'utf8')
-  const gate = source.indexOf("verifyRenderer(rendererDirectory(input), 'desktop')")
-  assert(gate >= 0)
-  assert(gate < source.indexOf('const result = spawnSync'))
-  const metadata = JSON.parse(await fs.readFile(path.join(__dirname, '../desktop/package.json'), 'utf8'))
-  assert.match(metadata.scripts['build:renderer'], /build-renderer.cjs desktop/)
+test('desktop builder refuses an unverified web renderer before invoking packaging', async t => {
+  const { spawnSync } = require('node:child_process'), f = await artifact(t)
+  const version = require('../scripts/app-version.cjs').readVersion()
+  f.metadata.version = version; await f.save()
+  await fs.writeFile(path.join(f.directory, 'precache-manifest.json'), JSON.stringify({ version, assets: ['/assets/entry.js'] }))
+  assert.equal(verifyRenderer(f.directory, 'web', version).target, 'web')
+  const config = path.join(f.directory, 'builder.json'), hook = path.join(f.directory, 'no-packager.cjs'), marker = path.join(f.directory, 'packager-called')
+  await fs.writeFile(config, JSON.stringify({ extraResources: [{ from: f.directory, to: 'web' }] }))
+  // A broken gate must fail the test without starting a real package build.
+  await fs.writeFile(hook, `require('node:child_process').spawnSync = () => { require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'called'); return { status: 0 } }`)
+  const result = spawnSync(process.execPath, ['--require', hook, path.join(__dirname, '../desktop/build.cjs'), '--config', config, '--publish', 'never'], { env: { ...process.env, ERP_DESKTOP_RENDERER_DIR: f.directory }, encoding: 'utf8' })
+  assert.equal(result.status, 1)
+  assert.match(result.stderr, /Renderer target\/version mismatch/)
+  await assert.rejects(fs.access(marker), { code: 'ENOENT' })
+})
+test('the configured Vite resolver rejects native renderer imports without running a build', async () => {
+  const { resolveConfig } = await import('vite')
+  const config = await resolveConfig({ root: path.join(__dirname, '..'), configFile: path.join(__dirname, '../vite.config.ts') }, 'build')
+  const guard = config.plugins.find(plugin => plugin.name === 'renderer-platform-boundary')
+  assert.ok(guard)
+  const context = { error(message) { throw new Error(message) } }
+  assert.throws(() => guard.resolveId.call(context, 'node:fs', '/src/main.ts'), /Native import in renderer/)
+  assert.equal(guard.resolveId.call(context, './web', '/src/main.ts'), null)
+  assert.equal(guard.resolveId.call(context, 'node:fs', undefined), null)
 })
 test('desktop default packaging keeps the legacy renderer location without custom mode restrictions', () => {
   const { rendererDirectory } = require('../desktop/build.cjs')

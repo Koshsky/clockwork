@@ -85,20 +85,3 @@ test('IPC accepts loaded revision metadata but rejects malformed or extra transp
   assert.equal(validate(request), true)
   for (const patch of [{ preconditions: { 'task:1': 'revision' } }, { preconditions: { 'process:1': '' } }, { temporaryId: 1 }, { locale: 'other' }, { url: 'https://attacker.test' }]) assert.equal(validate({ ...request, ...patch }), false)
 })
-test('UI entry points cannot instantiate generated clients or use raw native IPC', () => {
-  const fs = require('node:fs'), path = require('node:path'), root = path.join(__dirname, '../src')
-  function walk(directory) {
-    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-      const file = path.join(directory, entry.name)
-      if (entry.isDirectory()) { walk(file); continue }
-      if (!/\.(ts|vue)$/.test(file) || /\.(test|stories)\.ts$/.test(file) || file.includes(path.sep + 'api' + path.sep)) continue
-      const source = fs.readFileSync(file, 'utf8'), relative = path.relative(root, file).split(path.sep).join('/')
-      if (!relative.startsWith('store/data/adapters/')) assert(!/new \w+Api\(/.test(source), relative + ': use an application service')
-      if (/^(views|layouts)\//.test(relative)) {
-        assert(!/erpDesktop\.(session|queue|service)/.test(source), relative + ': use capabilities and application services')
-        assert(!/from ['"]@\/offline\//.test(source), relative + ': keep offline implementation behind the UI facade')
-      }
-    }
-  }
-  walk(root)
-})

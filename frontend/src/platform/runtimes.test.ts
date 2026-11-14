@@ -68,22 +68,19 @@ it('web refreshes at one minute, without starting the legacy engine', async () =
   expect(fake.pull).toHaveBeenCalledOnce()
   expect(fake.push).not.toHaveBeenCalled()
 })
-it.each(['unknown', 'empty', 'unavailable'] as const)('does not adopt or clear a %s legacy queue', async status => {
-  legacyQueueAvailability.value = status
-  await web(); await vi.advanceTimersByTimeAsync(60000)
-  expect(fake.prepare).not.toHaveBeenCalled()
-  expect(fake.push).not.toHaveBeenCalled()
-  expect(legacyQueueAvailability.value).toBe(status)
-})
-it('ignores a known pending legacy queue and keeps minute reads independent', async () => {
-  legacyQueueAvailability.value = 'pending'
-  const wait = gate(); fake.push.mockReturnValue(wait.promise)
-  await web(); await vi.advanceTimersByTimeAsync(60000)
+it('ignores legacy queues while minute API refresh remains active', async () => {
+  fake.prepare.mockImplementation(() => { throw new Error('Legacy recovery must not run') })
+  fake.push.mockImplementation(() => { throw new Error('Legacy sender must not run') })
+  await web()
+  for (const status of ['unknown', 'empty', 'unavailable', 'pending'] as const) {
+    legacyQueueAvailability.value = status
+    await vi.advanceTimersByTimeAsync(60000)
+    expect(legacyQueueAvailability.value).toBe(status)
+  }
   expect(fake.prepare).not.toHaveBeenCalled()
   expect(fake.push).not.toHaveBeenCalled()
   expect(fake.count).not.toHaveBeenCalled()
-  expect(fake.pull).toHaveBeenCalledOnce()
-  expect(legacyQueueAvailability.value).toBe('pending')
+  expect(fake.pull).toHaveBeenCalledTimes(4)
 })
 it.each(['hidden', 'disabled', 'loggedOut', 'mutation'])('defers web background work when %s', async mode => {
   if (mode === 'hidden') visibility.hidden = true
@@ -98,13 +95,6 @@ it('does not overlap web minute pulls', async () => {
   fake.pull.mockReturnValue(new Promise(() => {}))
   await web(); await vi.advanceTimersByTimeAsync(180000)
   expect(fake.pull).toHaveBeenCalledOnce()
-})
-it('legacy recovery failure cannot block web refresh or alter the old queue', async () => {
-  legacyQueueAvailability.value = 'pending'; fake.push.mockRejectedValue(new Error('lost response'))
-  await web(); await vi.advanceTimersByTimeAsync(60000)
-  expect(fake.pull).toHaveBeenCalledOnce()
-  expect(fake.push).not.toHaveBeenCalled()
-  expect(legacyQueueAvailability.value).toBe('pending')
 })
 it('handles offline and reconnect independently of queue availability', async () => {
   await web(); surface.dispatchEvent(new Event('offline'))
@@ -242,15 +232,6 @@ it('desktop startup failure is visible and releases acquired services', async ()
   expect(fake.monitor).not.toHaveBeenCalled()
 })
 
-it('does not discover or replay legacy work created by another tab', async () => {
-  await web()
-  fake.count.mockImplementation(async () => { legacyQueueAvailability.value = 'pending' })
-  await vi.advanceTimersByTimeAsync(60000)
-  expect(fake.count).not.toHaveBeenCalled()
-  expect(fake.prepare).not.toHaveBeenCalled()
-  expect(fake.push).not.toHaveBeenCalled()
-  expect(fake.pull).toHaveBeenCalledOnce()
-})
 it('web retry restores connectivity without sending a legacy queue', async () => {
   legacyQueueAvailability.value = 'pending'; fake.enabled = false; isOffline.value = true
   await web()

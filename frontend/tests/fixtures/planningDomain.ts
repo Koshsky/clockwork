@@ -8,7 +8,10 @@ import type { DtoResourceCalendar, DtoUserStateResponse } from '../../src/api'
 const dates = ['2026-11-02', '2026-11-08', '2026-11-09', '2026-11-10', '2026-11-16', '2026-11-17', '2026-11-18', '2026-11-19', '2026-11-20', '2026-11-23']
 export const resourceScenarioIds = [1, 2, 3, 4, 5, 6, 7, 8, 9] as const
 
-export function resourceScenarioTrace(scenario: number, unit: PlanningUnit) {
+export const scenarioTransforms = { addDaysISO, cellEndDate, cellIndexForDate, cellStartDate, applyRangeSplit, updatePeriodAvailability, addResourceAssignment, removeResourceAssignment, taskDateRollback }
+
+export function resourceScenarioTrace(scenario: number, unit: PlanningUnit, transforms = scenarioTransforms) {
+  const { addDaysISO, cellEndDate, cellIndexForDate, cellStartDate, applyRangeSplit, updatePeriodAvailability, addResourceAssignment, removeResourceAssignment, taskDateRollback } = transforms
   const resources = Array.from({ length: 12 }, (_, i) => ({ resource_id: i + 1, quantity: i + 2 }))
   const processes: ResourceProcess[] = [{ tasks: [
     { id: 7, start_date: '2026-11-09', end_date: '2026-11-22', resources: resources.slice(0, 2) },
@@ -48,12 +51,10 @@ export function resourceScenarioTrace(scenario: number, unit: PlanningUnit) {
   const command = (name: string, patch: { start_date: string; end_date: string }) => {
     const previous = { start_date: task.start_date, end_date: task.end_date }
     Object.assign(task, patch)
-    record(name + '-pending')
-    // These are alternative server outcomes for the same proposal, not a rollback after acceptance.
-    record(name + '-confirmed')
+    record(name + '-proposed')
     const rollback = taskDateRollback(task, patch, previous)
     if (rollback) Object.assign(task, rollback)
-    record(name + '-rejected')
+    record(name + '-restored')
   }
   const step = unit === 'week' ? 7 : 1
   if (scenario === 1) {
@@ -99,16 +100,10 @@ export function resourceScenarioTrace(scenario: number, unit: PlanningUnit) {
       scenario === 8 ? { id: -1, state_id: 2, is_available: false } : undefined)
     calendar = updatePeriodAvailability(calendar, 1, previous, after, '2026-11-17', '2026-11-19')
     periods = after
-    record('pending'); record('confirmed')
+    record('proposed')
     calendar = updatePeriodAvailability(calendar, 1, after, previous, '2026-11-17', '2026-11-19')
     periods = previous
-    record('rejected')
+    record('restored')
   }
   return trace
-}
-
-export function allResourceScenarioTraces() {
-  return Object.fromEntries((['day', 'week'] as const).map((unit) => [unit,
-    Object.fromEntries(resourceScenarioIds.map((id) => [id, resourceScenarioTrace(id, unit)])),
-  ]))
 }

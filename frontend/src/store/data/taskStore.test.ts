@@ -7,6 +7,8 @@ import type { DtoTaskPlanning, DtoTaskResponse } from '@/api'
 import { pendingRefs } from '@/offline/outbox'
 import { hasActiveMutations } from '@/offline/mutationGuard'
 import { usePlanningStore } from '../index'
+import { cellEndDate, cellIndexForDate, cellStartDate } from '@/domain/calendar'
+import { resourceCellUsage, resourceUsageForDay } from '@/domain/resourceUsage'
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -216,23 +218,37 @@ describe('task planning through an injected data port', () => {
     expect(planning.error).toBe(failure.message)
   })
 
-  it('keeps immediate drag dates and applies the confirmed canonical dates', async () => {
+  it.each((['day', 'week'] as const).flatMap(unit => [true, false].map(accepted => ({ unit, accepted }))))('keeps $unit resource headers optimistic and reconciles the actual command: accepted=$accepted', async ({ unit, accepted }) => {
     planning.taskPlanning = oldPlanning()
+    const row = planning.taskPlanning.processes![0].tasks![0]
+    row.resources = Array.from({ length: 12 }, (_, i) => ({ id: i + 1, quantity: i + 2 }))
+    const usage = (date: string, id: number) => {
+      const index = cellIndexForDate('2026-11-09', unit, date)
+      const processes = planning.taskPlanning!.processes!.map(process => ({ tasks: process.tasks?.map(task => ({ id: task.id!, start_date: task.start_date!, end_date: task.end_date!, resources: task.resources?.map(resource => ({ resource_id: resource.id!, quantity: resource.quantity! })) })) }))
+      return resourceCellUsage(id, cellStartDate('2026-11-09', unit, index), cellEndDate('2026-11-09', unit, index),
+        (resource, day) => resourceUsageForDay(processes, resource, day), () => 10).used
+    }
     const reply = deferred<CommandResult<DtoTaskResponse | null>>()
     port.update.mockReturnValueOnce(reply.promise)
-    const pending = planning.updateTaskDates(7, '2026-11-16', '2026-11-22')
-    expect(planning.taskPlanning.processes![0]!.tasks![0]!.start_date).toBe('2026-11-16')
-    reply.resolve({ status: 'confirmed', data: { id: 7, start_date: '2026-11-17', end_date: '2026-11-23' } })
-    expect(await pending).toBe(true)
-    expect(planning.taskPlanning.processes![0]!.tasks![0]).toMatchObject({ start_date: '2026-11-17', end_date: '2026-11-23' })
-  })
-
-  it('rolls back only the rejected date proposal', async () => {
-    planning.taskPlanning = oldPlanning()
-    port.update.mockResolvedValueOnce({ status: 'rejected', error: failure })
     port.readPlanning.mockResolvedValueOnce({ status: 'cancelled' })
-    expect(await planning.updateTaskDates(7, '2026-11-16', '2026-11-22')).toBe(false)
-    expect(planning.taskPlanning).toEqual(oldPlanning())
+    const pending = planning.updateTaskDates(7, '2026-11-16', '2026-11-22')
+    try {
+      expect(port.update).toHaveBeenCalledExactlyOnceWith(7, { start_date: '2026-11-16', end_date: '2026-11-22' })
+      for (let id = 1; id <= 12; id++) {
+        expect(usage('2026-11-09', id)).toBe(0)
+        expect(usage('2026-11-16', id)).toBe(id + 1)
+        expect(usage('2026-11-23', id)).toBe(0)
+      }
+      expect(usage('2026-11-16', 13)).toBe(0)
+    } finally {
+      reply.resolve(accepted ? { status: 'confirmed', data: { id: 7, start_date: '2026-11-17', end_date: '2026-11-23' } } : { status: 'rejected', error: failure })
+    }
+    expect(await pending).toBe(accepted)
+    expect(row).toMatchObject(accepted ? { start_date: '2026-11-17', end_date: '2026-11-23' } : { start_date: '2026-11-09', end_date: '2026-11-15' })
+    for (let id = 1; id <= 12; id++) {
+      expect(usage('2026-11-09', id)).toBe(accepted ? 0 : id + 1)
+      expect(usage('2026-11-23', id)).toBe(accepted ? id + 1 : 0)
+    }
   })
 
   it('does not apply a previous session write to the same task id in a new session', async () => {

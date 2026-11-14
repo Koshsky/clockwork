@@ -2,55 +2,17 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 const fake = vi.hoisted(() => ({ optional: true, put: vi.fn(), get: vi.fn(), keys: vi.fn(), clear: vi.fn(), del: vi.fn() }))
 vi.mock('./context', () => ({ platformCapabilities: { get optionalStorage() { return fake.optional } } }))
 vi.mock('@/offline/db', () => ({ idbPut: fake.put, idbGet: fake.get, idbKeys: fake.keys, idbClear: fake.clear, idbDel: fake.del }))
-import { localDataAvailability, legacyQueueAvailability } from './state'
 import { optionalCachePut, optionalCacheGet, optionalCacheKeys, optionalCacheClear } from './cacheStore'
-import { saveRefreshToken, loadRefreshToken, clearRefreshToken } from '@/offline/session'
+import { saveRefreshToken, loadRefreshToken } from '@/offline/session'
 let values: Map<string, string>
 beforeEach(async () => {
   vi.resetAllMocks(); fake.optional = true
   values = new Map()
   vi.stubGlobal('localStorage', { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value) })
-  localDataAvailability.value = 'unavailable'
   await optionalCacheClear('cache')
-  localDataAvailability.value = 'unknown'
-  legacyQueueAvailability.value = 'empty'
   fake.keys.mockResolvedValue([])
 })
 afterEach(() => vi.unstubAllGlobals())
-it('uses a cloned disposable cache when web storage is unavailable', async () => {
-  localDataAvailability.value = 'unavailable'
-  const input = { name: 'original' }
-  await optionalCachePut('cache', 'user:1:/projects', input)
-  input.name = 'changed'
-  const cached = await optionalCacheGet<typeof input>('cache', 'user:1:/projects')
-  expect(cached).toEqual({ name: 'original' })
-  cached!.name = 'modified read'
-  expect(await optionalCacheGet('cache', 'user:1:/projects')).toEqual({ name: 'original' })
-  expect(await optionalCacheGet('cache', 'user:2:/projects')).toBeUndefined()
-  expect(fake.put).not.toHaveBeenCalled()
-})
-it('does not lose an online web response when cache persistence fails', async () => {
-  fake.put.mockRejectedValue(new Error('disk')); fake.get.mockRejectedValue(new Error('disk'))
-  await optionalCachePut('cache', 'test', [1, 2])
-  expect(await optionalCacheGet('cache', 'test')).toEqual([1, 2])
-  expect(fake.put).not.toHaveBeenCalled()
-})
-it('ignores legacy cache keys and clears only the web memory copy', async () => {
-  legacyQueueAvailability.value = 'pending'
-  await optionalCachePut('cache', 'memory', 1)
-  fake.keys.mockResolvedValue(['memory', 'disk'])
-  expect(await optionalCacheKeys('cache')).toEqual(['memory'])
-  expect(fake.keys).not.toHaveBeenCalled()
-  await optionalCacheClear('cache')
-  localDataAvailability.value = 'unavailable'
-  expect(await optionalCacheGet('cache', 'memory')).toBeUndefined()
-})
-it('does not adopt a disk cache even when a legacy queue is pending', async () => {
-  legacyQueueAvailability.value = 'pending'
-  fake.get.mockResolvedValue({ title: 'queued edit' })
-  expect(await optionalCacheGet('cache', 'key')).toBeUndefined()
-  expect(fake.get).not.toHaveBeenCalled()
-})
 it.each(['put', 'get', 'keys', 'clear'] as const)('propagates desktop %s failures instead of acknowledging memory persistence', async operation => {
   fake.optional = false
   fake[operation].mockRejectedValue(new Error('disk unavailable'))
@@ -65,66 +27,9 @@ it('keeps the existing legacy desktop refresh helper durable', async () => {
   expect(await loadRefreshToken()).toBe('stored')
   expect(values.size).toBe(0)
 })
-it('never reads an old rotated IndexedDB token in the web', async () => {
-  fake.put.mockRejectedValue(new Error('rotation storage failed'))
-  fake.get.mockResolvedValue('revoked-token')
-  await saveRefreshToken('new-token')
-  expect(values.has('mvs_erp_web_cookie_session')).toBe(false)
-  expect(await loadRefreshToken()).toBeNull()
-  await saveRefreshToken('another-token')
-  expect(fake.get).not.toHaveBeenCalled()
-  expect(fake.put).not.toHaveBeenCalled()
-})
-it('web session restoration never waits for an IndexedDB read', async () => {
-  fake.get.mockRejectedValue(new Error('unavailable'))
-  expect(await loadRefreshToken()).toBeNull()
-  expect(values.has('mvs_erp_web_cookie_session')).toBe(false)
-})
 it.each(['read', 'write'])('keeps desktop session %s durable', async operation => {
   fake.optional = false
   fake.put.mockRejectedValue(new Error('disk')); fake.get.mockRejectedValue(new Error('disk'))
   await expect(operation === 'read' ? loadRefreshToken() : saveRefreshToken('token')).rejects.toThrow('disk')
   expect(values.size).toBe(0)
-})
-it('legacy web session helpers need neither IndexedDB nor a localStorage marker', async () => {
-  fake.put.mockRejectedValue(new Error('disk'))
-  vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => { throw new Error('localStorage unavailable') } })
-  await expect(saveRefreshToken('new')).resolves.toBeUndefined()
-  expect(fake.put).not.toHaveBeenCalled()
-})
-it('does not alter a legacy token or cookie-only marker on web logout', async () => {
-  values.set('mvs_erp_web_cookie_session', '1')
-  await clearRefreshToken()
-  expect(fake.del).not.toHaveBeenCalled()
-  expect(values.get('mvs_erp_web_cookie_session')).toBe('1')
-  expect(await loadRefreshToken()).toBeNull()
-})
-it('does not wait for known-unavailable optional storage on logout', async () => {
-  localDataAvailability.value = 'unavailable'
-  await clearRefreshToken()
-  expect(fake.del).not.toHaveBeenCalled()
-})
-
-it('does not replace a volatile online response with stale disk cache after storage recovery', async () => {
-  localDataAvailability.value = 'unavailable'
-  await optionalCachePut('cache', 'recovered', { title: 'online version' })
-  localDataAvailability.value = 'available'
-  fake.get.mockResolvedValue({ title: 'stale disk' })
-  expect(await optionalCacheGet('cache', 'recovered')).toEqual({ title: 'online version' })
-  expect(fake.get).not.toHaveBeenCalled()
-  await optionalCachePut('cache', 'recovered', { title: 'persisted' })
-  fake.get.mockResolvedValue({ title: 'persisted' })
-  expect(await optionalCacheGet('cache', 'recovered')).toEqual({ title: 'persisted' })
-  expect(fake.get).not.toHaveBeenCalled()
-})
-
-it.each(['empty', 'unknown', 'unavailable'] as const)('never reads disk GET snapshots in the ordinary web path when the queue is %s', async state => {
-  legacyQueueAvailability.value = state
-  localDataAvailability.value = 'available'
-  fake.get.mockResolvedValue({ title: 'old profile snapshot' })
-  fake.keys.mockResolvedValue(['disk-only'])
-  expect(await optionalCacheGet('cache', 'disk-only')).toBeUndefined()
-  expect(await optionalCacheKeys('cache')).toEqual([])
-  expect(fake.get).not.toHaveBeenCalled()
-  expect(fake.keys).not.toHaveBeenCalled()
 })

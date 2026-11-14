@@ -21,6 +21,8 @@
  */
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
+import { cellEndDate, cellIndexForDate, cellStartDate, type PlanningUnit } from '@/domain/calendar'
+import { indexResourcePeriods, resourceAvailableForDay, resourceCellUsage } from '@/domain/resourceUsage'
 import { resetWebCommands } from './data/webCommands'
 import { pendingRefs } from '@/offline/outbox'
 import { useAppStore, usePlanningStore, useTimesheetStore, useAuthStore } from './index'
@@ -563,8 +565,15 @@ describe('optimistic timesheet absence and resource capacity transaction', () =>
     api.timesheetCalendarGet.mockImplementation(() => Promise.resolve(payload({ resources: app.calendar })))
   })
   const available = (date: string, id = 1) => app.calendar.find((r) => r.resource_id === id)?.periods?.find((p) => p.start_date! <= date && p.end_date! >= date)?.available
+  const headerAvailable = (date: string, unit: PlanningUnit) => {
+    const index = cellIndexForDate('2026-11-02', unit, date)
+    const periods = indexResourcePeriods(app.calendar)
+    return resourceCellUsage(1, cellStartDate('2026-11-02', unit, index), cellEndDate('2026-11-02', unit, index), () => 0,
+      (id, day) => resourceAvailableForDay(periods, id, day)).available
+  }
+  const responses = (['day', 'week'] as const).flatMap(unit => [true, false].map(accepted => ({ unit, accepted })))
 
-  it.each([true, false])('adding an absence previews immediately; accepted=%s', async (accepted) => {
+  it.each(responses)('adding absence updates the $unit header while pending; accepted=$accepted', async ({ unit, accepted }) => {
     let respond!: () => void
     api.userIdDaysPut.mockImplementation(() => new Promise((resolve, reject) => {
       respond = () => accepted ? resolve(payload(null)) : reject(new Error('409: rejected'))
@@ -576,6 +585,8 @@ describe('optimistic timesheet absence and resource capacity transaction', () =>
     expect(available('2026-11-12')).toBe(9)
     expect(available('2026-11-13')).toBe(10)
     expect(available('2026-11-11', 2)).toBe(10)
+    expect(headerAvailable('2026-11-11', unit)).toBe(9)
+    expect(headerAvailable('2026-11-16', unit)).toBe(10)
     // A background pull cannot overwrite the pending local transaction.
     await app.refreshCalendar()
     await timesheet.refreshPeriods('2026-11-01', '2026-11-30')
@@ -584,10 +595,12 @@ describe('optimistic timesheet absence and resource capacity transaction', () =>
     respond()
     await expect(pending).resolves.toBe(accepted)
     expect(available('2026-11-11')).toBe(accepted ? 9 : 10)
+    expect(headerAvailable('2026-11-11', unit)).toBe(accepted ? 9 : 10)
+    expect(headerAvailable('2026-11-16', unit)).toBe(10)
     expect(timesheet.periodFor(51, '2026-11-11')?.state_id).toBe(accepted ? 2 : undefined)
   })
 
-  it.each([true, false])('deleting part of an absence keeps its tails; accepted=%s', async (accepted) => {
+  it.each(responses)('partial absence deletion preserves tails and the $unit header; accepted=$accepted', async ({ unit, accepted }) => {
     api.userIdDaysPut.mockResolvedValue(payload(null))
     await timesheet.assignRange(51, 2, '2026-11-09', '2026-11-15')
     let respond!: () => void
@@ -599,9 +612,11 @@ describe('optimistic timesheet absence and resource capacity transaction', () =>
     expect(available('2026-11-11')).toBe(10)
     expect(available('2026-11-09')).toBe(9)
     expect(available('2026-11-13')).toBe(9)
+    expect(headerAvailable('2026-11-11', unit)).toBe(unit === 'week' ? 9 : 10)
     respond()
     await expect(pending).resolves.toBe(accepted)
     expect(available('2026-11-11')).toBe(accepted ? 10 : 9)
+    expect(headerAvailable('2026-11-11', unit)).toBe(accepted && unit === 'day' ? 10 : 9)
     expect(timesheet.periodFor(51, '2026-11-11')?.state_id).toBe(accepted ? undefined : 2)
   })
 

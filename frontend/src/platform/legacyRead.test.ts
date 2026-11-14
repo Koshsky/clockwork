@@ -5,19 +5,12 @@ vi.mock('@/offline/outbox', () => ({ replayOutboxToCache: fake.replay }))
 import { prepareCacheOverlay } from './legacyRead'
 import { localDataAvailability } from './state'
 beforeEach(() => { vi.resetAllMocks(); fake.optional = true; localDataAvailability.value = 'unknown' })
-it('does not replay saved edits even when web storage is readable', async () => {
-  await prepareCacheOverlay()
-  expect(fake.replay).not.toHaveBeenCalled()
-})
-it('does not keep retrying known unavailable optional storage during navigation', async () => {
-  localDataAvailability.value = 'unavailable'
-  await prepareCacheOverlay()
-  expect(fake.replay).not.toHaveBeenCalled()
-})
-it('does not probe legacy storage before web API reads', async () => {
-  fake.replay.mockImplementation(async () => { localDataAvailability.value = 'unavailable'; throw new Error('disk') })
-  await expect(prepareCacheOverlay()).resolves.toBeUndefined()
-  expect(localDataAvailability.value).toBe('unknown')
+it('web reads never prepare legacy overlays, regardless of storage availability', async () => {
+  for (const state of ['unknown', 'available', 'unavailable'] as const) {
+    localDataAvailability.value = state
+    await prepareCacheOverlay()
+    expect(localDataAvailability.value).toBe(state)
+  }
   expect(fake.replay).not.toHaveBeenCalled()
 })
 it('does not conceal a desktop overlay failure unrelated to storage', async () => {
