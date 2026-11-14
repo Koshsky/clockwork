@@ -1,0 +1,28 @@
+erp.koshsky.ru {
+	encode zstd gzip
+
+	# ERP API — direct to the backend. Caddy appends X-Forwarded-For and
+	# sets X-Forwarded-Proto itself; X-Real-IP carries the real client IP.
+	# The backend trusts the whole app-network (trusted_proxies in
+	# config.yaml), so Gin's ClientIP keeps working without any change.
+	handle /api/* {
+		reverse_proxy erp:8080 {
+			header_up X-Real-IP {http.request.remote.host}
+		}
+	}
+
+	# Swagger UI (served by the backend) — walled to localhost and the
+	# docker bridge gateway, same allowlist as the retired nginx config.
+	handle /swagger* {
+		@local client_ip 127.0.0.1 ::1 172.18.0.1
+		handle @local {
+			reverse_proxy erp:8080
+		}
+		respond 403
+	}
+
+	# Static SPA (its own nginx does the SPA fallback and asset caching).
+	handle {
+		reverse_proxy frontend:80
+	}
+}

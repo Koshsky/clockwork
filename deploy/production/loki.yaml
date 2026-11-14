@@ -1,0 +1,43 @@
+# Minimal single-binary Loki for the ERP audit journal (no auth, no HA).
+# The backend (audit.url = http://loki:3100) pushes events and queries them
+# via the LogQL query_range API; this config only needs the HTTP API and
+# local filesystem storage. Managed by the manual deployment workflow.
+auth_enabled: false
+
+server:
+  http_listen_address: 0.0.0.0
+  http_listen_port: 3100
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+# The audit journal queries a 30-day window by default; the default query
+# split of 1h would fan that out into ~720 scheduler sub-queries, which a
+# single-instance VPS answers slowly (the backend audit timeout is 10s).
+# The split is overridden to 24h via the container command flag
+# (-querier.split-queries-by-interval=24h, see docker-compose.stack.yml) —
+# the key is CLI-only in Loki 3.4 and not accepted in the YAML config.
+
+limits_config:
+  allow_structured_metadata: true
+  volume_enabled: true
+  max_query_parallelism: 4
