@@ -483,6 +483,8 @@ def apply(request):
                 compose(active, 'stop', '--timeout', '30', 'erp')
             phase('apply')
             atomic_write(active, candidate.read_bytes())
+            # Reserve the proxy IP before any dynamically addressed service is recreated.
+            compose(active, 'up', '-d', '--no-deps', '--no-build', '--pull', 'never', '--wait', '--wait-timeout', '180', 'caddy')
             compose(active, 'up', '-d', '--no-build', '--pull', 'never', '--wait', '--wait-timeout', '180', 'db', 'loki')
             phase('wait-audit')
             wait_loki(model['services']['caddy']['image'])
