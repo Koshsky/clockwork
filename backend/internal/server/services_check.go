@@ -5,8 +5,8 @@ import (
 	autocreateService "github.com/Koshsky/erp-backend/internal/auto_create/service"
 	assignmentDelivery "github.com/Koshsky/erp-backend/internal/project_mgmt/assignment/delivery"
 	assignmentService "github.com/Koshsky/erp-backend/internal/project_mgmt/assignment/service"
+	milestoneService "github.com/Koshsky/erp-backend/internal/project_mgmt/milestone"
 	milestoneDelivery "github.com/Koshsky/erp-backend/internal/project_mgmt/milestone/delivery"
-	milestoneService "github.com/Koshsky/erp-backend/internal/project_mgmt/milestone/service"
 	processDelivery "github.com/Koshsky/erp-backend/internal/project_mgmt/process/delivery"
 	processService "github.com/Koshsky/erp-backend/internal/project_mgmt/process/service"
 	projectDelivery "github.com/Koshsky/erp-backend/internal/project_mgmt/project/delivery"
@@ -44,7 +44,7 @@ var (
 	_ ResourceService   = (*resourceService.ResourceService)(nil)
 	_ ProjectService    = (*projectService.ProjectService)(nil)
 	_ ProcessService    = (*processService.ProcessService)(nil)
-	_ MilestoneService  = (*milestoneService.MilestoneService)(nil)
+	_ MilestoneService  = (*milestoneService.Service)(nil)
 	_ AssignmentService = (*assignmentService.AssignmentService)(nil)
 	_ StateService      = (*stateService.StateService)(nil)
 	_ CalendarService   = (*calendarService.CalendarService)(nil)

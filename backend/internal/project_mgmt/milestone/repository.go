@@ -1,4 +1,4 @@
-package service
+package milestone
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"github.com/Koshsky/erp-backend/pkg/date"
 )
 
-type MilestoneRepository interface {
+type Repository interface {
 	CreateMilestone(
 		ctx context.Context,
 		processID int64,

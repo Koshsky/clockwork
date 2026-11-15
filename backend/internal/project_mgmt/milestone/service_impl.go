@@ -1,4 +1,4 @@
-package service
+package milestone
 
 import (
 	"context"
@@ -13,30 +13,30 @@ import (
 	"github.com/Koshsky/erp-backend/pkg/errors"
 )
 
-type MilestoneService struct {
+type Service struct {
 	logger     *slog.Logger
 	tracer     *tracingpkg.Tracer
-	repository MilestoneRepository
-	mapper     *MilestoneMapper
-	validator  *MilestoneValidator
+	repository Repository
+	mapper     *Mapper
+	validator  *Validator
 }
 
-// NewMilestoneService builds the MilestoneService service.
-func NewMilestoneService(
+// NewService builds the milestone service.
+func NewService(
 	logger *slog.Logger,
 	tracer *tracingpkg.Tracer,
-	r MilestoneRepository,
-) *MilestoneService {
-	return &MilestoneService{
+	r Repository,
+) *Service {
+	return &Service{
 		logger:     logger.With("component", "milestone_service"),
 		tracer:     tracer,
 		repository: r,
-		mapper:     NewMilestoneMapper(),
-		validator:  &MilestoneValidator{},
+		mapper:     NewMapper(),
+		validator:  &Validator{},
 	}
 }
 
-func (s *MilestoneService) CreateMilestone(
+func (s *Service) CreateMilestone(
 	ctx context.Context,
 	req dto.CreateMilestoneRequest,
 ) (*dto.MilestoneResponse, error) {
@@ -61,7 +61,7 @@ func (s *MilestoneService) CreateMilestone(
 	return s.mapper.ToDTO(created), nil
 }
 
-func (s *MilestoneService) FindMilestone(ctx context.Context, id int64) (*dto.MilestoneResponse, error) {
+func (s *Service) FindMilestone(ctx context.Context, id int64) (*dto.MilestoneResponse, error) {
 	ctx, end := s.tracer.Start(ctx, "milestone.FindMilestone")
 	defer end(nil)
 
@@ -78,7 +78,7 @@ func (s *MilestoneService) FindMilestone(ctx context.Context, id int64) (*dto.Mi
 	return s.mapper.ToDTO(milestone), nil
 }
 
-func (s *MilestoneService) UpdateMilestone(
+func (s *Service) UpdateMilestone(
 	ctx context.Context,
 	id int64,
 	req dto.UpdateMilestoneRequest,
@@ -128,7 +128,7 @@ func (s *MilestoneService) UpdateMilestone(
 	return s.mapper.ToDTO(updated), nil
 }
 
-func (s *MilestoneService) DeleteMilestone(ctx context.Context, id int64) error {
+func (s *Service) DeleteMilestone(ctx context.Context, id int64) error {
 	ctx, end := s.tracer.Start(ctx, "milestone.DeleteMilestone")
 	defer end(nil)
 
@@ -146,7 +146,7 @@ func (s *MilestoneService) DeleteMilestone(ctx context.Context, id int64) error 
 	return s.repository.DeleteMilestone(ctx, id)
 }
 
-func (s *MilestoneService) ListMilestones(
+func (s *Service) ListMilestones(
 	ctx context.Context,
 	userID int64,
 	scope access.ListScope,

@@ -1,4 +1,4 @@
-package service
+package milestone
 
 import (
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/milestone/dto"
@@ -6,13 +6,13 @@ import (
 	nullable "github.com/Koshsky/erp-backend/pkg/database"
 )
 
-type MilestoneMapper struct{}
+type Mapper struct{}
 
-func NewMilestoneMapper() *MilestoneMapper {
-	return &MilestoneMapper{}
+func NewMapper() *Mapper {
+	return &Mapper{}
 }
 
-func (m *MilestoneMapper) ToDTO(milestone *sqlc.Milestone) *dto.MilestoneResponse {
+func (m *Mapper) ToDTO(milestone *sqlc.Milestone) *dto.MilestoneResponse {
 	if milestone == nil {
 		return nil
 	}
@@ -26,7 +26,7 @@ func (m *MilestoneMapper) ToDTO(milestone *sqlc.Milestone) *dto.MilestoneRespons
 	}
 }
 
-func (m *MilestoneMapper) ToDTOs(milestones []sqlc.Milestone) []dto.MilestoneResponse {
+func (m *Mapper) ToDTOs(milestones []sqlc.Milestone) []dto.MilestoneResponse {
 	if milestones == nil {
 		return []dto.MilestoneResponse{}
 	}

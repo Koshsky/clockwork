@@ -1,15 +1,15 @@
-package service
+package milestone
 
 import (
 	"github.com/Koshsky/erp-backend/pkg/date"
 	"github.com/Koshsky/erp-backend/pkg/validator"
 )
 
-type MilestoneValidator struct {
+type Validator struct {
 	validator.Validator
 }
 
-func (v *MilestoneValidator) ValidateMilestone(
+func (v *Validator) ValidateMilestone(
 	processID int64,
 	title, content string,
 	color *string,

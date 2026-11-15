@@ -494,3 +494,45 @@ httptest Loki endpoints and fake repositories; no real DB/API/Electron acceptanc
 or fresh Swagger/SDK generation is claimed. Evidence:
 `../local/backend-b07-20261115/`. No push, merge, CI, release, deployment or remote
 server changes were performed.
+
+## B08 implementation ledger — 2026-11-15
+
+Continued on `refactor/backend-access-tracing` after `6e95371`. Milestone is the
+first flattened feature: service implementation, mapping, validation and the
+consumer-owned repository interface now live in its feature root. The old
+`milestone/service` package is removed and `valitdator.go` becomes `validator.go`.
+Root types/constructors use `Service`, `Repository`, `Mapper`, `Validator`,
+`NewService` and `NewMapper` to avoid package-name stutter. Normalizing these
+identifiers, the package declaration and one constructor comment reproduces all
+four original implementation files exactly; business statements are unchanged.
+
+Delivery imports milestone core. DTO, concrete repository, query and sqlc
+packages remain separate. Composition stays in parent `project_mgmt/module.go`;
+there is no new feature module or compatibility wrapper. Architecture checks
+include milestone's transitive dependencies and reject concrete-repository
+coupling. Existing constructor/interface guards use the new package identity.
+Wire was regenerated normally; normalized provider calls, arguments and order
+are identical, with only the moved constructor and import aliases differing.
+
+Seven core Test functions were added and executed at the original service path
+before moving them. Two additional HTTP Test functions exercise real handlers,
+the core and RBAC middleware over fake repository/owner facts. All nine functions
+and 46 named subcases pass before and after the move (55 identical test outcomes).
+They cover CRUD, structured validation, malformed/missing dates, absent/null/empty
+patch fields, nullable colors, mapper ordering, list/count scope and pagination,
+repository error classification, process/project ownership, inherited view,
+hidden direct IDs and rejected reparenting. All 379 existing Test functions are
+retained. The list tests verify compiled scope forwarding, not PostgreSQL's
+execution of the WHERE clauses.
+
+Validation: build/vet, full normal-tag suite (308 top-level pass, 16 skip; 2,594
+pass events and 20 skips including subtests), full race checks in 37 tested
+packages, and lint 2.15.0 (0 issues) passed. All 388 Test functions compile/list
+with the integration tag; 64 integration-tagged functions were not executed.
+Fresh Swagger JSON and YAML generated with swag 1.16.6 before/after the move are
+byte-identical: 57 paths, 93 operations and 92 definitions. All nine frozen
+API/SDK/DTO/SQL/sqlc/migration/error/version groups still match B01. Repository
+policy and whitespace checks passed. The local Docker daemon is unavailable;
+no real PostgreSQL/API/Electron acceptance or fresh frontend SDK generation is
+claimed. Evidence: `../local/backend-b08-20261115/`. No push, merge, CI, release,
+deployment or remote server changes were performed.
