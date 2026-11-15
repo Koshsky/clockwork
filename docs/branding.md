@@ -36,8 +36,10 @@ existing theme exactly. Status colors, resource availability indicators and
 user-selected Gantt bar colors keep their existing meaning. Print/PDF captures
 the resulting page styles through the existing snapshot path.
 
-Logos accept sibling PNG, JPEG or WebP files up to 256 KiB; URL references,
-subdirectories and SVG are not accepted. Raster bytes become an embedded image,
+Logos accept sibling static PNG, JPEG or WebP files up to 256 KiB, 2048 pixels
+on either side and 1,048,576 pixels total. Dimensions are checked before decoding;
+animated PNG/WebP, URL references, subdirectories and SVG are not accepted.
+Raster bytes become an embedded image,
 so CSP stays same-origin and PDF/offline views need no remote logo request.
 An unavailable or invalid logo leaves the configured name visible.
 
@@ -45,8 +47,19 @@ Electron fetches public branding in its main process, with normal TLS checking,
 no credentials, no redirects, bounded responses and a short timeout. It retains
 the last valid identity in its profile, keyed by server origin, and restores it
 offline. An HTTP 404 explicitly resets a cached identity. A network failure or
-malformed response preserves the last valid identity for that server. Existing
+malformed response or transient logo failure preserves the complete last valid
+identity for that server. A removed or invalid logo may clear the cached logo.
+The cache keeps at most eight server origins (up to 4 MiB total) and evicts the
+oldest entries without touching sessions, SQLite or queued commands. Existing
 application IDs, profile paths, JWT issuer and queued data are unchanged.
+
+Both processes emit `[branding]` diagnostics to their developer console for
+invalid configuration, unavailable logos and cache failures, limited to one
+warning per minute per process. Codes contain no server URLs, file paths,
+configuration values or raw exception messages. Missing configuration (HTTP 404)
+is the supported default and does not produce a warning. A browser reconnect
+preserves the currently loaded brand until a successful refresh; switching
+servers clears it immediately. Language changes do not replace the product title.
 
 For local development place the same directory under
 `frontend/public/assets/custom/branding/` (ignored by Git). No backend restart is

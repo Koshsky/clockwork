@@ -38,6 +38,14 @@ try {
   expect(await page.locator('.lp-brand-image').evaluate(image => image.complete && image.naturalWidth > 0)).toBe(true)
   await expect(page.locator('.lp-btitle img')).toHaveCount(0)
   expect(await page.locator('link[rel=icon]').getAttribute('href')).toMatch(/^data:image\/png/)
+  const rasterTypes = await page.evaluate(async () => {
+    const { normalizeBranding } = await import('/src/domain/branding.ts')
+    const canvas = document.createElement('canvas'); canvas.width = 16; canvas.height = 16
+    return ['image/jpeg', 'image/webp'].map(type => normalizeBranding({ logo: canvas.toDataURL(type) }).logo?.startsWith(`data:${type};`) ?? false)
+  })
+  expect(rasterTypes).toEqual([true, true])
+  await page.evaluate(async () => { const { setAppLocale } = await import('/src/i18n/index.ts'); setAppLocale('en'); setAppLocale('ru') })
+  await expect(page).toHaveTitle(name)
   const color = await page.locator('.lp-btitle').evaluate(node => getComputedStyle(node).color)
   expect(color).not.toBe('rgb(26, 115, 232)')
   await page.evaluate(async () => {

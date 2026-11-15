@@ -4,6 +4,7 @@ import { nextTick, type Ref } from 'vue'
 import { branding, initBranding } from './branding'
 import { desktopSessionState } from './session/desktop'
 import { resolvedScheme } from './theme'
+import { setAppLocale } from './i18n'
 
 vi.mock('./theme', async () => ({ resolvedScheme: (await import('vue')).ref('light') }))
 vi.mock('./session/desktop', async () => ({ desktopSessionState: (await import('vue')).ref(null) }))
@@ -13,8 +14,9 @@ beforeEach(() => {
   ;(resolvedScheme as Ref<string>).value = 'light'
   document.head.innerHTML = '<link rel="icon" href="/icons/icon.svg">'
   document.documentElement.style.cssText = ''
+  vi.spyOn(console, 'warn').mockImplementation(() => {})
 })
-afterEach(() => { stop(); vi.unstubAllGlobals(); document.body.replaceChildren() })
+afterEach(() => { stop(); vi.restoreAllMocks(); vi.unstubAllGlobals(); document.body.replaceChildren() })
 const flush = async () => { await vi.waitFor(() => expect(document.title).not.toBe('Clockwork')); await nextTick() }
 
 it('applies server identity and reacts to theme changes', async () => {
@@ -53,4 +55,44 @@ it('restores default theme tokens after reconnecting to a server using Clockwork
   await vi.waitFor(() => expect(branding.value.name).toBe('Clockwork'))
   await nextTick()
   expect(document.documentElement.style.getPropertyValue('--ui-accent')).toBe('')
+})
+it('keeps the current company identity and color during a failed same-server reconnect', async () => {
+  const request = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ name: 'Company', primaryColor: '#7841AF' }))).mockRejectedValue(new TypeError('private URL unavailable'))
+  vi.stubGlobal('fetch', request)
+  stop = initBranding(); await flush()
+  const color = document.documentElement.style.getPropertyValue('--ui-accent')
+  window.dispatchEvent(new Event('online'))
+  expect(branding.value.name).toBe('Company')
+  await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2))
+  await nextTick()
+  expect(document.title).toBe('Company')
+  expect(document.documentElement.style.getPropertyValue('--ui-accent')).toBe(color)
+})
+it('clears the previous company immediately when switching to an unavailable server', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ name: 'Company' }))).mockRejectedValue(new Error('offline')))
+  stop = initBranding(); await flush()
+  desktopSessionState.value = { server: 'https://other.example/api/v1' } as NonNullable<typeof desktopSessionState.value>
+  await nextTick()
+  expect(branding.value.name).toBe('Clockwork')
+})
+it('keeps the deployment title while changing the real application locale', async () => {
+  const request = vi.fn(async () => new Response(JSON.stringify({ name: 'Company' })))
+  vi.stubGlobal('fetch', request)
+  stop = initBranding(); await flush()
+  for (const locale of ['en', 'ru'] as const) {
+    setAppLocale(locale); await nextTick()
+    expect(document.documentElement.lang).toBe(locale)
+    expect(document.title).toBe('Company')
+  }
+  expect(request).toHaveBeenCalledOnce()
+})
+it('rejects compressed logos with excessive dimensions without invoking the browser decoder', async () => {
+  const bytes = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1cAAAAASUVORK5CYII='), char => char.charCodeAt(0))
+  new DataView(bytes.buffer).setUint32(16, 100000)
+  const image = vi.fn()
+  vi.stubGlobal('Image', image)
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ name: 'Company', logo: 'data:image/png;base64,' + btoa(String.fromCharCode(...bytes)) }))))
+  stop = initBranding(); await flush()
+  expect(branding.value.logo).toBeNull()
+  expect(image).not.toHaveBeenCalled()
 })

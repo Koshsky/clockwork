@@ -56,8 +56,9 @@ means yes. EOF before all three answers aborts. Dry-run prints versions, targets
 architectures and host restrictions without running commands or creating output.
 Windows/Linux default to x64; macOS defaults to the running Node architecture.
 Targets are Windows portable ZIP (containing the EXE), Linux AppImage and macOS
-ZIP (containing the app). The original product name and application/profile IDs
-are preserved. Cross-built files do not establish runtime acceptance on that OS.
+ZIP (containing the app). The installed product name is Clockwork; deployment
+branding configures the connected UI. Existing application/profile IDs remain
+stable. Cross-built files do not establish runtime acceptance on that OS.
 
 Actual builds run `npm ci` once in frontend and desktop, verify generated code
 and the host SQLite runtime, then compile a fresh desktop renderer in a new
