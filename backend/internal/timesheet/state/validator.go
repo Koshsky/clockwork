@@ -1,14 +1,14 @@
-package service
+package state
 
 import (
 	"github.com/Koshsky/erp-backend/pkg/validator"
 )
 
-type StateValidator struct {
+type Validator struct {
 	validator.Validator
 }
 
-func (v *StateValidator) ValidateState(code, name string, color *string) error {
+func (v *Validator) ValidateState(code, name string, color *string) error {
 	if err := v.ValidateRequiredText(code, "code"); err != nil {
 		return err
 	}

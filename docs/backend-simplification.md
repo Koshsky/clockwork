@@ -536,3 +536,45 @@ policy and whitespace checks passed. The local Docker daemon is unavailable;
 no real PostgreSQL/API/Electron acceptance or fresh frontend SDK generation is
 claimed. Evidence: `../local/backend-b08-20261115/`. No push, merge, CI, release,
 deployment or remote server changes were performed.
+
+## B09 implementation ledger — 2026-11-15
+
+Continued on `refactor/backend-access-tracing` after `9420f3a`. The day-type
+catalog's service implementation, repository port, mapper and validator now live
+in `timesheet/state`, following the milestone pilot. The old `state/service`
+package is removed; root names are `Service`, `Repository`, `Mapper`, `Validator`,
+`NewService` and `NewMapper`. Normalizing those identifiers, the package name
+and one constructor comment reproduces all four original implementation files
+exactly. No business statements, default values or error branches changed.
+
+Delivery depends on state core; DTO and repository/query/sqlc remain separate.
+Composition stays in parent `timesheet/module.go`. Calendar/absence/resource
+packages and state SQL are unchanged. The architecture guard includes state's
+transitive dependencies and rejects concrete-repository coupling. Regenerated
+Wire has identical provider calls, arguments and order after normalizing the
+moved constructor and import aliases.
+
+Six core Test functions were added at the original path before moving them;
+two HTTP Test functions exercise real routes, middleware and service over fake
+repositories. All eight functions and 54 named subcases pass before and after
+the move (62 identical test outcomes). Coverage includes CRUD and conflicts,
+idempotent deletion, structured validation, missing rows/database failures,
+absent/null/false/true patches, color clearing, empty/ordered catalog results,
+and explicit serialization of `is_available: false`. HTTP checks preserve
+catalog-only access, denial without capabilities, isolation from unrelated
+administration rights, delegated state management and administrator bypass.
+All 388 existing Test functions are retained.
+
+Validation: build/vet, full normal-tag suite (316 top-level pass, 16 skip; 2,656
+pass events and 20 skips including subtests), full race checks in 39 tested
+packages, and lint 2.15.0 (0 issues) passed. All 396 Test functions compile/list
+with the integration tag; 64 integration-tagged functions were not executed.
+Additionally, 64 existing frontend unit tests pass: 47 shared timesheet/resource
+scenarios, including day/week availability, and 17 day-type access checks.
+These are focused logic checks, not a browser or Electron acceptance run.
+Fresh Swagger JSON/YAML are byte-identical before/after (57 paths, 93 operations,
+92 definitions); all nine frozen contract groups still match B01. Repository
+policy and whitespace checks pass. The local Docker daemon remains unavailable;
+no real PostgreSQL/API acceptance or fresh frontend SDK generation is claimed.
+Evidence: `../local/backend-b09-20261115/`. No push, merge, CI, release, deployment
+or remote server changes were performed.

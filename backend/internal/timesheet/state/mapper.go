@@ -1,4 +1,4 @@
-package service
+package state
 
 import (
 	"github.com/Koshsky/erp-backend/internal/timesheet/state/dto"
@@ -6,13 +6,13 @@ import (
 	nullable "github.com/Koshsky/erp-backend/pkg/database"
 )
 
-type StateMapper struct{}
+type Mapper struct{}
 
-func NewStateMapper() *StateMapper {
-	return &StateMapper{}
+func NewMapper() *Mapper {
+	return &Mapper{}
 }
 
-func (m *StateMapper) ToDTO(state *sqlc.State) *dto.StateResponse {
+func (m *Mapper) ToDTO(state *sqlc.State) *dto.StateResponse {
 	if state == nil {
 		return nil
 	}
@@ -25,7 +25,7 @@ func (m *StateMapper) ToDTO(state *sqlc.State) *dto.StateResponse {
 	}
 }
 
-func (m *StateMapper) ToDTOs(states []sqlc.State) []dto.StateResponse {
+func (m *Mapper) ToDTOs(states []sqlc.State) []dto.StateResponse {
 	if states == nil {
 		return []dto.StateResponse{}
 	}

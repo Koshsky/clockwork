@@ -1,4 +1,4 @@
-package service
+package state
 
 import (
 	"context"
@@ -11,26 +11,26 @@ import (
 	"github.com/Koshsky/erp-backend/pkg/errors"
 )
 
-type StateService struct {
+type Service struct {
 	logger     *slog.Logger
-	repository StateRepository
-	mapper     *StateMapper
-	validator  *StateValidator
+	repository Repository
+	mapper     *Mapper
+	validator  *Validator
 	tracer     *tracingpkg.Tracer
 }
 
-// NewStateService builds the StateService service.
-func NewStateService(logger *slog.Logger, tracer *tracingpkg.Tracer, r StateRepository) *StateService {
-	return &StateService{
+// NewService builds the state service.
+func NewService(logger *slog.Logger, tracer *tracingpkg.Tracer, r Repository) *Service {
+	return &Service{
 		logger:     logger.With("component", "state_service"),
 		repository: r,
-		mapper:     NewStateMapper(),
-		validator:  &StateValidator{},
+		mapper:     NewMapper(),
+		validator:  &Validator{},
 		tracer:     tracer,
 	}
 }
 
-func (s *StateService) ListStates(ctx context.Context) ([]dto.StateResponse, error) {
+func (s *Service) ListStates(ctx context.Context) ([]dto.StateResponse, error) {
 	ctx, end := s.tracer.Start(ctx, "state.ListStates")
 	defer end(nil)
 	states, err := s.repository.ListStates(ctx)
@@ -40,7 +40,7 @@ func (s *StateService) ListStates(ctx context.Context) ([]dto.StateResponse, err
 	return s.mapper.ToDTOs(states), nil
 }
 
-func (s *StateService) CreateState(ctx context.Context, req dto.CreateStateRequest) (*dto.StateResponse, error) {
+func (s *Service) CreateState(ctx context.Context, req dto.CreateStateRequest) (*dto.StateResponse, error) {
 	ctx, end := s.tracer.Start(ctx, "state.CreateState")
 	defer end(nil)
 
@@ -56,7 +56,7 @@ func (s *StateService) CreateState(ctx context.Context, req dto.CreateStateReque
 	return s.mapper.ToDTO(created), nil
 }
 
-func (s *StateService) FindState(ctx context.Context, id int64) (*dto.StateResponse, error) {
+func (s *Service) FindState(ctx context.Context, id int64) (*dto.StateResponse, error) {
 	ctx, end := s.tracer.Start(ctx, "state.FindState")
 	defer end(nil)
 
@@ -73,7 +73,7 @@ func (s *StateService) FindState(ctx context.Context, id int64) (*dto.StateRespo
 	return s.mapper.ToDTO(state), nil
 }
 
-func (s *StateService) UpdateState(
+func (s *Service) UpdateState(
 	ctx context.Context,
 	id int64,
 	req dto.UpdateStateRequest,
@@ -114,7 +114,7 @@ func (s *StateService) UpdateState(
 	return s.mapper.ToDTO(updated), nil
 }
 
-func (s *StateService) DeleteState(ctx context.Context, id int64) error {
+func (s *Service) DeleteState(ctx context.Context, id int64) error {
 	ctx, end := s.tracer.Start(ctx, "state.DeleteState")
 	defer end(nil)
 

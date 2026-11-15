@@ -11,9 +11,9 @@ import (
 	resourceDelivery "github.com/Koshsky/erp-backend/internal/timesheet/resource/delivery"
 	resourceRepo "github.com/Koshsky/erp-backend/internal/timesheet/resource/repository"
 	resourceService "github.com/Koshsky/erp-backend/internal/timesheet/resource/service"
+	stateService "github.com/Koshsky/erp-backend/internal/timesheet/state"
 	stateDelivery "github.com/Koshsky/erp-backend/internal/timesheet/state/delivery"
 	stateRepo "github.com/Koshsky/erp-backend/internal/timesheet/state/repository"
-	stateService "github.com/Koshsky/erp-backend/internal/timesheet/state/service"
 )
 
 // ProviderSet aggregates the timesheet module's dependencies.
@@ -26,8 +26,8 @@ var ProviderSet = wire.NewSet(
 	resourceDelivery.NewResourceHandler,
 
 	stateRepo.NewStateRepository,
-	wire.Bind(new(stateService.StateRepository), new(*stateRepo.StateRepository)),
-	stateService.NewStateService,
+	wire.Bind(new(stateService.Repository), new(*stateRepo.StateRepository)),
+	stateService.NewService,
 	stateDelivery.NewStateHandler,
 
 	calendarRepo.NewCalendarRepository,

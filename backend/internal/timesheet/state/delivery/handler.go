@@ -4,7 +4,7 @@ import (
 	"log/slog"
 	"strconv"
 
-	"github.com/Koshsky/erp-backend/internal/timesheet/state/service"
+	"github.com/Koshsky/erp-backend/internal/timesheet/state"
 	"github.com/Koshsky/erp-backend/pkg/errors"
 
 	"github.com/gin-gonic/gin"
@@ -21,7 +21,7 @@ type StateHandler struct {
 }
 
 // NewStateHandler builds the StateHandler handler.
-func NewStateHandler(logger *slog.Logger, svc *service.StateService, mw *rbac.Middleware) *StateHandler {
+func NewStateHandler(logger *slog.Logger, svc *state.Service, mw *rbac.Middleware) *StateHandler {
 	return &StateHandler{
 		logger:  logger.With("component", "state_handler"),
 		service: svc,

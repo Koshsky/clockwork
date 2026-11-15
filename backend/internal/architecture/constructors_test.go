@@ -17,7 +17,7 @@ import (
 	dependency "github.com/Koshsky/erp-backend/internal/project_mgmt/task_dependency/service"
 	calendar "github.com/Koshsky/erp-backend/internal/timesheet/calendar/service"
 	resource "github.com/Koshsky/erp-backend/internal/timesheet/resource/service"
-	state "github.com/Koshsky/erp-backend/internal/timesheet/state/service"
+	state "github.com/Koshsky/erp-backend/internal/timesheet/state"
 	user "github.com/Koshsky/erp-backend/internal/user/service"
 )
 
@@ -42,7 +42,7 @@ func TestServiceConstructorsAcceptInterfacesAndReturnStructs(t *testing.T) {
 		{"dependency", dependency.NewTaskDependencyService, []int{2}},
 		{"calendar", calendar.NewCalendarService, []int{2}},
 		{"resource", resource.NewResourceService, []int{2}},
-		{"state", state.NewStateService, []int{2}},
+		{"state", state.NewService, []int{2}},
 		{"user", user.NewUserService, []int{2, 3, 4}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
