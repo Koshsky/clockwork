@@ -1,4 +1,4 @@
-package service
+package task
 
 import (
 	"context"
@@ -9,7 +9,6 @@ import (
 
 	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/order"
-	"github.com/Koshsky/erp-backend/internal/project_mgmt/task/domain"
 	tracingpkg "github.com/Koshsky/erp-backend/internal/tracing"
 
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/task/dto"
@@ -19,37 +18,37 @@ import (
 	"github.com/Koshsky/erp-backend/pkg/errors"
 )
 
-type TaskService struct {
+type Service struct {
 	logger     *slog.Logger
 	tracer     *tracingpkg.Tracer
-	repository TaskRepository
-	mapper     *TaskMapper
-	validator  *TaskValidator
+	repository Repository
+	mapper     *Mapper
+	validator  *Validator
 	deps       ConstraintSource
 }
 
-// NewTaskService builds the TaskService service.
-func NewTaskService(
+// NewService builds the task service.
+func NewService(
 	logger *slog.Logger,
 	tracer *tracingpkg.Tracer,
-	r TaskRepository,
+	r Repository,
 	deps ConstraintSource,
-) *TaskService {
-	return &TaskService{
+) *Service {
+	return &Service{
 		logger:     logger.With("component", "task_service"),
 		tracer:     tracer,
 		repository: r,
-		mapper:     &TaskMapper{},
-		validator:  &TaskValidator{},
+		mapper:     &Mapper{},
+		validator:  &Validator{},
 		deps:       deps,
 	}
 }
 
-func (s *TaskService) CreateTask(ctx context.Context, req dto.CreateTaskRequest) (*dto.TaskResponse, error) {
+func (s *Service) CreateTask(ctx context.Context, req dto.CreateTaskRequest) (*dto.TaskResponse, error) {
 	ctx, end := s.tracer.Start(ctx, "task.CreateTask")
 	defer end(nil)
 
-	status := domain.StatusNotStarted
+	status := StatusNotStarted
 	if req.Status != nil && *req.Status != "" {
 		status = *req.Status
 	}
@@ -105,7 +104,7 @@ func dateFromPtr(d *date.Date) date.Date {
 
 // applyParent resolves the parent for a subtask request: inherits the
 // parent's process and dates and rejects a parent that is itself a subtask.
-func (s *TaskService) applyParent(ctx context.Context, task *sqlc.Task, parentID *int64) error {
+func (s *Service) applyParent(ctx context.Context, task *sqlc.Task, parentID *int64) error {
 	if parentID == nil {
 		return nil
 	}
@@ -130,7 +129,7 @@ func (s *TaskService) applyParent(ctx context.Context, task *sqlc.Task, parentID
 	return nil
 }
 
-func (s *TaskService) FindTask(ctx context.Context, id int64) (*dto.TaskResponse, error) {
+func (s *Service) FindTask(ctx context.Context, id int64) (*dto.TaskResponse, error) {
 	ctx, end := s.tracer.Start(ctx, "task.FindTask")
 	defer end(nil)
 
@@ -147,7 +146,7 @@ func (s *TaskService) FindTask(ctx context.Context, id int64) (*dto.TaskResponse
 	return s.mapper.ToDTO(task), nil
 }
 
-func (s *TaskService) UpdateTask(ctx context.Context, id int64, req dto.UpdateTaskRequest) (*dto.TaskResponse, error) {
+func (s *Service) UpdateTask(ctx context.Context, id int64, req dto.UpdateTaskRequest) (*dto.TaskResponse, error) {
 	ctx, end := s.tracer.Start(ctx, "task.UpdateTask")
 	defer end(nil)
 
@@ -215,7 +214,7 @@ func (s *TaskService) UpdateTask(ctx context.Context, id int64, req dto.UpdateTa
 	return s.mapper.ToDTO(updated), nil
 }
 
-func (s *TaskService) checkUpdatedTaskDates(
+func (s *Service) checkUpdatedTaskDates(
 	ctx context.Context,
 	id int64,
 	task *sqlc.Task,
@@ -227,7 +226,7 @@ func (s *TaskService) checkUpdatedTaskDates(
 	return s.deps.CheckTaskDates(ctx, id, task.Title, task.StartDate, task.EndDate)
 }
 
-func (s *TaskService) DeleteTask(ctx context.Context, id int64) error {
+func (s *Service) DeleteTask(ctx context.Context, id int64) error {
 	ctx, end := s.tracer.Start(ctx, "task.DeleteTask")
 	defer end(nil)
 
@@ -245,7 +244,7 @@ func (s *TaskService) DeleteTask(ctx context.Context, id int64) error {
 	return s.repository.DeleteTask(ctx, id)
 }
 
-func (s *TaskService) ListTasks(
+func (s *Service) ListTasks(
 	ctx context.Context,
 	userID int64,
 	scope access.ListScope,
@@ -269,7 +268,7 @@ func (s *TaskService) ListTasks(
 // ReorderTasks applies a new order to all active tasks of a process: the
 // request carries the complete ordered id list, the server validates it covers
 // the whole group and rewrites sort_order by list position.
-func (s *TaskService) ReorderTasks(
+func (s *Service) ReorderTasks(
 	ctx context.Context,
 	req dto.ReorderTaskRequest,
 ) error {

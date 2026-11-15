@@ -1,4 +1,4 @@
-package service_test
+package task_test
 
 import (
 	"context"
@@ -7,10 +7,9 @@ import (
 	"log/slog"
 	"testing"
 
-	"github.com/Koshsky/erp-backend/internal/project_mgmt/task/domain"
+	task "github.com/Koshsky/erp-backend/internal/project_mgmt/task"
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/task/dto"
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/task/repository/sqlc"
-	task "github.com/Koshsky/erp-backend/internal/project_mgmt/task/service"
 	dependency "github.com/Koshsky/erp-backend/internal/project_mgmt/task_dependency"
 	depsql "github.com/Koshsky/erp-backend/internal/project_mgmt/task_dependency/repository/sqlc"
 	"github.com/Koshsky/erp-backend/internal/tracing"
@@ -18,18 +17,18 @@ import (
 	errorsapi "github.com/Koshsky/erp-backend/pkg/errors"
 )
 
-type guardedTaskRepository struct {
-	task.TaskRepository
+type guardedRepository struct {
+	task.Repository
 
 	row    sqlc.Task
 	writes int
 }
 
-func (r *guardedTaskRepository) FindTask(context.Context, int64) (*sqlc.Task, error) {
+func (r *guardedRepository) FindTask(context.Context, int64) (*sqlc.Task, error) {
 	row := r.row
 	return &row, nil
 }
-func (r *guardedTaskRepository) UpdateTask(_ context.Context, row sqlc.Task) (*sqlc.Task, error) {
+func (r *guardedRepository) UpdateTask(_ context.Context, row sqlc.Task) (*sqlc.Task, error) {
 	r.writes++
 	r.row = row
 	return &row, nil
@@ -84,12 +83,12 @@ func TestTaskUpdatesUseRealDependencyConstraintSource(t *testing.T) {
 func TestTaskDependencyReadFailureBlocksDateWrite(t *testing.T) {
 	t.Parallel()
 	failure := errors.New("constraint repository unavailable")
-	repo := &guardedTaskRepository{
+	repo := &guardedRepository{
 		row: sqlc.Task{
 			ID:        1,
 			ProcessID: 11,
 			Title:     "Монтаж",
-			Status:    domain.StatusNotStarted,
+			Status:    task.StatusNotStarted,
 			StartDate: "2026-02-10",
 			EndDate:   "2026-02-20",
 		},
@@ -97,7 +96,7 @@ func TestTaskDependencyReadFailureBlocksDateWrite(t *testing.T) {
 	original := repo.row
 	deps := &incomingDependencies{typ: "fs", failure: failure}
 	source := dependency.NewService(slog.New(slog.DiscardHandler), tracing.New(nil), deps)
-	response, err := task.NewTaskService(slog.New(slog.DiscardHandler), tracing.New(nil), repo, source).
+	response, err := task.NewService(slog.New(slog.DiscardHandler), tracing.New(nil), repo, source).
 		UpdateTask(t.Context(), 1, dto.UpdateTaskRequest{StartDate: new(date.Date("2026-02-11"))})
 	if !errors.Is(err, failure) || response != nil || repo.writes != 0 || repo.row != original {
 		t.Fatalf("constraint read error allowed write: %+v, %v", repo, err)
@@ -106,12 +105,12 @@ func TestTaskDependencyReadFailureBlocksDateWrite(t *testing.T) {
 
 func checkTaskDependencyBoundary(t *testing.T, typ string, start, end date.Date, early bool) {
 	t.Helper()
-	repo := &guardedTaskRepository{
+	repo := &guardedRepository{
 		row: sqlc.Task{
 			ID:        1,
 			ProcessID: 11,
 			Title:     "Монтаж",
-			Status:    domain.StatusNotStarted,
+			Status:    task.StatusNotStarted,
 			StartDate: "2026-02-10",
 			EndDate:   "2026-02-20",
 		},
@@ -120,7 +119,7 @@ func checkTaskDependencyBoundary(t *testing.T, typ string, start, end date.Date,
 	deps := &incomingDependencies{typ: typ}
 	var source task.ConstraintSource = dependency.NewService(slog.New(slog.DiscardHandler), tracing.New(nil), deps)
 
-	svc := task.NewTaskService(slog.New(slog.DiscardHandler), tracing.New(nil), repo, source)
+	svc := task.NewService(slog.New(slog.DiscardHandler), tracing.New(nil), repo, source)
 	response, err := svc.UpdateTask(t.Context(), 1, dto.UpdateTaskRequest{StartDate: &start, EndDate: &end})
 	if deps.calls != 1 {
 		t.Fatalf("dependency port calls=%d", deps.calls)

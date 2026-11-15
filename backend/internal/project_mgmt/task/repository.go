@@ -1,4 +1,4 @@
-package service
+package task
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/task/repository/sqlc"
 )
 
-type TaskRepository interface {
+type Repository interface {
 	CreateTask(ctx context.Context, task sqlc.Task) (*sqlc.Task, error)
 	FindTask(ctx context.Context, id int64) (*sqlc.Task, error)
 	UpdateTask(ctx context.Context, task sqlc.Task) (*sqlc.Task, error)

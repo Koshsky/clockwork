@@ -1,4 +1,4 @@
-package domain
+package task
 
 // Execution status catalog (fixed, 3 states — see the tasks.status CHECK).
 const (

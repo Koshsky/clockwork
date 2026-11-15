@@ -13,7 +13,7 @@ import (
 	milestone "github.com/Koshsky/erp-backend/internal/project_mgmt/milestone"
 	process "github.com/Koshsky/erp-backend/internal/project_mgmt/process"
 	project "github.com/Koshsky/erp-backend/internal/project_mgmt/project"
-	task "github.com/Koshsky/erp-backend/internal/project_mgmt/task/service"
+	task "github.com/Koshsky/erp-backend/internal/project_mgmt/task"
 	dependency "github.com/Koshsky/erp-backend/internal/project_mgmt/task_dependency"
 	calendar "github.com/Koshsky/erp-backend/internal/timesheet/calendar/service"
 	resource "github.com/Koshsky/erp-backend/internal/timesheet/resource/service"
@@ -38,7 +38,7 @@ func TestServiceConstructorsAcceptInterfacesAndReturnStructs(t *testing.T) {
 		{"milestone", milestone.NewService, []int{2}},
 		{"process", process.NewService, []int{2}},
 		{"project", project.NewService, []int{2}},
-		{"task", task.NewTaskService, []int{2, 3}},
+		{"task", task.NewService, []int{2, 3}},
 		{"dependency", dependency.NewService, []int{2}},
 		{"calendar", calendar.NewCalendarService, []int{2}},
 		{"resource", resource.NewResourceService, []int{2}},

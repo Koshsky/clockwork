@@ -34,6 +34,7 @@ func TestNeutralCoresDoNotDependOnHTTPAdapters(t *testing.T) {
 		"./internal/project_mgmt/project",
 		"./internal/project_mgmt/process",
 		"./internal/project_mgmt/task_dependency",
+		"./internal/project_mgmt/task",
 	)
 	cmd.Dir = "../.."
 	output, err := cmd.CombinedOutput()
@@ -51,6 +52,7 @@ func TestNeutralCoresDoNotDependOnHTTPAdapters(t *testing.T) {
 			dependency == "github.com/Koshsky/erp-backend/internal/project_mgmt/project/repository" ||
 			dependency == "github.com/Koshsky/erp-backend/internal/project_mgmt/process/repository" ||
 			dependency == "github.com/Koshsky/erp-backend/internal/project_mgmt/task_dependency/repository" ||
+			dependency == "github.com/Koshsky/erp-backend/internal/project_mgmt/task/repository" ||
 			(strings.HasPrefix(dependency, "github.com/Koshsky/erp-backend/internal/") &&
 				strings.Contains(dependency, "/delivery")) {
 			t.Errorf("neutral core depends on HTTP adapter %s", dependency)
@@ -131,7 +133,7 @@ func checkAccessImports(t *testing.T, path, name string) {
 func TestTaskAndDependencyCoresRetainConsumerBoundary(t *testing.T) {
 	t.Parallel()
 	for _, boundary := range []struct{ directory, forbidden string }{
-		{"../project_mgmt/task/service", "github.com/Koshsky/erp-backend/internal/project_mgmt/task_dependency"},
+		{"../project_mgmt/task", "github.com/Koshsky/erp-backend/internal/project_mgmt/task_dependency"},
 		{"../project_mgmt/task_dependency", "github.com/Koshsky/erp-backend/internal/project_mgmt/task"},
 	} {
 		files, err := filepath.Glob(boundary.directory + "/*.go")

@@ -1,4 +1,4 @@
-package service //nolint:testpackage // Tests private parent normalization without exposing a production API.
+package task //nolint:testpackage // Tests private parent normalization without exposing a production API.
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 )
 
 type parentRepository struct {
-	TaskRepository
+	Repository
 
 	parent *sqlc.Task
 }
@@ -33,7 +33,7 @@ func TestApplyParentRejectsProcessSubstitution(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			parentID := int64(1)
-			service := &TaskService{repository: &parentRepository{
+			service := &Service{repository: &parentRepository{
 				parent: &sqlc.Task{ID: parentID, ProcessID: 10, StartDate: "2026-11-01", EndDate: "2026-11-30"},
 			}}
 			task := &sqlc.Task{ProcessID: tc.processID, OwnerID: pgtype.Int8{Int64: 7, Valid: true}}

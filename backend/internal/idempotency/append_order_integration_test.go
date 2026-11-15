@@ -29,9 +29,9 @@ import (
 	processservice "github.com/Koshsky/erp-backend/internal/project_mgmt/process"
 	processdelivery "github.com/Koshsky/erp-backend/internal/project_mgmt/process/delivery"
 	processrepo "github.com/Koshsky/erp-backend/internal/project_mgmt/process/repository"
+	taskservice "github.com/Koshsky/erp-backend/internal/project_mgmt/task"
 	taskdelivery "github.com/Koshsky/erp-backend/internal/project_mgmt/task/delivery"
 	taskrepo "github.com/Koshsky/erp-backend/internal/project_mgmt/task/repository"
-	taskservice "github.com/Koshsky/erp-backend/internal/project_mgmt/task/service"
 	"github.com/Koshsky/erp-backend/internal/tracing"
 	"github.com/Koshsky/erp-backend/internal/userctx"
 	"github.com/Koshsky/erp-backend/migrations"
@@ -160,7 +160,7 @@ func appendOrderRouter(pool *pgxpool.Pool) *gin.Engine {
 	tracer := tracing.New(nil)
 	tasks := taskdelivery.NewTaskHandler(
 		logger,
-		taskservice.NewTaskService(logger, tracer, taskrepo.NewTaskRepository(logger, pool), nil),
+		taskservice.NewService(logger, tracer, taskrepo.NewTaskRepository(logger, pool), nil),
 		nil,
 	)
 	processes := processdelivery.NewProcessHandler(

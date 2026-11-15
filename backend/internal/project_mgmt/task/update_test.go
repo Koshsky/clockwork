@@ -1,4 +1,4 @@
-package service //nolint:testpackage // Verifies the service with an injected repository and dependency checker.
+package task //nolint:testpackage // Verifies the service with an injected repository and dependency checker.
 
 import (
 	"context"
@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"testing"
 
-	"github.com/Koshsky/erp-backend/internal/project_mgmt/task/domain"
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/task/dto"
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/task/repository/sqlc"
 	"github.com/Koshsky/erp-backend/internal/tracing"
@@ -14,7 +13,7 @@ import (
 )
 
 type updateRepository struct {
-	TaskRepository
+	Repository
 
 	task    sqlc.Task
 	updates int
@@ -83,7 +82,7 @@ func TestUpdateTaskDateConstraints(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			repository := &updateRepository{task: sqlc.Task{
-				ID: 7, ProcessID: 10, Title: "Existing title", Status: domain.StatusNotStarted,
+				ID: 7, ProcessID: 10, Title: "Existing title", Status: StatusNotStarted,
 				StartDate: "2026-11-01", EndDate: "2026-11-30",
 			}}
 			want := repository.task
@@ -100,7 +99,7 @@ func TestUpdateTaskDateConstraints(t *testing.T) {
 			if tc.rejected {
 				checker.err = dependencyErr
 			}
-			service := NewTaskService(slog.New(slog.DiscardHandler), tracing.New(nil), repository, checker)
+			service := NewService(slog.New(slog.DiscardHandler), tracing.New(nil), repository, checker)
 			if tc.noChecker {
 				service.deps = nil
 			}

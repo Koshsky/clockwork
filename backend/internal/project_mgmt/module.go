@@ -20,9 +20,9 @@ import (
 	projectService "github.com/Koshsky/erp-backend/internal/project_mgmt/project"
 	projectDelivery "github.com/Koshsky/erp-backend/internal/project_mgmt/project/delivery"
 	projectRepo "github.com/Koshsky/erp-backend/internal/project_mgmt/project/repository"
+	taskService "github.com/Koshsky/erp-backend/internal/project_mgmt/task"
 	taskDelivery "github.com/Koshsky/erp-backend/internal/project_mgmt/task/delivery"
 	taskRepo "github.com/Koshsky/erp-backend/internal/project_mgmt/task/repository"
-	taskService "github.com/Koshsky/erp-backend/internal/project_mgmt/task/service"
 	depService "github.com/Koshsky/erp-backend/internal/project_mgmt/task_dependency"
 	depDelivery "github.com/Koshsky/erp-backend/internal/project_mgmt/task_dependency/delivery"
 	depRepo "github.com/Koshsky/erp-backend/internal/project_mgmt/task_dependency/repository"
@@ -43,8 +43,8 @@ var ProviderSet = wire.NewSet(
 	processDelivery.NewProcessHandler,
 
 	taskRepo.NewTaskRepository,
-	wire.Bind(new(taskService.TaskRepository), new(*taskRepo.TaskRepository)),
-	taskService.NewTaskService,
+	wire.Bind(new(taskService.Repository), new(*taskRepo.TaskRepository)),
+	taskService.NewService,
 	taskDelivery.NewTaskHandler,
 
 	depRepo.NewTaskDependencyRepository,

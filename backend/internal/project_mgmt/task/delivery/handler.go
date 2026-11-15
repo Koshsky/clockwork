@@ -5,7 +5,7 @@ import (
 	"strconv"
 
 	access "github.com/Koshsky/erp-backend/internal/authz/domain"
-	"github.com/Koshsky/erp-backend/internal/project_mgmt/task/service"
+	"github.com/Koshsky/erp-backend/internal/project_mgmt/task"
 	"github.com/Koshsky/erp-backend/pkg/errors"
 
 	"github.com/gin-gonic/gin"
@@ -24,7 +24,7 @@ type TaskHandler struct {
 }
 
 // NewTaskHandler builds the TaskHandler handler.
-func NewTaskHandler(logger *slog.Logger, svc *service.TaskService, mw *rbac.Middleware) *TaskHandler {
+func NewTaskHandler(logger *slog.Logger, svc *task.Service, mw *rbac.Middleware) *TaskHandler {
 	return &TaskHandler{
 		logger:  logger.With("component", "task_handler"),
 		service: svc,

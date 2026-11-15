@@ -1,4 +1,4 @@
-package service
+package task
 
 import (
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/task/dto"
@@ -6,13 +6,13 @@ import (
 	nullable "github.com/Koshsky/erp-backend/pkg/database"
 )
 
-type TaskMapper struct{}
+type Mapper struct{}
 
-func NewTaskMapper() *TaskMapper {
-	return &TaskMapper{}
+func NewMapper() *Mapper {
+	return &Mapper{}
 }
 
-func (m *TaskMapper) ToDTO(task *sqlc.Task) *dto.TaskResponse {
+func (m *Mapper) ToDTO(task *sqlc.Task) *dto.TaskResponse {
 	if task == nil {
 		return nil
 	}
@@ -31,7 +31,7 @@ func (m *TaskMapper) ToDTO(task *sqlc.Task) *dto.TaskResponse {
 	}
 }
 
-func (m *TaskMapper) ToDTOs(tasks []sqlc.Task) []dto.TaskResponse {
+func (m *Mapper) ToDTOs(tasks []sqlc.Task) []dto.TaskResponse {
 	if tasks == nil {
 		return []dto.TaskResponse{}
 	}

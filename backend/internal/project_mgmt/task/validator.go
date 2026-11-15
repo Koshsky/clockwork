@@ -1,17 +1,16 @@
-package service
+package task
 
 import (
-	"github.com/Koshsky/erp-backend/internal/project_mgmt/task/domain"
 	"github.com/Koshsky/erp-backend/pkg/date"
 	"github.com/Koshsky/erp-backend/pkg/errors"
 	"github.com/Koshsky/erp-backend/pkg/validator"
 )
 
-type TaskValidator struct {
+type Validator struct {
 	validator.Validator
 }
 
-func (v *TaskValidator) ValidateTask(
+func (v *Validator) ValidateTask(
 	processID int64,
 	title string,
 	color *string,
@@ -47,9 +46,9 @@ func (v *TaskValidator) ValidateTask(
 }
 
 // validateStatus rejects values outside the fixed 3-state catalog.
-func (v *TaskValidator) validateStatus(status string) error {
+func (v *Validator) validateStatus(status string) error {
 	switch status {
-	case domain.StatusNotStarted, domain.StatusInProgress, domain.StatusDone:
+	case StatusNotStarted, StatusInProgress, StatusDone:
 		return nil
 	default:
 		return errors.NewFieldError("status", "one_of", "недопустимый статус задачи")

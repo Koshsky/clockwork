@@ -849,3 +849,66 @@ executed. Graph/probe fixtures are not a substitute for SQL integration tests.
 No browser/Electron acceptance or fresh frontend SDK generation is claimed.
 Evidence: `../local/backend-b14-20261116/`. No push, merge, CI, release, deployment
 or remote server changes were performed.
+
+## B15 implementation ledger — 2026-11-16
+
+Continued on `refactor/backend-access-tracing` after `108f26b`. Task service,
+repository port, mapper, validator and consumer-owned ConstraintSource now live
+in the feature root with the three execution status constants from domain.
+Both `task/service` and its small `domain` package are removed. DTO and SQL
+adapter remain separate, and composition stays in the parent module. Task
+statuses remain distinct from timesheet day types. Normalizing internal names,
+package declarations, the removed domain qualifier, formatting and one
+constructor comment reproduces all six original core files exactly.
+
+ConstraintSource retains its existing method and semantics; only its package
+moves. Wire binds the existing dependency implementation to that port, preserving
+provider calls, arguments and order after import/constructor normalization. The
+architecture guards include the task core and keep both task and task_dependency
+free of sibling implementation and concrete-repository imports. The existing
+append-order integration fixture changes only its import and constructor call.
+
+All four existing task Test functions moved with assertions retained: parent
+normalization, the nine UpdateTaskDateConstraints scenarios (including nil checker
+and rejection before persistence), and the real dependency-port bridge tests.
+All 445 pre-existing Test functions remain. Twelve new functions add 73 named
+subcases and 85 passing outcomes; all 130 pre-move outcomes from task/planning
+suites match the final run. Core checks cover default/empty and all three statuses,
+parent date inheritance even when explicit child dates were supplied, missing or
+nested parents, process mismatch, zero parent, owner/responsible preservation,
+responsible=0 and color clearing, validation before writes, nullable mapping,
+list/count scope/pagination and read/write/delete failures. Ordinary patches keep
+ProcessID, ParentID and sort_order, including unknown JSON fields attempting to
+replace those relations. Reorder requires the complete process group, rejects
+empty/duplicate/incomplete/foreign IDs and preserves the submitted order.
+
+HTTP tests exercise real middleware, handlers and core with fake repositories
+and parent/descendant probes: process/project management, foreign task IDs,
+inherited process/parent-task view without mutation rights, owner/responsible and
+status updates, top-level/subtask creation, authenticated creator ownership,
+immutable relations, list scope and whole-process reorder. Planning smoke uses
+the existing repository fixture to verify grouping children that precede their
+parent in the input, independent child display order, owner/responsible, dates,
+all statuses, Unicode titles and comment counts. It does not execute SQL scoping.
+Repository checks use the actual adapter over a fake request-scoped pgx.Tx with
+no fallback pool: find/update/delete preserve context, arguments and errors;
+create takes the append lock before INSERT and retains parent/null-parent
+encoding; reorder runs mark then apply and stops on either failure. None of these
+methods finalizes a transaction owned by the request. These checks do not prove
+real SQL constraints, triggers, rollback or concurrent append/reorder behavior.
+
+Fresh Swagger JSON/YAML before and after are byte-identical (57 paths, 93
+operations, 92 definitions); all nine frozen contract groups still match B01.
+SQL, generated sqlc, DTOs, migrations, versions, published changelogs and
+revision/replay middleware remain unchanged. Date-shift/cascade triggers and existing
+stored subtask-date handling are untouched.
+
+Validation: build/vet, full normal-tag suite (377 top-level pass, 16 skip; 3,081
+pass events and 20 skips including subtests), full race suite in 53 tested
+packages, lint 2.15.0 (0 issues), repository policy and whitespace checks pass.
+All 457 Test functions compile/list with the integration tag; 64 tagged
+functions were not executed. The local Docker daemon is unavailable, so real
+PostgreSQL/API trigger/cascade, append/reorder concurrency and revision/replay
+acceptance was not executed. No browser/Electron acceptance or fresh frontend
+SDK generation is claimed. Evidence: `../local/backend-b15-20261116/`.
+No push, merge, CI, release, deployment or remote server changes were performed.
