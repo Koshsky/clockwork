@@ -1,4 +1,4 @@
-package service
+package resource
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"github.com/Koshsky/erp-backend/pkg/date"
 )
 
-type ResourceRepository interface {
+type Repository interface {
 	CreateResource(
 		ctx context.Context,
 		code, title string,

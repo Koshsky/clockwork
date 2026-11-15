@@ -1,4 +1,4 @@
-package service
+package resource
 
 import (
 	"github.com/Koshsky/erp-backend/pkg/date"
@@ -12,11 +12,11 @@ const (
 	hoursPerDay     = 24
 )
 
-type ResourceValidator struct {
+type Validator struct {
 	validator.Validator
 }
 
-func (v *ResourceValidator) ValidateResource(code, title string, color *string) error {
+func (v *Validator) ValidateResource(code, title string, color *string) error {
 	if err := v.ValidateRequiredText(code, "code"); err != nil {
 		return err
 	}
@@ -27,7 +27,7 @@ func (v *ResourceValidator) ValidateResource(code, title string, color *string) 
 }
 
 // ValidateDayRange checks that a date window is present and ordered.
-func (v *ResourceValidator) ValidateDayRange(start, end date.Date) error {
+func (v *Validator) ValidateDayRange(start, end date.Date) error {
 	if start == "" {
 		return errors.NewFieldError("start_date", "required", "start_date is required")
 	}

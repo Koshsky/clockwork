@@ -8,9 +8,9 @@ import (
 	calendarDelivery "github.com/Koshsky/erp-backend/internal/timesheet/calendar/delivery"
 	calendarRepo "github.com/Koshsky/erp-backend/internal/timesheet/calendar/repository"
 	calendarService "github.com/Koshsky/erp-backend/internal/timesheet/calendar/service"
+	resourceService "github.com/Koshsky/erp-backend/internal/timesheet/resource"
 	resourceDelivery "github.com/Koshsky/erp-backend/internal/timesheet/resource/delivery"
 	resourceRepo "github.com/Koshsky/erp-backend/internal/timesheet/resource/repository"
-	resourceService "github.com/Koshsky/erp-backend/internal/timesheet/resource/service"
 	stateService "github.com/Koshsky/erp-backend/internal/timesheet/state"
 	stateDelivery "github.com/Koshsky/erp-backend/internal/timesheet/state/delivery"
 	stateRepo "github.com/Koshsky/erp-backend/internal/timesheet/state/repository"
@@ -21,8 +21,8 @@ import (
 //nolint:gochecknoglobals // wire provider set (established module pattern)
 var ProviderSet = wire.NewSet(
 	resourceRepo.NewResourceRepository,
-	wire.Bind(new(resourceService.ResourceRepository), new(*resourceRepo.ResourceRepository)),
-	resourceService.NewResourceService,
+	wire.Bind(new(resourceService.Repository), new(*resourceRepo.ResourceRepository)),
+	resourceService.NewService,
 	resourceDelivery.NewResourceHandler,
 
 	stateRepo.NewStateRepository,

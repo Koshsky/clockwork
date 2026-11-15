@@ -912,3 +912,62 @@ PostgreSQL/API trigger/cascade, append/reorder concurrency and revision/replay
 acceptance was not executed. No browser/Electron acceptance or fresh frontend
 SDK generation is claimed. Evidence: `../local/backend-b15-20261116/`.
 No push, merge, CI, release, deployment or remote server changes were performed.
+
+## B16 implementation ledger — 2026-11-16
+
+Continued on `refactor/backend-access-tracing` after `c93bc3a`. Resource service,
+repository port, mapper and validator now live in the timesheet/resource feature
+root; `resource/service` is removed. DTO and SQL adapter remain separate and
+parent `timesheet/module.go` owns composition. Resources remain separate from
+users/employees; member lookup rows still cross the existing repository port.
+Normalizing internal names, the package declaration, formatting and one
+constructor comment reproduces all four original core files exactly.
+Regenerated Wire preserves provider calls, arguments and order. Architecture
+guards include the resource core and reject concrete-repository/HTTP coupling.
+
+Thirteen Test functions were added with 85 named subcases and 98 passing
+outcomes; all 457 existing Test functions remain. All 98 original-layout
+resource outcomes match the post-move suite. Core checks cover default/explicit
+owner, employees_count, nullable/color patch semantics, Unicode title, validation
+before writes, list/count scopes and pagination, mapping and repository failure
+classification, including idempotent deletion of a missing resource. Member
+checks preserve self-membership, direct subordinate access, rejection of indirect
+or absent managers, administrator bypass, valid IDs and lookup/write failures.
+Member DTO checks cover name/position/preset, nullable manager/hire/termination
+dates and order. Repeated remove calls retain target IDs and propagate errors;
+the fake repository does not prove actual duplicate-membership database effects.
+Absence checks cover same-day and year-boundary windows, the exact 3,660-day
+maximum, rejection of wider/reversed/missing windows and invalid resource IDs
+before querying, response fields and lookup failures.
+
+HTTP tests exercise real middleware, handlers and core with fake repositories
+and ownership facts: own/all/no-access list and direct ID operations, owner
+filter restriction, authenticated creator ownership, forged owner rejection,
+owner transfer by all/admin, member lists/add/remove, direct hierarchy versus
+admin, absence access/date parsing and missing resource 403/404 behavior.
+List tests check scope forwarding rather than SQL visibility predicates.
+The actual SQL adapter is tested over a fake request-scoped pgx.Tx without a
+fallback pool. Create/update and their subsequent member-count queries use the
+same request transaction; mutation failure skips the count, and count failure
+propagates without returning a successful resource. Read/list/count, owner chain,
+member mutation/lookup and absence paths retain context, arguments and errors.
+Duplicate resource code still returns conflict without an extra count query.
+The repository never finalizes a transaction owned by the request. These checks
+do not prove real PostgreSQL rollback or assignment-cleanup trigger execution.
+
+Fresh Swagger JSON/YAML before and after are byte-identical (57 paths, 93
+operations, 92 definitions); all nine frozen contract groups still match B01.
+SQL, generated sqlc, DTOs, migrations, versions, published changelogs and
+revision/replay middleware are unchanged. Owner-change assignment cleanup,
+member uniqueness and absence overlap queries retain their database definitions.
+
+Validation: build/vet, full normal-tag suite (390 top-level pass, 16 skip; 3,179
+pass events and 20 skips including subtests), full race suite in 56 tested
+packages, lint 2.15.0 (0 issues), repository policy and whitespace checks pass.
+All 470 Test functions compile/list with the integration tag; 64 tagged
+functions were not executed. The local Docker daemon is unavailable, so real
+PostgreSQL/API assignment cleanup, uniqueness/idempotent membership, absence
+query and revision/replay acceptance was not executed. No browser/Electron
+acceptance or fresh frontend SDK generation is claimed.
+Evidence: `../local/backend-b16-20261116/`. No push, merge, CI, release, deployment
+or remote server changes were performed.

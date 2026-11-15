@@ -6,7 +6,7 @@ import (
 
 	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/authz/engine"
-	"github.com/Koshsky/erp-backend/internal/timesheet/resource/service"
+	"github.com/Koshsky/erp-backend/internal/timesheet/resource"
 	"github.com/Koshsky/erp-backend/pkg/date"
 	"github.com/Koshsky/erp-backend/pkg/errors"
 
@@ -25,7 +25,7 @@ type ResourceHandler struct {
 }
 
 // NewResourceHandler builds the ResourceHandler handler.
-func NewResourceHandler(logger *slog.Logger, svc *service.ResourceService, mw *rbac.Middleware) *ResourceHandler {
+func NewResourceHandler(logger *slog.Logger, svc *resource.Service, mw *rbac.Middleware) *ResourceHandler {
 	return &ResourceHandler{
 		logger:  logger.With("component", "resource_handler"),
 		service: svc,

@@ -20,7 +20,7 @@ import (
 	"github.com/Koshsky/erp-backend/internal/auto_create"
 	delivery14 "github.com/Koshsky/erp-backend/internal/auto_create/delivery"
 	repository14 "github.com/Koshsky/erp-backend/internal/auto_create/repository"
-	service7 "github.com/Koshsky/erp-backend/internal/auto_create/service"
+	service6 "github.com/Koshsky/erp-backend/internal/auto_create/service"
 	"github.com/Koshsky/erp-backend/internal/cache"
 	"github.com/Koshsky/erp-backend/internal/config"
 	"github.com/Koshsky/erp-backend/internal/database"
@@ -61,10 +61,10 @@ import (
 	"github.com/Koshsky/erp-backend/internal/timesheet"
 	delivery13 "github.com/Koshsky/erp-backend/internal/timesheet/calendar/delivery"
 	repository13 "github.com/Koshsky/erp-backend/internal/timesheet/calendar/repository"
-	service6 "github.com/Koshsky/erp-backend/internal/timesheet/calendar/service"
+	service5 "github.com/Koshsky/erp-backend/internal/timesheet/calendar/service"
+	"github.com/Koshsky/erp-backend/internal/timesheet/resource"
 	delivery11 "github.com/Koshsky/erp-backend/internal/timesheet/resource/delivery"
 	repository6 "github.com/Koshsky/erp-backend/internal/timesheet/resource/repository"
-	service5 "github.com/Koshsky/erp-backend/internal/timesheet/resource/service"
 	"github.com/Koshsky/erp-backend/internal/timesheet/state"
 	delivery12 "github.com/Koshsky/erp-backend/internal/timesheet/state/delivery"
 	repository12 "github.com/Koshsky/erp-backend/internal/timesheet/state/repository"
@@ -157,17 +157,17 @@ func InitializeApp() (*App, error) {
 	commentHandler := delivery9.NewCommentHandler(slogLogger, commentService, middleware)
 	taskDependencyHandler := delivery10.NewTaskDependencyHandler(slogLogger, taskdependencyService, middleware)
 	projectmgmtModule := projectmgmt.ProvideModule(taskHandler, projectHandler, processHandler, milestoneHandler, assignmentHandler, commentHandler, taskDependencyHandler)
-	resourceService := service5.NewResourceService(slogLogger, tracer, resourceRepository)
+	resourceService := resource.NewService(slogLogger, tracer, resourceRepository)
 	resourceHandler := delivery11.NewResourceHandler(slogLogger, resourceService, middleware)
 	stateRepository := repository12.NewStateRepository(slogLogger, pool)
 	stateService := state.NewService(slogLogger, tracer, stateRepository)
 	stateHandler := delivery12.NewStateHandler(slogLogger, stateService, middleware)
 	calendarRepository := repository13.NewCalendarRepository(slogLogger, pool)
-	calendarService := service6.NewCalendarService(slogLogger, tracer, calendarRepository)
+	calendarService := service5.NewCalendarService(slogLogger, tracer, calendarRepository)
 	calendarHandler := delivery13.NewCalendarHandler(slogLogger, calendarService, middleware)
 	timesheetModule := timesheet.ProvideModule(resourceHandler, stateHandler, calendarHandler)
 	autoCreateRepository := repository14.NewAutoCreateRepository(slogLogger, pool)
-	autoCreateService := service7.NewAutoCreateService(slogLogger, tracer, autoCreateRepository)
+	autoCreateService := service6.NewAutoCreateService(slogLogger, tracer, autoCreateRepository)
 	autoCreateHandler := delivery14.NewAutoCreateHandler(slogLogger, autoCreateService, middleware)
 	autocreateModule := autocreate.ProvideModule(autoCreateHandler)
 	serviceService := service.NewRBACService(slogLogger, ruleRepository, policyStore, middleware)

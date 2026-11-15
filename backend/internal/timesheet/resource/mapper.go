@@ -1,4 +1,4 @@
-package service
+package resource
 
 import (
 	"time"
@@ -11,13 +11,13 @@ import (
 	"github.com/Koshsky/erp-backend/pkg/date"
 )
 
-type ResourceMapper struct{}
+type Mapper struct{}
 
-func NewResourceMapper() *ResourceMapper {
-	return &ResourceMapper{}
+func NewMapper() *Mapper {
+	return &Mapper{}
 }
 
-func (m *ResourceMapper) ToDTO(resource *sqlc.ListResourcesRow) *dto.ResourceResponse {
+func (m *Mapper) ToDTO(resource *sqlc.ListResourcesRow) *dto.ResourceResponse {
 	if resource == nil {
 		return nil
 	}
@@ -31,7 +31,7 @@ func (m *ResourceMapper) ToDTO(resource *sqlc.ListResourcesRow) *dto.ResourceRes
 	}
 }
 
-func (m *ResourceMapper) ToDTOs(resources []sqlc.ListResourcesRow) []dto.ResourceResponse {
+func (m *Mapper) ToDTOs(resources []sqlc.ListResourcesRow) []dto.ResourceResponse {
 	if resources == nil {
 		return []dto.ResourceResponse{}
 	}
@@ -43,7 +43,7 @@ func (m *ResourceMapper) ToDTOs(resources []sqlc.ListResourcesRow) []dto.Resourc
 	return responses
 }
 
-func (m *ResourceMapper) ToMemberDTO(member *sqlc.ListMembersByResourceIDRow) *dto.ResourceMemberResponse {
+func (m *Mapper) ToMemberDTO(member *sqlc.ListMembersByResourceIDRow) *dto.ResourceMemberResponse {
 	if member == nil {
 		return nil
 	}
@@ -58,7 +58,7 @@ func (m *ResourceMapper) ToMemberDTO(member *sqlc.ListMembersByResourceIDRow) *d
 	}
 }
 
-func (m *ResourceMapper) ToMemberDTOs(members []sqlc.ListMembersByResourceIDRow) []dto.ResourceMemberResponse {
+func (m *Mapper) ToMemberDTOs(members []sqlc.ListMembersByResourceIDRow) []dto.ResourceMemberResponse {
 	if members == nil {
 		return []dto.ResourceMemberResponse{}
 	}
@@ -69,7 +69,7 @@ func (m *ResourceMapper) ToMemberDTOs(members []sqlc.ListMembersByResourceIDRow)
 	return responses
 }
 
-func (m *ResourceMapper) ToAbsenceDTOs(absences []sqlc.ListResourceAbsenceRow) []dto.ResourceAbsenceResponse {
+func (m *Mapper) ToAbsenceDTOs(absences []sqlc.ListResourceAbsenceRow) []dto.ResourceAbsenceResponse {
 	if absences == nil {
 		return []dto.ResourceAbsenceResponse{}
 	}

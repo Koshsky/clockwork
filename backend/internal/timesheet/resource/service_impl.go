@@ -1,4 +1,4 @@
-package service
+package resource
 
 import (
 	"context"
@@ -14,26 +14,26 @@ import (
 	"github.com/Koshsky/erp-backend/pkg/errors"
 )
 
-type ResourceService struct {
+type Service struct {
 	logger     *slog.Logger
-	repository ResourceRepository
-	mapper     *ResourceMapper
-	validator  *ResourceValidator
+	repository Repository
+	mapper     *Mapper
+	validator  *Validator
 	tracer     *tracingpkg.Tracer
 }
 
-// NewResourceService builds the ResourceService service.
-func NewResourceService(logger *slog.Logger, tracer *tracingpkg.Tracer, r ResourceRepository) *ResourceService {
-	return &ResourceService{
+// NewService builds the resource service.
+func NewService(logger *slog.Logger, tracer *tracingpkg.Tracer, r Repository) *Service {
+	return &Service{
 		logger:     logger.With("component", "resource_service"),
 		repository: r,
-		mapper:     NewResourceMapper(),
-		validator:  &ResourceValidator{},
+		mapper:     NewMapper(),
+		validator:  &Validator{},
 		tracer:     tracer,
 	}
 }
 
-func (s *ResourceService) ListResources(
+func (s *Service) ListResources(
 	ctx context.Context,
 	userID int64,
 	scope access.ListScope,
@@ -57,7 +57,7 @@ func (s *ResourceService) ListResources(
 // CreateResource creates a resource. The middleware checked permissions; here
 // only owner normalization: if not set, the creator becomes the owner
 // (owner_id is required).
-func (s *ResourceService) CreateResource(
+func (s *Service) CreateResource(
 	ctx context.Context,
 	req dto.CreateResourceRequest,
 	userID int64,
@@ -81,7 +81,7 @@ func (s *ResourceService) CreateResource(
 	return s.mapper.ToDTO(created), nil
 }
 
-func (s *ResourceService) FindResource(ctx context.Context, id int64) (*dto.ResourceResponse, error) {
+func (s *Service) FindResource(ctx context.Context, id int64) (*dto.ResourceResponse, error) {
 	ctx, end := s.tracer.Start(ctx, "resource.FindResource")
 	defer end(nil)
 	resource, err := s.repository.FindResource(ctx, id)
@@ -97,7 +97,7 @@ func (s *ResourceService) FindResource(ctx context.Context, id int64) (*dto.Reso
 	return s.mapper.ToDTO(resource), nil
 }
 
-func (s *ResourceService) UpdateResource(
+func (s *Service) UpdateResource(
 	ctx context.Context,
 	id int64,
 	req dto.UpdateResourceRequest,
@@ -149,7 +149,7 @@ func (s *ResourceService) UpdateResource(
 	return s.mapper.ToDTO(updated), nil
 }
 
-func (s *ResourceService) DeleteResource(ctx context.Context, id int64) error {
+func (s *Service) DeleteResource(ctx context.Context, id int64) error {
 	ctx, end := s.tracer.Start(ctx, "resource.DeleteResource")
 	defer end(nil)
 
@@ -168,7 +168,7 @@ func (s *ResourceService) DeleteResource(ctx context.Context, id int64) error {
 }
 
 // ListMembers returns the users attached to a resource.
-func (s *ResourceService) ListMembers(ctx context.Context, resourceID int64) ([]dto.ResourceMemberResponse, error) {
+func (s *Service) ListMembers(ctx context.Context, resourceID int64) ([]dto.ResourceMemberResponse, error) {
 	ctx, end := s.tracer.Start(ctx, "resource.ListMembers")
 	defer end(nil)
 
@@ -184,7 +184,7 @@ func (s *ResourceService) ListMembers(ctx context.Context, resourceID int64) ([]
 // hierarchy rule: vp can attach only their direct subordinates ("a vassal of my vassal is not my vassal"),
 // admin — anyone. Exception — self-subordination: the owner can add themselves
 // to their own resource.
-func (s *ResourceService) AddMember(
+func (s *Service) AddMember(
 	ctx context.Context,
 	resourceID int64,
 	userID int64,
@@ -215,7 +215,7 @@ func (s *ResourceService) AddMember(
 }
 
 // RemoveMember detaches a user from a resource.
-func (s *ResourceService) RemoveMember(ctx context.Context, resourceID, userID int64) error {
+func (s *Service) RemoveMember(ctx context.Context, resourceID, userID int64) error {
 	ctx, end := s.tracer.Start(ctx, "resource.RemoveMember")
 	defer end(nil)
 
@@ -230,7 +230,7 @@ func (s *ResourceService) RemoveMember(ctx context.Context, resourceID, userID i
 
 // ListAbsence returns absence ranges (is_available=false states) of the
 // resource members overlapping the window.
-func (s *ResourceService) ListAbsence(
+func (s *Service) ListAbsence(
 	ctx context.Context,
 	resourceID int64,
 	start, end date.Date,
