@@ -7,13 +7,13 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/Koshsky/erp-backend/internal/auth/repository/sqlc"
-	userDTO "github.com/Koshsky/erp-backend/internal/user/dto"
+	userdomain "github.com/Koshsky/erp-backend/internal/user/domain"
 )
 
 // UserService is the interface auth depends on instead of a direct repository.
 type UserService interface {
-	FindUserByUsername(ctx context.Context, username string) (*userDTO.UserResponse, error)
-	FindUserByID(ctx context.Context, userID int64) (*userDTO.UserResponse, error)
+	FindUserByUsername(ctx context.Context, username string) (*userdomain.Credentials, error)
+	FindAccountByID(ctx context.Context, userID int64) (*userdomain.Account, error)
 }
 
 // SessionRepository is the minimal refresh-session store the auth service

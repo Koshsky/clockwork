@@ -15,7 +15,7 @@ import (
 	"github.com/Koshsky/erp-backend/internal/config"
 	erpjwt "github.com/Koshsky/erp-backend/internal/security/jwt"
 	tracingpkg "github.com/Koshsky/erp-backend/internal/tracing"
-	userDTO "github.com/Koshsky/erp-backend/internal/user/dto"
+	userdomain "github.com/Koshsky/erp-backend/internal/user/domain"
 )
 
 const (
@@ -147,17 +147,17 @@ func (f *fakeSessionStore) DeleteExpiredSessions(context.Context, time.Time) err
 // fakeUserService serves a fixed user for both user lookups.
 type fakeUserService struct{}
 
-func (fakeUserService) FindUserByUsername(context.Context, string) (*userDTO.UserResponse, error) {
+func (fakeUserService) FindUserByUsername(context.Context, string) (*userdomain.Credentials, error) {
 	return testUser(), nil
 }
 
-func (fakeUserService) FindUserByID(context.Context, int64) (*userDTO.UserResponse, error) {
-	return testUser(), nil
+func (fakeUserService) FindAccountByID(context.Context, int64) (*userdomain.Account, error) {
+	return &testUser().Account, nil
 }
 
-func testUser() *userDTO.UserResponse {
+func testUser() *userdomain.Credentials {
 	preset := "worker"
-	return &userDTO.UserResponse{ID: testUserID, Username: "worker", Preset: &preset}
+	return &userdomain.Credentials{ID: testUserID, Username: "worker", Preset: &preset}
 }
 
 // newTestAuthService wires the service with an in-memory session store, a fake

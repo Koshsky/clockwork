@@ -375,7 +375,7 @@ func (s *UserService) ResetPassword(ctx context.Context, id int64, caller access
 	return raw, nil
 }
 
-func (s *UserService) FindUserByUsername(ctx context.Context, username string) (*dto.UserResponse, error) {
+func (s *UserService) FindUserByUsername(ctx context.Context, username string) (*userdomain.Credentials, error) {
 	ctx, end := s.tracer.Start(ctx, "user.FindUserByUsername")
 	defer end(nil)
 
@@ -383,19 +383,16 @@ func (s *UserService) FindUserByUsername(ctx context.Context, username string) (
 	if err != nil {
 		return nil, err
 	}
-	return s.mapper.ToDTO(user), nil
+	if user == nil {
+		return nil, errors.NotFound("user not found")
+	}
+	return &userdomain.Credentials{Account: *accountFromRow(user), PasswordHash: user.PasswordHash}, nil
 }
 
 func (s *UserService) FindUser(ctx context.Context, id int64) (*dto.UserResponse, error) {
-	ctx, end := s.tracer.Start(ctx, "user.FindUser")
-	defer end(nil)
-
-	user, err := s.repository.FindUser(ctx, id)
+	user, err := s.findUserRow(ctx, id)
 	if err != nil {
 		return nil, err
-	}
-	if user == nil {
-		return nil, errors.NotFound("user not found")
 	}
 	return s.mapper.ToDTO(user), nil
 }

@@ -15,7 +15,8 @@ func TestNeutralCoresDoNotDependOnHTTPAdapters(t *testing.T) {
 	t.Parallel()
 
 	cmd := exec.CommandContext(t.Context(), "go", "list", "-deps", "-f", "{{.ImportPath}}",
-		"./internal/authz/domain", "./internal/authz/engine", "./internal/authz/service", "./internal/tracing")
+		"./internal/authz/domain", "./internal/authz/engine", "./internal/authz/service", "./internal/tracing",
+		"./internal/auth/service", "./internal/user/domain")
 	cmd.Dir = "../.."
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -28,6 +29,30 @@ func TestNeutralCoresDoNotDependOnHTTPAdapters(t *testing.T) {
 			(strings.HasPrefix(dependency, "github.com/Koshsky/erp-backend/internal/") &&
 				strings.Contains(dependency, "/delivery")) {
 			t.Errorf("neutral core depends on HTTP adapter %s", dependency)
+		}
+	}
+}
+
+func TestUserLookupConsumersDoNotImportHTTPUserDTOs(t *testing.T) {
+	t.Parallel()
+	for _, directory := range []string{"../auth/service", "../audit", "../user/domain"} {
+		entries, err := filepath.Glob(directory + "/*.go")
+		if err != nil || len(entries) == 0 {
+			t.Fatalf("lookup sources missing in %s: %v", directory, err)
+		}
+		for _, path := range entries {
+			if strings.HasSuffix(path, "_test.go") {
+				continue
+			}
+			source, parseErr := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
+			if parseErr != nil {
+				t.Fatal(parseErr)
+			}
+			for _, imported := range source.Imports {
+				if imported.Path.Value == `"github.com/Koshsky/erp-backend/internal/user/dto"` {
+					t.Errorf("%s depends on HTTP user DTOs", path)
+				}
+			}
 		}
 	}
 }

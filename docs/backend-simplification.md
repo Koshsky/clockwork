@@ -451,3 +451,46 @@ B01. Repository policy and whitespace checks passed. Local HTTP middleware tests
 use httptest and fake repositories; no real DB/API/Electron acceptance or fresh
 SDK generation is claimed. Evidence: `../local/backend-b05-20261115/`.
 No push, merge, CI, release, deployment or remote server changes were performed.
+
+## B07 implementation ledger — 2026-11-15
+
+Continued on `refactor/backend-access-tracing` after `1705689`. Auth and audit
+lookup contracts no longer import `user/dto`. Three small neutral views in
+`user/domain` separate display/search Identity fields, a passwordless Account
+with its assigned preset, and Credentials used only for password verification.
+Credentials exclude the hash from JSON; audit's lookup type has neither a hash
+nor account permissions. Separate name parts remain available to preserve the
+existing audit search behavior.
+
+The existing user service implements these views directly over its current sqlc
+repository currency. Auth still has no access to the user repository or SQL.
+Login uses credential lookup; refresh uses passwordless account lookup. Public
+user DTO mapping and the HTTP auth response stay unchanged. The shared user-row
+lookup retains not-found behavior, trace operation names and repository context;
+a defensive nil username result is rejected as not found rather than reaching
+password verification. The production repository already returns an error for
+a missing username.
+
+The existing Wire bindings consume the same user-service instance. Regenerating
+Wire produces no graph changes; no adapter object or new provider package was
+necessary. Architecture checks protect the cross-module DTO boundary and add
+auth service/user domain to the transitive HTTP-dependency guard.
+
+Ten new Test functions add 22 named subcases covering optional/empty name and
+preset fields, missing users and lookup failures, empty lists and ordering,
+credential serialization, login normalization/password checks/JWT identity,
+refresh lookup and rotation ordering, audit search/enrichment, and safe filter
+behavior during lookup failure. All 369 existing Test functions are retained;
+existing refresh/reuse, cookie-session, password change/reset, account deletion,
+session revocation, administrator bootstrap and audit-masking suites still pass.
+
+Validation: build/vet, full normal-tag suite (299 top-level pass, 16 skip; 2,539
+pass events and 20 skips including subtests), full race checks in 35 tested
+packages, and lint 2.15.0 (0 issues) passed. All 379 Test functions compile/list
+with the integration tag; 64 integration-tagged functions were not executed.
+All nine frozen API/SDK/DTO/SQL/sqlc/migration/error/version groups still match
+B01. Repository policy and whitespace checks passed. HTTP tests use local
+httptest Loki endpoints and fake repositories; no real DB/API/Electron acceptance
+or fresh Swagger/SDK generation is claimed. Evidence:
+`../local/backend-b07-20261115/`. No push, merge, CI, release, deployment or remote
+server changes were performed.

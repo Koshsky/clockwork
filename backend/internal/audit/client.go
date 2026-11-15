@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/Koshsky/erp-backend/internal/config"
-	userdto "github.com/Koshsky/erp-backend/internal/user/dto"
+	userdomain "github.com/Koshsky/erp-backend/internal/user/domain"
 )
 
 // HTTP limits and defaults for the Loki client.
@@ -78,7 +78,7 @@ type lokiQueryResponse struct {
 // UserLookup resolves users by login/full name for the `user` audit filter
 // and provides display-name enrichment (backed by the user service).
 type UserLookup interface {
-	ListAllUsers(ctx context.Context) ([]userdto.UserResponse, error)
+	ListUserIdentities(ctx context.Context) ([]userdomain.Identity, error)
 }
 
 // Client talks to Grafana Loki: pushes audit events (ingest) and queries them
@@ -221,7 +221,7 @@ func (c *Client) resolveUserIDs(ctx context.Context, text string) []int64 {
 	if c.lookup == nil {
 		return nil
 	}
-	users, err := c.lookup.ListAllUsers(ctx)
+	users, err := c.lookup.ListUserIdentities(ctx)
 	if err != nil {
 		c.logger.ErrorContext(ctx, "audit user lookup failed", "error", err)
 		return nil
@@ -238,7 +238,7 @@ func (c *Client) resolveUserIDs(ctx context.Context, text string) []int64 {
 
 // matchUser reports whether the user matches the needle (case-insensitive
 // substring against the username, composed name, or any name part).
-func matchUser(u userdto.UserResponse, needle string) bool {
+func matchUser(u userdomain.Identity, needle string) bool {
 	needle = strings.ToLower(strings.TrimSpace(needle))
 	if needle == "" {
 		return false
@@ -263,7 +263,7 @@ func (c *Client) enrichNames(ctx context.Context, views []lokiView) {
 	if c.lookup == nil || len(views) == 0 {
 		return
 	}
-	users, err := c.lookup.ListAllUsers(ctx)
+	users, err := c.lookup.ListUserIdentities(ctx)
 	if err != nil {
 		c.logger.ErrorContext(ctx, "audit name enrichment failed", "error", err)
 		return
