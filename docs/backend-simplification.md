@@ -412,3 +412,42 @@ frozen API/SDK/DTO/SQL/sqlc/migration/error/version groups still match B01.
 Repository policy and whitespace checks passed. No real DB/API/Electron fixtures
 or fresh SDK generation were started. Evidence: `../local/backend-b04-20261115/`.
 No push, merge, CI, release, deployment or remote server changes were performed.
+
+## B05 implementation ledger — 2026-11-15
+
+Continued on `refactor/backend-access-tracing` after `d514f1d`. PolicyStore now
+accepts the consumer-owned `RoutePublisher` interface. The existing HTTP
+middleware prepares and validates checks, returning an infallible publication
+action. Wire binds that same middleware instance; regenerating Wire produces no
+generated graph changes. No service imports the HTTP middleware, and the
+transitive dependency guard now includes `authz/service`.
+
+Reload preserves the existing load order and publication sequence: validate
+routes, load principals and ACL rows, validate/publish Casbin, apply prepared
+routes, then replace principals. Every fallible step precedes publication.
+This remains ordered publication of three snapshots, not a new cross-snapshot
+transaction. Startup fallback, TTL recovery, immediate reload and stop semantics
+are unchanged; no event bus or additional runtime wrapper was introduced.
+
+The new tests exposed an existing empty-preset bug: Casbin treats an empty filter
+field as a wildcard, allowing list-scope and permission-catalog queries to find
+unrelated preset rows. With explicit owner approval, empty-preset fallbacks now
+deny access. Direct user grants, revokes, database role assignments and admin
+bypass remain valid. A regression test failed on the original implementation
+before the fix; both backend changelogs record this user-visible correction.
+
+Seven new Test functions add 22 named subcases: six repository-read failure
+points, empty/invalid routes, invalid matrix, runtime role/admin/grant/revoke/user
+replacement, publication order, startup failure and TTL recovery, stopping the
+idle refresh loop, concurrent reads/reloads, and seven empty/known/unknown role
+and ACL combinations. All 362 existing Test functions are retained.
+
+Validation: build/vet, full normal-tag suite (289 top-level pass, 16 skip; 2,507
+pass events and 20 skips including subtests), full race checks in 35 tested
+packages, and lint 2.15.0 (0 issues) passed. All 369 Test functions compile/list
+with the integration tag; 64 integration-tagged functions were not executed.
+All nine frozen API/SDK/DTO/SQL/sqlc/migration/error/version groups still match
+B01. Repository policy and whitespace checks passed. Local HTTP middleware tests
+use httptest and fake repositories; no real DB/API/Electron acceptance or fresh
+SDK generation is claimed. Evidence: `../local/backend-b05-20261115/`.
+No push, merge, CI, release, deployment or remote server changes were performed.

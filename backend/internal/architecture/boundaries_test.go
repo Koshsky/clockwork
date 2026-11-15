@@ -15,7 +15,7 @@ func TestNeutralCoresDoNotDependOnHTTPAdapters(t *testing.T) {
 	t.Parallel()
 
 	cmd := exec.CommandContext(t.Context(), "go", "list", "-deps", "-f", "{{.ImportPath}}",
-		"./internal/authz/domain", "./internal/authz/engine", "./internal/tracing")
+		"./internal/authz/domain", "./internal/authz/engine", "./internal/authz/service", "./internal/tracing")
 	cmd.Dir = "../.."
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -72,9 +72,7 @@ func checkAccessImports(t *testing.T, path, name string) {
 		if dependency == "github.com/Koshsky/erp-backend/internal/userctx" {
 			t.Errorf("%s depends on Gin principal accessors", name)
 		}
-		// B05 replaces the existing concrete publisher; B02 only moves data contracts.
-		if dependency == "github.com/Koshsky/erp-backend/internal/middleware/rbac" &&
-			name != "../authz/service/store.go" {
+		if dependency == "github.com/Koshsky/erp-backend/internal/middleware/rbac" {
 			t.Errorf("%s depends on HTTP-owned access contracts", name)
 		}
 	}

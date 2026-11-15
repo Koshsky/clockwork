@@ -71,6 +71,7 @@ func InitializeApp() (*App, error) {
 		// in-memory RBAC snapshot (PolicyStore) — no per-request DB call.
 		wire.Bind(new(authMw.PrincipalResolver), new(*authzService.PolicyStore)),
 		wire.Bind(new(authzService.RouteCatalog), new(*rbacMW.Middleware)),
+		wire.Bind(new(authzService.RoutePublisher), new(*rbacMW.Middleware)),
 		// User mutations (preset/account changes) refresh the same snapshot
 		// immediately (TTL heals multi-instance).
 		wire.Bind(new(userservice.RBACReloader), new(*authzService.PolicyStore)),

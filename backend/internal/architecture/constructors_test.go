@@ -29,7 +29,7 @@ func TestServiceConstructorsAcceptInterfacesAndReturnStructs(t *testing.T) {
 		ports       []int
 	}{
 		{"auth", auth.NewAuthService, []int{1, 3}},
-		{"policy store", authz.NewPolicyStore, []int{1}},
+		{"policy store", authz.NewPolicyStore, []int{1, 2}},
 		{"policy administration", authz.NewRBACService, []int{1, 3}},
 		{"auto create", autocreate.NewAutoCreateService, []int{2}},
 		{"planning", planning.NewPlanningService, []int{2}},

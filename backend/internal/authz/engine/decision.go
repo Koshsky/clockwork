@@ -117,6 +117,9 @@ func scopeFor(role string, res access.Resource, act Action) string {
 	if role == userdomain.PresetAdmin {
 		return ScopeAll
 	}
+	if role == "" {
+		return ScopeNone
+	}
 	rows, err := current().e.GetFilteredPolicy(0, role, resActKey(res, act))
 	if err != nil || len(rows) == 0 {
 		return ScopeNone
@@ -154,7 +157,15 @@ func scopeForUser(u access.UserContext, res access.Resource, act Action) string 
 	// Direct preset row fallback (mirrors the matcher's p.sub == r.sub.Role):
 	// useful before the grouping rows are loaded (tests, tooling) — the preset
 	// row itself is authoritative for the role.
-	if rows, err := s.e.GetFilteredPolicy(0, u.Preset, key); err == nil {
+	return directPresetScope(s, u.Preset, key)
+}
+
+func directPresetScope(s *Snapshot, preset, key string) string {
+	// Casbin treats an empty filter field as a wildcard, not an empty preset.
+	if preset == "" {
+		return ScopeNone
+	}
+	if rows, err := s.e.GetFilteredPolicy(0, preset, key); err == nil {
 		for _, row := range rows {
 			if len(row) >= 4 && row[3] == eftAllow {
 				if scope, ok := ParseScope(row[2]); ok {
