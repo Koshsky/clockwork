@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { branding } from '../branding'
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { probeServerLogin } from '@/store/data/pageReads'
@@ -68,9 +69,9 @@ function onSave() {
 <template>
   <div class="lp ss">
     <div class="lp-brand">
-      <div class="lp-logo">MVS</div>
+      <img :src="branding.logo ?? '/icons/icon.svg'" alt="" class="lp-brand-image" />
       <h1 class="lp-btitle">{{ t('adminSystem.server.brandTitle') }}</h1>
-      <p class="lp-bsub">{{ t('adminSystem.server.brandSubtitle') }}</p>
+      <p class="lp-bsub">{{ t('adminSystem.server.brandSubtitle', { name: branding.name }) }}</p>
 
       <ul class="lp-features">
         <li class="feature">

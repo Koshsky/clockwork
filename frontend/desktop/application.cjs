@@ -9,6 +9,7 @@ const { createSessionService } = require('./session-service.cjs')
 const path = require('node:path')
 const http = require('node:http')
 const { isApplicationDocument, isWebUrl } = require('./security.cjs')
+const { createBrandingProvider } = require('./branding.cjs')
 const { createStaticHandler } = require('./static-server.cjs')
 const { loadProfile } = require('./profile.cjs')
 const { createDesktopService } = require('./service.cjs')
@@ -19,12 +20,12 @@ function startDesktop({ app, BrowserWindow, ipcMain, dialog, shell, safeStorage,
   // Shell dialogs can precede the renderer, so their copy follows the OS locale.
   const SHELL_TEXT = {
     ru: {
-      errorTitle: 'MVS ERP — ошибка запуска',
+      errorTitle: 'Clockwork — ошибка запуска',
       recoveryFailed: 'Не удалось восстановить окно приложения. Перезапустите приложение.',
       startFailed: (detail) => `Не удалось запустить приложение: ${detail}`,
     },
     en: {
-      errorTitle: 'MVS ERP — startup error',
+      errorTitle: 'Clockwork — startup error',
       recoveryFailed: 'The application window could not be restored. Restart the application.',
       startFailed: (detail) => `Failed to start the application: ${detail}`,
     },
@@ -43,6 +44,7 @@ function startDesktop({ app, BrowserWindow, ipcMain, dialog, shell, safeStorage,
   let storage = null
   let auth = null, authTimer = null, resumeAuth = null
   const windows = new Set()
+  const branding = net && createBrandingProvider({ directory: app.getPath('userData'), server: () => auth?.status().server, fetch: (url, options) => net.fetch(url, options) })
   let origin = null
   function createWindow(target = origin) {
     if (!isApplicationDocument(target, origin) || service.status().phase !== 'ready') throw new Error('Desktop service is not ready')
@@ -91,7 +93,7 @@ function startDesktop({ app, BrowserWindow, ipcMain, dialog, shell, safeStorage,
   app.on('activate', () => { if (service?.status().phase === 'ready' && !windows.size) createWindow() })
   async function listen(port) {
     return new Promise((resolve, reject) => {
-      const candidate = http.createServer(createStaticHandler(webDir))
+      const candidate = http.createServer(createStaticHandler(webDir, { branding }))
       candidate.once('error', reject)
       candidate.listen(port, '127.0.0.1', () => resolve(candidate))
     })

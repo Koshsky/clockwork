@@ -220,7 +220,7 @@ export default {
 
   server: {
     brandTitle: 'Server settings',
-    brandSubtitle: 'Specify the address of your MVS ERP server',
+    brandSubtitle: 'Specify the address of your {name} server',
     featureLocal: 'Local server',
     featureLocalExample: 'for example, https://localhost',
     featureRemote: 'Remote server',

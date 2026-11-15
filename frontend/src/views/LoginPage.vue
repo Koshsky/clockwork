@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { branding } from '../branding'
 import { ref, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../store'
@@ -118,7 +119,8 @@ function goToRedirect() {
   <div class="lp">
     <div class="lp-form-side">
       <div class="lp-brand-head">
-        <h1 class="lp-btitle">MVS ERP</h1>
+        <img v-if="branding.logo" :src="branding.logo" alt="" class="lp-brand-image" />
+        <h1 class="lp-btitle">{{ branding.name }}</h1>
         <p class="lp-bsub">{{ t('auth.subtitle') }}</p>
       </div>
 

@@ -93,11 +93,20 @@ function serveStatic(webDir, req, res) {
   res.end(data)
 }
 
-function createStaticHandler(webDir) {
-  return (req, res) => {
+function createStaticHandler(webDir, { branding } = {}) {
+  return async (req, res) => {
     // Apply headers before resolving paths so errors and worker scripts have
     // the same policy as the HTML document.
     for (const [name, value] of Object.entries(securityHeaders())) res.setHeader(name, value)
+    if (branding && req.url === '/assets/custom/branding/config.json') {
+      if (req.method !== 'GET') { res.writeHead(405); res.end(); return }
+      try {
+        const data = JSON.stringify(await branding())
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
+        res.end(data)
+      } catch { res.writeHead(503); res.end() }
+      return
+    }
     serveStatic(webDir, req, res)
   }
 }

@@ -4,6 +4,7 @@ import { createPinia, setActivePinia, disposePinia } from 'pinia'
 import App from './App.vue'
 import router from './router'
 import { setupHttp } from './http'
+import { initBranding } from './branding'
 import { initTheme } from './theme'
 import { applyUiSize, uiFontSize } from './settings'
 import { useAuthStore } from './store'
@@ -14,6 +15,7 @@ import { i18n } from './i18n'
 
 setupHttp()
 initTheme()
+const stopBranding = initBranding()
 // UI font scale (small / default / large) — applied now and re-applied on change.
 applyUiSize()
 const stopUiSize = watch(uiFontSize, applyUiSize)
@@ -71,6 +73,7 @@ function disposeApplication() {
   disposed = true
   runtimeHost.stop()
   stopApplicationPorts()
+  stopBranding()
   stopUiSize()
   stopSessionRedirect?.()
   disposePinia(pinia)

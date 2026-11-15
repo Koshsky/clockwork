@@ -30,6 +30,7 @@ dist/
 out/
 /frontend/desktop/release/
 /frontend/desktop/.cache/
+/frontend/public/assets/custom/branding/
 !/frontend/desktop/build/icon.png
 *.tsbuildinfo
 storybook-static/

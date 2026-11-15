@@ -29,7 +29,7 @@ export const appNavDrawerArgTypes: ArgTypes<AppNavDrawerProps> = {
     control: 'text',
     table: {
       type: { summary: 'string' },
-      defaultValue: { summary: 'MVS ERP' },
+      defaultValue: { summary: 'Clockwork' },
       category: 'Content',
     },
   },
