@@ -32,6 +32,7 @@ func TestNeutralCoresDoNotDependOnHTTPAdapters(t *testing.T) {
 		"./internal/project_mgmt/comment",
 		"./internal/project_mgmt/assignment",
 		"./internal/project_mgmt/project",
+		"./internal/project_mgmt/process",
 	)
 	cmd.Dir = "../.."
 	output, err := cmd.CombinedOutput()
@@ -47,6 +48,7 @@ func TestNeutralCoresDoNotDependOnHTTPAdapters(t *testing.T) {
 			dependency == "github.com/Koshsky/erp-backend/internal/project_mgmt/comment/repository" ||
 			dependency == "github.com/Koshsky/erp-backend/internal/project_mgmt/assignment/repository" ||
 			dependency == "github.com/Koshsky/erp-backend/internal/project_mgmt/project/repository" ||
+			dependency == "github.com/Koshsky/erp-backend/internal/project_mgmt/process/repository" ||
 			(strings.HasPrefix(dependency, "github.com/Koshsky/erp-backend/internal/") &&
 				strings.Contains(dependency, "/delivery")) {
 			t.Errorf("neutral core depends on HTTP adapter %s", dependency)

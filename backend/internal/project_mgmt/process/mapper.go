@@ -1,4 +1,4 @@
-package service
+package process
 
 import (
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/process/dto"
@@ -6,13 +6,13 @@ import (
 	nullable "github.com/Koshsky/erp-backend/pkg/database"
 )
 
-type ProcessMapper struct{}
+type Mapper struct{}
 
-func NewProcessMapper() *ProcessMapper {
-	return &ProcessMapper{}
+func NewMapper() *Mapper {
+	return &Mapper{}
 }
 
-func (m *ProcessMapper) ToDTO(process *sqlc.Process) *dto.ProcessResponse {
+func (m *Mapper) ToDTO(process *sqlc.Process) *dto.ProcessResponse {
 	if process == nil {
 		return nil
 	}
@@ -29,7 +29,7 @@ func (m *ProcessMapper) ToDTO(process *sqlc.Process) *dto.ProcessResponse {
 	}
 }
 
-func (m *ProcessMapper) ToDTOs(processes []sqlc.Process) []dto.ProcessResponse {
+func (m *Mapper) ToDTOs(processes []sqlc.Process) []dto.ProcessResponse {
 	if processes == nil {
 		return []dto.ProcessResponse{}
 	}

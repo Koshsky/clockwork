@@ -1,15 +1,15 @@
-package service
+package process
 
 import (
 	"github.com/Koshsky/erp-backend/pkg/date"
 	"github.com/Koshsky/erp-backend/pkg/validator"
 )
 
-type ProcessValidator struct {
+type Validator struct {
 	validator.Validator
 }
 
-func (v *ProcessValidator) ValidateProcess(
+func (v *Validator) ValidateProcess(
 	projectID int64,
 	title string,
 	color *string,

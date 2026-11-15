@@ -14,9 +14,9 @@ import (
 	milestoneService "github.com/Koshsky/erp-backend/internal/project_mgmt/milestone"
 	milestoneDelivery "github.com/Koshsky/erp-backend/internal/project_mgmt/milestone/delivery"
 	milestoneRepo "github.com/Koshsky/erp-backend/internal/project_mgmt/milestone/repository"
+	processService "github.com/Koshsky/erp-backend/internal/project_mgmt/process"
 	processDelivery "github.com/Koshsky/erp-backend/internal/project_mgmt/process/delivery"
 	processRepo "github.com/Koshsky/erp-backend/internal/project_mgmt/process/repository"
-	processService "github.com/Koshsky/erp-backend/internal/project_mgmt/process/service"
 	projectService "github.com/Koshsky/erp-backend/internal/project_mgmt/project"
 	projectDelivery "github.com/Koshsky/erp-backend/internal/project_mgmt/project/delivery"
 	projectRepo "github.com/Koshsky/erp-backend/internal/project_mgmt/project/repository"
@@ -38,8 +38,8 @@ var ProviderSet = wire.NewSet(
 	projectDelivery.NewProjectHandler,
 
 	processRepo.NewProcessRepository,
-	wire.Bind(new(processService.ProcessRepository), new(*processRepo.ProcessRepository)),
-	processService.NewProcessService,
+	wire.Bind(new(processService.Repository), new(*processRepo.ProcessRepository)),
+	processService.NewService,
 	processDelivery.NewProcessHandler,
 
 	taskRepo.NewTaskRepository,

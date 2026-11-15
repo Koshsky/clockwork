@@ -726,3 +726,66 @@ including project date-shift/cascade, auto-create and optimistic/idempotent
 integration scenarios, was not executed. No browser/Electron acceptance or fresh
 frontend SDK generation is claimed. Evidence: `../local/backend-b12-20261115/`.
 No push, merge, CI, release, deployment or remote server changes were performed.
+
+## B13 implementation ledger — 2026-11-16
+
+Continued on `refactor/backend-access-tracing` after `da80cdc`. Process service,
+repository port, mapper and validator now live in the feature root;
+`process/service` is removed. Delivery, DTO and SQL adapter remain separate;
+parent `project_mgmt/module.go` owns composition. Root types and constructors
+follow the preceding pilots (`Service`, `Repository`, `Mapper`, `Validator`,
+`NewService`, `NewMapper`). Normalizing these names, the package declaration and
+one constructor comment reproduces all four original core files exactly.
+The existing append-order integration fixture imports the relocated constructor;
+its scenarios and assertions are unchanged.
+
+Twelve Test functions were added, with 70 named subcases; all 422 existing Test
+functions are retained. All 99 pre-move outcomes from process and planning tests
+match the final run. The new tests contribute 82 passing outcomes. Core checks
+cover creation/read/deletion, Unicode titles, nullable mapping, dates across year
+boundaries, owner/responsible changes and responsible=0 clearing, color clearing,
+project reassignment and retention of sort_order during ordinary patches,
+validation before writes, list/count scope and pagination, failure propagation
+and idempotent deletion. Reorder checks reject empty, duplicate, incomplete and
+foreign ID sets, require the complete project group, retain requested order and
+propagate both lookup and write failures.
+
+HTTP checks exercise real middleware, handlers and core with fake repositories
+and parent/related ownership probes. They cover project-owner management of a
+foreign-owned process, process-owner management, inherited project viewing
+without mutation rights, direct access by ID, moves into owned/foreign/missing
+projects, ownership transfer restrictions, responsible/date updates, creation,
+list scope and whole-project reorder authorization. Fixture parent/probe facts
+model the visible project; they do not execute database ownership queries.
+Planning smoke verifies owner/responsible, title/color/dates, process order and
+project grouping, plus forwarding all/project-owner/process-owner/inherited
+view scopes. It consumes prefiltered fake rows, not SQL visibility predicates.
+
+Repository checks use the actual SQL adapter over a request-scoped fake pgx.Tx
+with no fallback pool. Find/update/delete preserve context, query arguments and
+errors; update forwards the changed owner, responsible, project and dates to the
+unchanged SQL. Create joins that transaction, locks before the append query and
+stops on lock/insert errors. Reorder joins the same transaction, executes mark
+then apply with the requested IDs and stops on either failure. None of these
+methods finalizes a transaction owned by the request. These tests do not prove
+real database cleanup, rollback, concurrent locking or unique-index behavior.
+
+Architecture guards explicitly include the process core and reject concrete
+repository coupling. Regenerated Wire preserves provider calls, arguments and
+order after normalizing imports and the moved constructor. Fresh Swagger
+JSON/YAML before and after are byte-identical (57 paths, 93 operations, 92
+definitions); all nine frozen contract groups still match B01. SQL, generated
+sqlc, DTOs, migrations, versions, published changelogs and revision/replay
+middleware remain unchanged. Owner-change assignment cleanup and descendant
+date shifts remain the responsibility of their existing database triggers.
+
+Validation: build/vet, full normal-tag suite (354 top-level pass, 16 skip; 2,918
+pass events and 20 skips including subtests), full race suite and final focused
+architecture race check, lint 2.15.0 (0 issues), repository policy and whitespace
+checks pass. All 434 Test functions compile/list with the integration tag; 64
+tagged functions were not executed. The local Docker daemon is unavailable:
+real PostgreSQL/API acceptance, including TestAssignmentOwnerInvariant cleanup,
+date/cascade shifts, concurrent append/reorder and revision/replay integration,
+was not executed. No browser/Electron acceptance or fresh frontend SDK generation
+is claimed. Evidence (started before midnight): `../local/backend-b13-20261115/`.
+No push, merge, CI, release, deployment or remote server changes were performed.

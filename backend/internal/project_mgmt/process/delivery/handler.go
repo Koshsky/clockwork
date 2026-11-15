@@ -5,7 +5,7 @@ import (
 	"strconv"
 
 	access "github.com/Koshsky/erp-backend/internal/authz/domain"
-	"github.com/Koshsky/erp-backend/internal/project_mgmt/process/service"
+	"github.com/Koshsky/erp-backend/internal/project_mgmt/process"
 	"github.com/Koshsky/erp-backend/pkg/errors"
 
 	"github.com/gin-gonic/gin"
@@ -24,7 +24,7 @@ type ProcessHandler struct {
 }
 
 // NewProcessHandler builds the ProcessHandler handler.
-func NewProcessHandler(logger *slog.Logger, svc *service.ProcessService, mw *rbac.Middleware) *ProcessHandler {
+func NewProcessHandler(logger *slog.Logger, svc *process.Service, mw *rbac.Middleware) *ProcessHandler {
 	return &ProcessHandler{
 		logger:  logger.With("component", "process_handler"),
 		service: svc,

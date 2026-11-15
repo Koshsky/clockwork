@@ -1,4 +1,4 @@
-package service
+package process
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"github.com/Koshsky/erp-backend/pkg/date"
 )
 
-type ProcessRepository interface {
+type Repository interface {
 	CreateProcess(
 		ctx context.Context,
 		projectID int64,

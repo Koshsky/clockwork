@@ -1,4 +1,4 @@
-package service
+package process
 
 import (
 	"context"
@@ -16,26 +16,26 @@ import (
 	"github.com/Koshsky/erp-backend/pkg/errors"
 )
 
-type ProcessService struct {
+type Service struct {
 	logger     *slog.Logger
 	tracer     *tracingpkg.Tracer
-	repository ProcessRepository
-	mapper     *ProcessMapper
-	validator  *ProcessValidator
+	repository Repository
+	mapper     *Mapper
+	validator  *Validator
 }
 
-// NewProcessService builds the ProcessService service.
-func NewProcessService(logger *slog.Logger, tracer *tracingpkg.Tracer, r ProcessRepository) *ProcessService {
-	return &ProcessService{
+// NewService builds the process service.
+func NewService(logger *slog.Logger, tracer *tracingpkg.Tracer, r Repository) *Service {
+	return &Service{
 		logger:     logger.With("component", "process_service"),
 		tracer:     tracer,
 		repository: r,
-		mapper:     NewProcessMapper(),
-		validator:  &ProcessValidator{},
+		mapper:     NewMapper(),
+		validator:  &Validator{},
 	}
 }
 
-func (s *ProcessService) CreateProcess(
+func (s *Service) CreateProcess(
 	ctx context.Context,
 	req dto.CreateProcessRequest,
 ) (*dto.ProcessResponse, error) {
@@ -69,7 +69,7 @@ func (s *ProcessService) CreateProcess(
 	return s.mapper.ToDTO(created), nil
 }
 
-func (s *ProcessService) FindProcess(ctx context.Context, id int64) (*dto.ProcessResponse, error) {
+func (s *Service) FindProcess(ctx context.Context, id int64) (*dto.ProcessResponse, error) {
 	ctx, end := s.tracer.Start(ctx, "process.FindProcess")
 	defer end(nil)
 
@@ -86,7 +86,7 @@ func (s *ProcessService) FindProcess(ctx context.Context, id int64) (*dto.Proces
 	return s.mapper.ToDTO(process), nil
 }
 
-func (s *ProcessService) UpdateProcess(
+func (s *Service) UpdateProcess(
 	ctx context.Context,
 	id int64,
 	req dto.UpdateProcessRequest,
@@ -147,7 +147,7 @@ func (s *ProcessService) UpdateProcess(
 	return s.mapper.ToDTO(updated), nil
 }
 
-func (s *ProcessService) DeleteProcess(ctx context.Context, id int64) error {
+func (s *Service) DeleteProcess(ctx context.Context, id int64) error {
 	ctx, end := s.tracer.Start(ctx, "process.DeleteProcess")
 	defer end(nil)
 
@@ -168,7 +168,7 @@ func (s *ProcessService) DeleteProcess(ctx context.Context, id int64) error {
 // ReorderProcesses applies a new order to all active processes of a project:
 // the request carries the complete ordered id list, the server validates it
 // covers the whole group and rewrites sort_order by list position.
-func (s *ProcessService) ReorderProcesses(
+func (s *Service) ReorderProcesses(
 	ctx context.Context,
 	req dto.ReorderProcessRequest,
 ) error {
@@ -195,7 +195,7 @@ func (s *ProcessService) ReorderProcesses(
 	return s.repository.ReorderProcesses(ctx, req.IDs)
 }
 
-func (s *ProcessService) ListProcesses(
+func (s *Service) ListProcesses(
 	ctx context.Context,
 	userID int64,
 	scope access.ListScope,

@@ -26,9 +26,9 @@ import (
 	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	idem "github.com/Koshsky/erp-backend/internal/idempotency"
 	idemrepo "github.com/Koshsky/erp-backend/internal/idempotency/repository"
+	processservice "github.com/Koshsky/erp-backend/internal/project_mgmt/process"
 	processdelivery "github.com/Koshsky/erp-backend/internal/project_mgmt/process/delivery"
 	processrepo "github.com/Koshsky/erp-backend/internal/project_mgmt/process/repository"
-	processservice "github.com/Koshsky/erp-backend/internal/project_mgmt/process/service"
 	taskdelivery "github.com/Koshsky/erp-backend/internal/project_mgmt/task/delivery"
 	taskrepo "github.com/Koshsky/erp-backend/internal/project_mgmt/task/repository"
 	taskservice "github.com/Koshsky/erp-backend/internal/project_mgmt/task/service"
@@ -165,7 +165,7 @@ func appendOrderRouter(pool *pgxpool.Pool) *gin.Engine {
 	)
 	processes := processdelivery.NewProcessHandler(
 		logger,
-		processservice.NewProcessService(logger, tracer, processrepo.NewProcessRepository(logger, pool)),
+		processservice.NewService(logger, tracer, processrepo.NewProcessRepository(logger, pool)),
 		nil,
 	)
 	middleware := idem.New(idemrepo.NewIdempotencyRepository(pool), logger, tracer)
