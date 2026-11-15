@@ -9,10 +9,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/Koshsky/erp-backend/internal/authz/domain"
+	tracingmw "github.com/Koshsky/erp-backend/internal/middleware/tracing"
 	"github.com/Koshsky/erp-backend/internal/response"
 	"github.com/Koshsky/erp-backend/internal/security/jwt"
-	tracingpkg "github.com/Koshsky/erp-backend/internal/tracing"
-	userctx "github.com/Koshsky/erp-backend/internal/userctx"
 	"github.com/Koshsky/erp-backend/pkg/errors"
 )
 
@@ -20,7 +20,7 @@ import (
 // (admin bypass, assigned preset, per-user overrides). Implemented by the
 // rbacpolicy PolicyStore — an in-memory snapshot, never a per-request DB call.
 type PrincipalResolver interface {
-	EffectiveUser(ctx context.Context, userID int64) (userctx.UserContext, error)
+	EffectiveUser(ctx context.Context, userID int64) (domain.UserContext, error)
 }
 
 type Middleware struct {
@@ -79,7 +79,7 @@ func (m *Middleware) RequireAuth() gin.HandlerFunc {
 					err,
 				)
 			}
-			user = userctx.UserContext{ID: claims.UserID}
+			user = domain.UserContext{ID: claims.UserID}
 		}
 		user.ID = claims.UserID
 		user.Email = claims.Email
@@ -94,14 +94,14 @@ func (m *Middleware) RequireAuth() gin.HandlerFunc {
 
 		// 6. Store the user in the context (as a single object!)
 		c.Set("user", user)
-		tracingpkg.SetUserOnSpan(c, user.ID, user.Preset)
+		tracingmw.SetUserOnSpan(c, user.ID, user.Preset)
 
 		// 7. Pass the request through
 		c.Next()
 	}
 }
 
-func (m *Middleware) viewUser(c *gin.Context, actor userctx.UserContext) (*userctx.UserContext, error) {
+func (m *Middleware) viewUser(c *gin.Context, actor domain.UserContext) (*domain.UserContext, error) {
 	target := c.GetHeader("X-View-User-ID")
 	if target == "" {
 		return &actor, nil

@@ -4,9 +4,9 @@ package service
 import (
 	"testing"
 
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/authz/engine"
 	"github.com/Koshsky/erp-backend/internal/authz/repository/sqlc"
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
 	userdomain "github.com/Koshsky/erp-backend/internal/user/domain"
 )
 
@@ -19,7 +19,7 @@ func TestBuildMatrixCells(t *testing.T) {
 	cells := buildMatrixCells(tags, engine.DefaultMatrix())
 
 	applicable := 0
-	for res := rbac.ResourceProject; res <= rbac.ResourceAutoCreate; res++ {
+	for res := access.ResourceProject; res <= access.ResourceAutoCreate; res++ {
 		for act := engine.ActionView; act <= engine.ActionPrioritize; act++ {
 			if engine.ActionApplicable(res, act) {
 				applicable++

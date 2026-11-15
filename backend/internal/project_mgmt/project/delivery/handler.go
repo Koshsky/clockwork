@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"strconv"
 
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/project/service"
 	"github.com/Koshsky/erp-backend/pkg/errors"
 
@@ -58,7 +59,7 @@ func (h *ProjectHandler) ListProjects(c *gin.Context) {
 	items, total, err := h.service.ListProjects(
 		c.Request.Context(),
 		user.ID,
-		engine.CompileViewScopeUser(user, rbac.ResourceProject),
+		engine.CompileViewScopeUser(user, access.ResourceProject),
 		response.QueryID(c, "owner_id"),
 		limit,
 		offset,
@@ -127,7 +128,7 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 		c.Request.Context(),
 		project,
 		user.ID,
-		engine.ScopeForUser(user, rbac.ResourceProject, engine.ActionCreate) == engine.ScopeOwn,
+		engine.ScopeForUser(user, access.ResourceProject, engine.ActionCreate) == engine.ScopeOwn,
 	)
 	if err != nil {
 		response.Error(c, h.logger, err)

@@ -32,10 +32,18 @@ Go 1.27 / Gin backend for the MVS ERP monorepo (`module github.com/Koshsky/erp-b
 
 The B01 dependency and compatibility baseline is recorded in
 `../docs/backend-simplification.md` and `../docs/backend-baseline.json`.
-It describes future B02–B19 work; recording the baseline does not move code or
-replace the current layout. Update the relevant architecture rules in the same
-reviewed change that implements a new boundary, preserving the recorded API,
-RBAC, transaction, session and replay contracts.
+The baseline records the original graph; the implementation notes in that
+document track completed steps. Preserve the recorded API, RBAC, transaction,
+session and replay contracts when implementing each new boundary.
+
+- Shared access facts (`Resource`, `Owners`, `ListScope`, owner resolver contracts,
+  `UserContext`, `PermissionRule`) belong to `internal/authz/domain`. Services and
+  repositories consume these neutral types; Gin accessors remain in `userctx`.
+  The engine's HTTP builders and PolicyStore's concrete middleware publisher are
+  explicit remaining B04/B05 boundaries, not examples for new dependencies.
+- `internal/tracing` owns OpenTelemetry lifecycle and context-based tracing;
+  it must not depend on Gin or HTTP middleware. The Gin adapter lives in
+  `internal/middleware/tracing`; only HTTP composition/adapters use it.
 
 - Layered per domain: `internal/<domain>/{delivery,service,repository,domain,dto}`. Structs are constructed by exported `New*` constructors kept in the same file as the struct (`handler.go`/`service_impl.go`/`postgres.go`); there are no `provide.go` files in the layers. Each domain root ships a single `module.go` with a `wire.ProviderSet` referencing those `New*` constructors and a `Module` implementing the `server.Module` interface (`RegisterPublicRoutes`/`RegisterProtectedRoutes`) — the module owns route registration, prefixes and per-route RBAC checks. The app only collects modules via `ProvideModules` in `internal/server/providers.go`; the graph is assembled in `internal/server/wire.go` (generated into `wire_gen.go`). Auxiliary HTTP servers live in `internal/server/*` (`profiler` pprof, `swagger` registrar). New handlers are added to the module's `ProviderSet`; new modules add a `Module` + one line in `ProvideModules`.
 - Access control is the single domain `internal/authz`: its `engine` subpackage is a leaf holding the rules (permission matrix `preset × resource × action → ownership zone`, codecs, route-policy kinds) evaluated by **Casbin v2** (RBAC role inheritance + ACL user grants/revokes + ABAC owner-attribute matcher in `engine/model.go`); `service.PolicyStore` loads the Postgres policy tables (`rbac_presets`, `rbac_preset_rules`, `rbac_route_policies`, `user_permissions`, `users.preset`) on a TTL and publishes an immutable Casbin snapshot (`engine.Publish`) plus the route checks (`rbac.Middleware.Refresh`) and the in-memory principals (`EffectiveUser`). Per-request decisions (middleware checks, `ViewScopeCode*`, `AuthorizeUser`) go through Casbin; the SQL list scoping (`view_scope`) is still the manual translation of the resolved zone into WHERE clauses. The admin API `/rbac/*` + `/permissions/me` lives in `internal/authz/{delivery,service}` (same contract, no swagger changes).
@@ -44,7 +52,8 @@ RBAC, transaction, session and replay contracts.
 - All API responses use the `{ data, error }` envelope via `internal/common/response` helpers (`OK`, `Created`, `BadRequest`, `InternalError`, ...). Never define a local response struct in a handler.
 - Calendar dates (`start_date`, `end_date`, `date`) are `internal/common/date.Date` (string `YYYY-MM-DD`), never `time.Time`.
 - `internal/auth` must not touch the `users` table; it depends on the `internal/user` service (single source of truth for user CRUD). Password hashing lives only in `internal/security/hasher`.
-- Authenticated user comes from request context via `internal/common/ctx` (`KeyUser`/`KeyRequest`), set by `internal/middleware/auth`.
+- Authenticated user is a `domain.UserContext`, stored by `internal/middleware/auth`
+  under the existing `userctx.KeyUser` and read through the Gin `userctx` accessors.
 
 ## DB & migrations
 - Postgres 16; schema is Flyway migrations in `migrations/` (core V1..V9: the whole schema and constraints are inline in V1, indexes in V2, functions/triggers in V3..V8, the RBAC catalog — presets, rights matrix, route policies — in V9; embedded into the backend and applied before startup; golang-migrate tracks new versions after explicit `service migrate adopt-flyway`; existing Flyway history and unknown installed SQL plugins are preserved (see `migrations/README.md`)). **The core set is frozen once a database is deployed**: editing an applied migration fails `flyway validate` everywhere it ran (checksum mismatch, and Flyway 9 has no ignore state for it), so changes land as a new file — see `migrations/README.md` for the file map and the rules. Each package must list the immutable migrations defining the tables/columns used by its sqlc queries. Idempotency uses V1 and V15. Never change a deployed migration merely to update generated models. All packages set `omit_unused_structs: true`, so each `sqlc/models.go` contains structs only for the tables referenced by that package's queries — an edit to an unrelated table must produce no diff in that package's generated files; if it does, regenerate with `go generate ./...`.

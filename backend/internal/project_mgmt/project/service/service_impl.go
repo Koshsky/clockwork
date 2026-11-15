@@ -7,7 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	repo "github.com/Koshsky/erp-backend/internal/project_mgmt/project/repository"
 	tracingpkg "github.com/Koshsky/erp-backend/internal/tracing"
 
@@ -185,7 +185,7 @@ func (s *ProjectService) DeleteProject(ctx context.Context, id int64) error {
 func (s *ProjectService) ListProjects(
 	ctx context.Context,
 	userID int64,
-	scope rbac.ListScope,
+	scope access.ListScope,
 	ownerID int64,
 	limit, offset int,
 ) ([]dto.ProjectResponse, int64, error) {

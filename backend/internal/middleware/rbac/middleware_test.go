@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/authz/engine"
 	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
 	tracingpkg "github.com/Koshsky/erp-backend/internal/tracing"
@@ -30,25 +31,25 @@ const (
 // setUser mimics AuthMiddleware: puts the user into the gin context.
 func setUser(role string, id int64) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.Set(userctx.KeyUser, userctx.UserContext{ID: id, Preset: role, Admin: role == "admin"})
+		c.Set(userctx.KeyUser, access.UserContext{ID: id, Preset: role, Admin: role == "admin"})
 		c.Next()
 	}
 }
 
 // chainOwners is a "chain" resolver: task/process → {Project:1, Process:2}.
-func chainOwners(_ context.Context, id int64) (rbac.Owners, error) {
+func chainOwners(_ context.Context, id int64) (access.Owners, error) {
 	if id%10 == 0 {
-		return rbac.Owners{}, errors.ErrNotFound
+		return access.Owners{}, errors.ErrNotFound
 	}
-	return rbac.Owners{ProjectOwner: 1, ProcessOwner: 2}, nil
+	return access.Owners{ProjectOwner: 1, ProcessOwner: 2}, nil
 }
 
 // rowOwner is a "row owner" resolver: resource/worker → owner=id.
-func rowOwner(_ context.Context, id int64) (rbac.Owners, error) {
+func rowOwner(_ context.Context, id int64) (access.Owners, error) {
 	if id%10 == 0 {
-		return rbac.Owners{}, errors.ErrNotFound
+		return access.Owners{}, errors.ErrNotFound
 	}
-	return rbac.Owners{Owner: id}, nil
+	return access.Owners{Owner: id}, nil
 }
 
 func testData() rbac.Data {
@@ -66,8 +67,8 @@ func testData() rbac.Data {
 func TestCheckEntity(t *testing.T) {
 	t.Parallel()
 	mw := rbac.ProvideMiddleware(nil, tracingpkg.New(nil), testData(), []rbac.Policy{
-		{Name: "task.view", Check: engine.EntityCheck(rbac.ResourceTask, engine.ActionView)},
-		{Name: "task.update", Check: engine.EntityCheck(rbac.ResourceTask, engine.ActionUpdate)},
+		{Name: "task.view", Check: engine.EntityCheck(access.ResourceTask, engine.ActionView)},
+		{Name: "task.update", Check: engine.EntityCheck(access.ResourceTask, engine.ActionUpdate)},
 	})
 
 	cases := []struct {
@@ -181,16 +182,16 @@ func createAssignmentForTest(rc *rbac.CheckCtx) error {
 		return err
 	}
 
-	taskOwners, err := rc.Owners(rbac.ResourceTask, taskID)
+	taskOwners, err := rc.Owners(access.ResourceTask, taskID)
 	if err != nil {
 		return err
 	}
-	if !engine.AuthorizeUser(rc.User, rbac.ResourceAssignment, engine.ActionCreate, taskOwners, rc.User.ID) {
+	if !engine.AuthorizeUser(rc.User, access.ResourceAssignment, engine.ActionCreate, taskOwners, rc.User.ID) {
 		return errors.ErrForbidden
 	}
 
 	if rc.User.Preset != testAdmin {
-		resourceOwners, ownerErr := rc.Owners(rbac.ResourceResource, resourceID)
+		resourceOwners, ownerErr := rc.Owners(access.ResourceResource, resourceID)
 		if ownerErr != nil {
 			return ownerErr
 		}

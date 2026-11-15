@@ -3,10 +3,9 @@ package engine_test
 import (
 	"testing"
 
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/authz/engine"
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
 	userdomain "github.com/Koshsky/erp-backend/internal/user/domain"
-	userctx "github.com/Koshsky/erp-backend/internal/userctx"
 )
 
 // DefaultRouteSpecs carry the planning.* route policies (mirror V9):
@@ -44,14 +43,14 @@ func TestViewScopeCodeUserNoReferenceRule(t *testing.T) {
 		{User: "7", Preset: userdomain.PresetProcessOwner},
 	})
 
-	vp := userctx.UserContext{ID: 7, Preset: userdomain.PresetProcessOwner}
-	if got := engine.ViewScopeCodeUser(vp, rbac.ResourceProject); got != engine.ScopeProcessProjects {
+	vp := access.UserContext{ID: 7, Preset: userdomain.PresetProcessOwner}
+	if got := engine.ViewScopeCodeUser(vp, access.ResourceProject); got != engine.ScopeProcessProjects {
 		t.Errorf("ViewScopeCodeUser(vp, project) = %q; want \"\" (no project.view rule)", got)
 	}
-	if got := engine.ViewScopeCodeUser(vp, rbac.ResourceProcess); got != engine.ScopeProcessOwner {
+	if got := engine.ViewScopeCodeUser(vp, access.ResourceProcess); got != engine.ScopeProcessOwner {
 		t.Errorf("ViewScopeCodeUser(vp, process) = %q; want all", got)
 	}
-	if got := engine.ViewScopeCodeUser(vp, rbac.ResourceResource); got != "self" {
+	if got := engine.ViewScopeCodeUser(vp, access.ResourceResource); got != "self" {
 		t.Errorf("ViewScopeCodeUser(vp, resource) = %q; want self", got)
 	}
 }
@@ -64,13 +63,13 @@ func TestPlanningListCheck(t *testing.T) {
 	defer engine.SetMatrix(engine.DefaultMatrix())
 
 	for _, act := range []struct {
-		resource rbac.Resource
+		resource access.Resource
 		viewRole string
 		noRole   string
 	}{
-		{rbac.ResourceProject, "rp", "worker"},
-		{rbac.ResourceProcess, "vp", "worker"},
-		{rbac.ResourceTask, "vp", "worker"},
+		{access.ResourceProject, "rp", "worker"},
+		{access.ResourceProcess, "vp", "worker"},
+		{access.ResourceTask, "vp", "worker"},
 	} {
 		if got := engine.ViewScopeCode(act.noRole, act.resource); got != "" {
 			t.Errorf("ViewScopeCode(%s, %v) = %q; want empty (no access)", act.noRole, act.resource, got)
@@ -79,7 +78,7 @@ func TestPlanningListCheck(t *testing.T) {
 			t.Errorf("ViewScopeCode(%s, %v) пуст; want a scope", act.viewRole, act.resource)
 		}
 	}
-	if got := engine.ViewScopeCode("admin", rbac.ResourceProject); got != "all" {
+	if got := engine.ViewScopeCode("admin", access.ResourceProject); got != "all" {
 		t.Errorf("ViewScopeCode(admin, project) = %q; want all", got)
 	}
 }

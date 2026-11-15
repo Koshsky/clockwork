@@ -1,6 +1,6 @@
-// Package rbac is the policy engine. The rules themselves (the role matrix,
-// condition builders and route policies) live in the policies subpackage.
-package rbac
+package domain
+
+import "context"
 
 // Resource is an entity access rights apply to.
 type Resource int
@@ -69,4 +69,12 @@ func (o Owners) SharesOwner(other Owners) bool {
 // sharesAccess reports whether one of o's access-level owners equals v.
 func (o Owners) sharesAccess(v int64) bool {
 	return v != 0 && (o.ProjectOwner == v || o.ProcessOwner == v)
+}
+
+// ResolveByID returns the owner chain of an entity by its id.
+type ResolveByID func(ctx context.Context, id int64) (Owners, error)
+
+// OwnerResolver is implemented by repositories that resolve the ownership of a row.
+type OwnerResolver interface {
+	OwnerChain(ctx context.Context, id int64) (Owners, error)
 }

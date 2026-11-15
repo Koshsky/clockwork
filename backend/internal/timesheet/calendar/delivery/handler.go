@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/authz/engine"
 	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
 	"github.com/Koshsky/erp-backend/internal/response"
@@ -63,7 +64,7 @@ func (h *CalendarHandler) GetCalendar(c *gin.Context) {
 	planning, err := h.service.GetCalendar(
 		c.Request.Context(),
 		user.ID,
-		engine.CompileViewScopeUser(user, rbac.ResourceResource),
+		engine.CompileViewScopeUser(user, access.ResourceResource),
 		start,
 		end,
 	)

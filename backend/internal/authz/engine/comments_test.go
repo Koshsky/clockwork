@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/authz/engine"
 	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
 	tracingpkg "github.com/Koshsky/erp-backend/internal/tracing"
@@ -22,18 +23,18 @@ func init() {
 
 // commentOwners: comments live in a task of process 2 of project 1; the author —
 // by the comment id (comment 42 was written by user 42, 43 — by user 43).
-func commentOwners(_ context.Context, id int64) (rbac.Owners, error) {
+func commentOwners(_ context.Context, id int64) (access.Owners, error) {
 	if id%10 == 0 {
-		return rbac.Owners{}, errors.ErrNotFound
+		return access.Owners{}, errors.ErrNotFound
 	}
-	return rbac.Owners{ProjectOwner: 1, ProcessOwner: 2, Owner: id + 41}, nil
+	return access.Owners{ProjectOwner: 1, ProcessOwner: 2, Owner: id + 41}, nil
 }
 
 func TestDeleteCommentPolicy(t *testing.T) {
 	t.Parallel()
 	mw := rbac.ProvideMiddleware(nil, tracingpkg.New(nil), rbac.Data{
-		TaskOwners: func(_ context.Context, _ int64) (rbac.Owners, error) {
-			return rbac.Owners{ProjectOwner: 1, ProcessOwner: 2}, nil
+		TaskOwners: func(_ context.Context, _ int64) (access.Owners, error) {
+			return access.Owners{ProjectOwner: 1, ProcessOwner: 2}, nil
 		},
 		CommentOwners: commentOwners,
 	}, []rbac.Policy{{Name: "task.comment.delete", Check: engine.CommentDeleteCheck()}})
@@ -58,7 +59,7 @@ func TestDeleteCommentPolicy(t *testing.T) {
 			t.Parallel()
 			router := gin.New()
 			router.Use(func(c *gin.Context) {
-				c.Set(userctx.KeyUser, userctx.UserContext{ID: tc.userID, Preset: tc.role, Admin: tc.role == "admin"})
+				c.Set(userctx.KeyUser, access.UserContext{ID: tc.userID, Preset: tc.role, Admin: tc.role == "admin"})
 				c.Next()
 			})
 			router.DELETE("/task/:id/comments/:comment_id", mw.Check("task.comment.delete"), func(c *gin.Context) {

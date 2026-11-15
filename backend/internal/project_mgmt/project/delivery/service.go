@@ -3,7 +3,7 @@ package delivery
 import (
 	"context"
 
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/project/dto"
 )
 
@@ -11,7 +11,7 @@ type ProjectService interface {
 	ListProjects(
 		ctx context.Context,
 		userID int64,
-		scope rbac.ListScope,
+		scope access.ListScope,
 		ownerID int64,
 		limit, offset int,
 	) ([]dto.ProjectResponse, int64, error)

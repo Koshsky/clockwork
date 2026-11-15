@@ -13,6 +13,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/database"
 	idem "github.com/Koshsky/erp-backend/internal/idempotency"
 	"github.com/Koshsky/erp-backend/internal/response"
@@ -192,7 +193,7 @@ func TestRevisionGuardDoesNotPublishAnUncommittedWrite(t *testing.T) {
 	middleware := idem.New(f.repo, slog.New(slog.DiscardHandler), nil)
 	router := gin.New()
 	group := router.Group("/api/v1")
-	group.Use(func(c *gin.Context) { c.Set(userctx.KeyUser, userctx.UserContext{ID: 7}) })
+	group.Use(func(c *gin.Context) { c.Set(userctx.KeyUser, access.UserContext{ID: 7}) })
 	group.Use(middleware.Handler(), middleware.RevisionHandler())
 	group.PUT("/task/:id", func(c *gin.Context) {
 		tx, ok := database.TxFrom(c.Request.Context())

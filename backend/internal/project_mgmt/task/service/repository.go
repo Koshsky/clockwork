@@ -3,7 +3,7 @@ package service
 import (
 	"context"
 
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/task/repository/sqlc"
 )
 
@@ -15,11 +15,11 @@ type TaskRepository interface {
 	ListTasks(
 		ctx context.Context,
 		userID int64,
-		scope rbac.ListScope,
+		scope access.ListScope,
 		ownerID int64,
 		limit, offset int,
 	) ([]sqlc.Task, error)
-	CountTasks(ctx context.Context, userID int64, scope rbac.ListScope, ownerID int64) (int64, error)
+	CountTasks(ctx context.Context, userID int64, scope access.ListScope, ownerID int64) (int64, error)
 	ListTaskIDsByProcess(ctx context.Context, processID int64) ([]int64, error)
 	ReorderTasks(ctx context.Context, ids []int64) error
 }

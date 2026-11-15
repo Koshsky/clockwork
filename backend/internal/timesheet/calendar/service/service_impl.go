@@ -8,7 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/timesheet/calendar/dto"
 	repo "github.com/Koshsky/erp-backend/internal/timesheet/calendar/repository"
 	"github.com/Koshsky/erp-backend/internal/timesheet/calendar/repository/sqlc"
@@ -47,7 +47,7 @@ func NewCalendarService(logger *slog.Logger, tracer *tracingpkg.Tracer, r *repo.
 func (s *CalendarService) GetCalendar(
 	ctx context.Context,
 	userID int64,
-	scope rbac.ListScope,
+	scope access.ListScope,
 	start, end date.Date,
 ) (*dto.CalendarPlanning, error) {
 	ctx, finish := s.tracer.Start(ctx, "calendar.GetCalendar")

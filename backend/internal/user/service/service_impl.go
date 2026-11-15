@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"strings"
 
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/authz/engine"
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
 	repo "github.com/Koshsky/erp-backend/internal/user/repository"
 
 	"github.com/Koshsky/erp-backend/internal/security/creds"
@@ -17,7 +17,6 @@ import (
 	userdomain "github.com/Koshsky/erp-backend/internal/user/domain"
 	"github.com/Koshsky/erp-backend/internal/user/dto"
 	"github.com/Koshsky/erp-backend/internal/user/repository/sqlc"
-	userctx "github.com/Koshsky/erp-backend/internal/userctx"
 	nullable "github.com/Koshsky/erp-backend/pkg/database"
 	"github.com/Koshsky/erp-backend/pkg/date"
 	"github.com/Koshsky/erp-backend/pkg/errors"
@@ -135,7 +134,7 @@ func (s *UserService) ChangePassword(ctx context.Context, userID int64, oldPassw
 func (s *UserService) CreateUserWithCreds(
 	ctx context.Context,
 	req dto.CreateUserRequest,
-	caller userctx.UserContext,
+	caller access.UserContext,
 ) (*dto.CreateUserResult, error) {
 	ctx, end := s.tracer.Start(ctx, "user.CreateUser")
 	defer end(nil)
@@ -147,7 +146,7 @@ func (s *UserService) CreateUserWithCreds(
 func (s *UserService) createUserInternal(
 	ctx context.Context,
 	req dto.CreateUserRequest,
-	caller userctx.UserContext,
+	caller access.UserContext,
 ) (*dto.CreateUserResult, error) {
 	var generated string
 	// Non-admin holders of user_admin.create may only create workers (a missing
@@ -226,7 +225,7 @@ const scopeAllCode = "all"
 // scope applicability, no duplicates). Nil on an empty list.
 func (s *UserService) validateCreatePermissions(
 	req []dto.UserPermissionInput,
-	caller userctx.UserContext,
+	caller access.UserContext,
 ) ([]userdomain.UserPermission, error) {
 	if len(req) == 0 {
 		return nil, nil
@@ -337,7 +336,7 @@ func firstLetter(part string) string {
 // — stays an admin privilege (a non-admin with the grant must not be able to
 // reset any account, in particular an admin's, and take it over). The reset is
 // recorded in the audit trail and the service log (never the raw password).
-func (s *UserService) ResetPassword(ctx context.Context, id int64, caller userctx.UserContext) (string, error) {
+func (s *UserService) ResetPassword(ctx context.Context, id int64, caller access.UserContext) (string, error) {
 	ctx, end := s.tracer.Start(ctx, "user.ResetPassword")
 	defer end(nil)
 
@@ -409,7 +408,7 @@ func (s *UserService) UpdateUser(
 	ctx context.Context,
 	id int64,
 	req dto.UpdateUserRequest,
-	caller userctx.UserContext,
+	caller access.UserContext,
 	callerID int64,
 ) (*dto.UserResponse, error) {
 	ctx, end := s.tracer.Start(ctx, "user.UpdateUser")
@@ -461,7 +460,7 @@ func (s *UserService) checkPresetChange(
 	ctx context.Context,
 	user *sqlc.User,
 	newPreset *string,
-	caller userctx.UserContext,
+	caller access.UserContext,
 	callerID int64,
 ) error {
 	if newPreset == nil {
@@ -476,7 +475,7 @@ func (s *UserService) checkPresetChange(
 	if *newPreset == userdomain.PresetAdmin || !user.Preset.Valid || user.Preset.String != userdomain.PresetAdmin {
 		return nil
 	}
-	admins, err := s.repository.CountUsers(ctx, 0, rbac.ListScope{All: true}, userdomain.PresetAdmin, 0, "")
+	admins, err := s.repository.CountUsers(ctx, 0, access.ListScope{All: true}, userdomain.PresetAdmin, 0, "")
 	if err != nil {
 		return err
 	}
@@ -661,7 +660,7 @@ func (s *UserService) NormalizeSearch(search string) (string, error) {
 func (s *UserService) ListUsers(
 	ctx context.Context,
 	userID int64,
-	scope rbac.ListScope,
+	scope access.ListScope,
 	presetFilter string,
 	managerID int64,
 	search string,
@@ -730,7 +729,7 @@ func (s *UserService) ListStates(
 // are served; a denied id 404s without disclosing existence.
 func (s *UserService) ListStatesBatch(
 	ctx context.Context,
-	caller userctx.UserContext,
+	caller access.UserContext,
 	userIDs []int64,
 	start, end date.Date,
 ) ([]dto.UserStatesResponse, error) {
@@ -778,7 +777,7 @@ func (s *UserService) ListStatesBatch(
 // 1+N FindUser calls).
 func (s *UserService) checkBatchScopes(
 	ctx context.Context,
-	caller userctx.UserContext,
+	caller access.UserContext,
 	userIDs []int64,
 ) ([]int64, error) {
 	ids := dedupeIDs(userIDs)
@@ -803,7 +802,13 @@ func (s *UserService) checkBatchScopes(
 		if !ok {
 			return nil, errors.ErrUserNotFound
 		}
-		if !engine.AuthorizeUser(caller, rbac.ResourceWorker, engine.ActionView, rbac.Owners{Owner: owner}, caller.ID) {
+		if !engine.AuthorizeUser(
+			caller,
+			access.ResourceWorker,
+			engine.ActionView,
+			access.Owners{Owner: owner},
+			caller.ID,
+		) {
 			return nil, errors.ErrUserNotFound
 		}
 	}

@@ -4,8 +4,9 @@ Recorded on 2026-11-15 against `origin/main` at
 `e46ea45af7c2465901ee4c22bd9d83d9cfe84908` (backend 1.5.0, frontend 2.1.0).
 Tracker: [epic](http://localhost:3456/tasks/66),
 [B01](http://localhost:3456/tasks/67).
-This is an architecture and compatibility baseline, not an implementation of
-B02–B19. No application files, SQL, generated code or versions move in B01.
+The B01 sections below are an immutable architecture and compatibility snapshot;
+the implementation ledger at the end records later steps. No application files,
+SQL, generated code or versions move in B01 itself.
 
 ## What changed since the original plan
 
@@ -265,3 +266,63 @@ prove PostgreSQL atomicity or browser/Electron compatibility.
 
 B01 does not start databases, Docker services, Electron, CI, image builds,
 releases or deployments. Local compilation/testing does not publish an artifact.
+
+## B02/B03 implementation ledger — 2026-11-15
+
+Implemented together on `refactor/backend-access-tracing`, based on B01 commit
+`36c4dcf`, with two agents owning disjoint files and a coordinating integration.
+The original `backend-baseline.json` remains unchanged for future comparisons.
+
+### B02: neutral access contracts
+
+`authz/domain/{access,list_scope,principal}.go` now owns `Resource`, `Owners`,
+`ListScope`, `ResolveByID`, `OwnerResolver`, `UserContext` and `PermissionRule`.
+Enum values, owner comparison, SQL flags, principal JSON and the existing Gin
+`"user"` context key are preserved. No legacy type aliases remain. Services,
+repositories, pure engine functions and HTTP consumers use the neutral types.
+Gin principal accessors remain in `userctx`; body parsing remains in CheckCtx.
+
+The original B02 acceptance wording was broader than its actual prerequisites:
+removing every middleware import would also implement B04/B05. Six production
+files intentionally retain a concrete HTTP dependency: five engine HTTP builders
+(`capability.go`, `entity_create.go`, `entity_update.go`, `kinds.go`, `provide.go`)
+for B04, and `authz/service/store.go` for the B05 publisher boundary. No other
+service/repository source imports `middleware/rbac` or `userctx` for access data.
+This is explicit deferred work, not a claim that the engine is already HTTP-free.
+
+### B03: HTTP tracing adapter
+
+`middleware/tracing` owns `HTTPRootSpan`, `GinSpan`, `FromGin` and
+`SetUserOnSpan`; server composition and auth middleware call that adapter.
+The shared `tracing` core retains provider lifecycle, context/request identifiers,
+span creation and pgx integration without a direct or transitive Gin/middleware
+dependency. Span hierarchy/names, status, actor enrichment and log correlation
+retain their prior behavior; no new trace-header extraction was introduced.
+
+There are now 116 production internal packages: the one new production package
+is the meaningful Gin adapter. The architecture tests are a separate test-only
+package. This step fixes dependency ownership; later feature flattening reduces
+unnecessary layers. Package count is still not a success criterion.
+
+### Combined validation
+
+- Added 17 test functions, plus six scope compiler cases in an existing test.
+  Existing test functions were preserved. Coverage includes neutral principal
+  JSON/ACL and Gin accessors, resolver context/cancellation, enum/owner semantics,
+  tracing outcomes/lifecycle/log correlation, real auth-to-root enrichment and
+  transitive/direct import guards.
+- Full normal-tag backend run: 275 top-level tests passed, 16 skipped; including
+  subtests, 2,426 pass events and 20 skips. All 355 test functions compile/list
+  with the integration tag; the 64 integration-tagged functions were not run.
+- Build, vet, pinned lint 2.15.0 (0 issues), race checks across 16 tested packages,
+  graph loading, repository policy and whitespace checks passed.
+- Wire 0.7.0 was regenerated normally; `wire_gen.go` is byte-identical.
+  OpenAPI, frontend SDK, DTOs, SQL queries/configuration/generated sqlc, V1–V15,
+  response/error sources and version files remain byte-identical to B01.
+  Changed routing/protocol reference files were reviewed for mechanical type
+  substitutions and the adapter call migration; route bindings and policies did
+  not change.
+- Fresh Docker-based SDK generation and DB/HTTP/Electron acceptance were not run.
+  No database or runtime stack was started. No push, merge, CI, image build,
+  release or deployment was performed. Local logs are outside Git in
+  `../local/backend-b02-b03-20261115/` relative to the repository root.

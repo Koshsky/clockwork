@@ -14,9 +14,7 @@ import (
 	"github.com/Koshsky/erp-backend/internal/authz/engine"
 	"github.com/Koshsky/erp-backend/internal/authz/repository"
 	"github.com/Koshsky/erp-backend/internal/authz/repository/sqlc"
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
 	userdomain "github.com/Koshsky/erp-backend/internal/user/domain"
-	userctx "github.com/Koshsky/erp-backend/internal/userctx"
 	"github.com/Koshsky/erp-backend/pkg/errors"
 )
 
@@ -235,7 +233,7 @@ func (s *Service) EffectiveMatrix(ctx context.Context) ([]dto.MatrixCell, error)
 func buildMatrixCells(tags []string, matrix engine.Matrix) []dto.MatrixCell {
 	cells := make([]dto.MatrixCell, 0, len(tags)*resourceCount*actionCount)
 	for _, preset := range tags {
-		for res := rbac.ResourceProject; res <= rbac.ResourceAutoCreate; res++ {
+		for res := domain.ResourceProject; res <= domain.ResourceAutoCreate; res++ {
 			for act := engine.ActionView; act <= engine.ActionPrioritize; act++ {
 				if !engine.ActionApplicable(res, act) {
 					continue
@@ -253,9 +251,9 @@ func buildMatrixCells(tags []string, matrix engine.Matrix) []dto.MatrixCell {
 }
 
 // resourceCount and actionCount size the matrix payload (the engine enums are
-// contiguous: rbac.ResourceProject..ResourceAutoCreate, ActionView..ActionPrioritize).
+// contiguous: domain.ResourceProject..ResourceAutoCreate, ActionView..ActionPrioritize).
 const (
-	resourceCount = int(rbac.ResourceAutoCreate) + 1
+	resourceCount = int(domain.ResourceAutoCreate) + 1
 	actionCount   = int(engine.ActionDelete) + 1
 )
 
@@ -285,7 +283,7 @@ func (s *Service) Explain(_ context.Context, in dto.ExplainInput) (dto.ExplainRe
 		return dto.ExplainResult{}, errors.BadRequest("неизвестное действие " + in.Action)
 	}
 	scope := engine.CurrentMatrix().ScopeFor(in.Preset, res, act)
-	allowed := engine.Authorize(in.Preset, res, act, rbac.Owners{
+	allowed := engine.Authorize(in.Preset, res, act, domain.Owners{
 		ProjectOwner: in.ProjectOwner,
 		ProcessOwner: in.ProcessOwner,
 		Owner:        in.Owner,
@@ -321,9 +319,9 @@ func presetExists(presets []sqlc.ListActivePresetsRow, tag string) bool {
 // source is the published Casbin snapshot (RBAC roles + ACL grants/revokes +
 // admin bypass) — exactly the rights the engine applies to requests; the
 // data-level matrix (CurrentMatrix) is only for the admin editor views.
-func (s *Service) MyPermissions(_ context.Context, user userctx.UserContext) []dto.Permission {
+func (s *Service) MyPermissions(_ context.Context, user domain.UserContext) []dto.Permission {
 	out := []dto.Permission{}
-	for res := rbac.ResourceProject; res <= rbac.ResourceAutoCreate; res++ {
+	for res := domain.ResourceProject; res <= domain.ResourceAutoCreate; res++ {
 		for act := engine.ActionView; act <= engine.ActionPrioritize; act++ {
 			if !engine.ActionApplicable(res, act) {
 				continue
@@ -377,7 +375,7 @@ func (s *Service) ListUserPermissions(
 	}
 	admin := presetSet && presetCode == userdomain.PresetAdmin
 	// Preset baseline: the assigned preset without individual overrides.
-	base := userctx.UserContext{
+	base := domain.UserContext{
 		ID:     userID,
 		Admin:  admin,
 		Preset: presetNameRef(preset),
@@ -445,10 +443,10 @@ func (s *Service) ReplaceUserPermissions(
 }
 
 // toRules converts overrides into the engine's user-rule model.
-func toRules(overrides []dto.PermissionOverride) []userctx.PermissionRule {
-	out := make([]userctx.PermissionRule, 0, len(overrides))
+func toRules(overrides []dto.PermissionOverride) []domain.PermissionRule {
+	out := make([]domain.PermissionRule, 0, len(overrides))
 	for _, o := range overrides {
-		out = append(out, userctx.PermissionRule{
+		out = append(out, domain.PermissionRule{
 			Resource: o.Resource,
 			Action:   o.Action,
 			Scope:    o.Scope,

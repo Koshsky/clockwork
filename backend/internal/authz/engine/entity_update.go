@@ -4,41 +4,42 @@ import (
 	"encoding/json"
 	"strings"
 
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
 	"github.com/Koshsky/erp-backend/pkg/errors"
 )
 
-func checkEntityUpdate(rc *rbac.CheckCtx, res rbac.Resource, owners rbac.Owners, id int64) error {
-	if res == rbac.ResourceAssignment {
+func checkEntityUpdate(rc *rbac.CheckCtx, res access.Resource, owners access.Owners, id int64) error {
+	if res == access.ResourceAssignment {
 		return checkAssignmentUpdate(rc, owners, id)
 	}
-	if res == rbac.ResourceProcess {
+	if res == access.ResourceProcess {
 		return checkProcessUpdate(rc, owners, id)
 	}
-	if res == rbac.ResourceMilestone {
+	if res == access.ResourceMilestone {
 		processID, err := rc.BodyID(bodyKeyProcessID)
 		if err != nil || processID == 0 {
 			return err
 		}
-		owners, err = rc.Owners(rbac.ResourceProcess, processID)
+		owners, err = rc.Owners(access.ResourceProcess, processID)
 		if err != nil {
 			return err
 		}
 		return enforceUpdateTarget(rc, res, owners, id)
 	}
-	if res != rbac.ResourceProject && res != rbac.ResourceProcess &&
-		res != rbac.ResourceTask && res != rbac.ResourceResource {
+	if res != access.ResourceProject && res != access.ResourceProcess &&
+		res != access.ResourceTask && res != access.ResourceResource {
 		return nil
 	}
 	ownerID, err := rc.BodyID(bodyKeyOwnerID)
 	if err != nil || ownerID == 0 {
 		return err
 	}
-	if res == rbac.ResourceProject {
+	if res == access.ResourceProject {
 		owners.ProjectOwner = ownerID
 		return enforceUpdateTarget(rc, res, owners, id)
 	}
-	if res == rbac.ResourceProcess {
+	if res == access.ResourceProcess {
 		owners.ProcessOwner = ownerID
 		return enforceUpdateTarget(rc, res, owners, id)
 	}
@@ -46,7 +47,7 @@ func checkEntityUpdate(rc *rbac.CheckCtx, res rbac.Resource, owners rbac.Owners,
 	return enforceUpdateTarget(rc, res, owners, id)
 }
 
-func checkProcessUpdate(rc *rbac.CheckCtx, owners rbac.Owners, id int64) error {
+func checkProcessUpdate(rc *rbac.CheckCtx, owners access.Owners, id int64) error {
 	projectID, err := rc.BodyID(bodyKeyProjectID)
 	if err != nil {
 		return err
@@ -56,7 +57,7 @@ func checkProcessUpdate(rc *rbac.CheckCtx, owners rbac.Owners, id int64) error {
 		return err
 	}
 	if projectID != 0 {
-		projectOwners, resolveErr := rc.Owners(rbac.ResourceProject, projectID)
+		projectOwners, resolveErr := rc.Owners(access.ResourceProject, projectID)
 		if resolveErr != nil {
 			return resolveErr
 		}
@@ -65,10 +66,10 @@ func checkProcessUpdate(rc *rbac.CheckCtx, owners rbac.Owners, id int64) error {
 	if ownerID != 0 {
 		owners.ProcessOwner = ownerID
 	}
-	return enforceUpdateTarget(rc, rbac.ResourceProcess, owners, id)
+	return enforceUpdateTarget(rc, access.ResourceProcess, owners, id)
 }
 
-func checkAssignmentUpdate(rc *rbac.CheckCtx, owners rbac.Owners, id int64) error {
+func checkAssignmentUpdate(rc *rbac.CheckCtx, owners access.Owners, id int64) error {
 	taskID, err := rc.BodyID(bodyKeyTaskID)
 	if err != nil {
 		return err
@@ -78,12 +79,12 @@ func checkAssignmentUpdate(rc *rbac.CheckCtx, owners rbac.Owners, id int64) erro
 		return err
 	}
 	if taskID != 0 {
-		taskOwners, resolveErr := rc.Owners(rbac.ResourceTask, taskID)
+		taskOwners, resolveErr := rc.Owners(access.ResourceTask, taskID)
 		if resolveErr != nil {
 			return resolveErr
 		}
 		if !EnforceTarget(rc.User, Target{
-			Res: rbac.ResourceTask, Act: ActionView, Owners: taskOwners, ID: taskID, Ctx: rc.C.Request.Context(),
+			Res: access.ResourceTask, Act: ActionView, Owners: taskOwners, ID: taskID, Ctx: rc.C.Request.Context(),
 		}) {
 			return errors.ErrForbidden
 		}
@@ -91,23 +92,23 @@ func checkAssignmentUpdate(rc *rbac.CheckCtx, owners rbac.Owners, id int64) erro
 		owners = taskOwners
 	}
 	if resourceID != 0 {
-		resourceOwners, resolveErr := rc.Owners(rbac.ResourceResource, resourceID)
+		resourceOwners, resolveErr := rc.Owners(access.ResourceResource, resourceID)
 		if resolveErr != nil {
 			return resolveErr
 		}
 		owners.ResourceOwner = resourceOwners.Owner
 	}
-	if scopeForUser(rc.User, rbac.ResourceAssignment, ActionUpdate) == ScopeParent &&
+	if scopeForUser(rc.User, access.ResourceAssignment, ActionUpdate) == ScopeParent &&
 		(owners.Owner != rc.User.ID || owners.ResourceOwner != rc.User.ID) {
 		return errors.ErrForbidden
 	}
-	return enforceUpdateTarget(rc, rbac.ResourceAssignment, owners, id)
+	return enforceUpdateTarget(rc, access.ResourceAssignment, owners, id)
 }
 
-func enforceUpdateTarget(rc *rbac.CheckCtx, res rbac.Resource, owners rbac.Owners, id int64) error {
+func enforceUpdateTarget(rc *rbac.CheckCtx, res access.Resource, owners access.Owners, id int64) error {
 	// Authorizing only the stored row would let an update escape its ownership scope.
 	var parentID int64
-	if res == rbac.ResourceProcess {
+	if res == access.ResourceProcess {
 		var err error
 		parentID, err = rc.BodyID(bodyKeyProjectID)
 		if err != nil {
@@ -119,7 +120,7 @@ func enforceUpdateTarget(rc *rbac.CheckCtx, res rbac.Resource, owners rbac.Owner
 	}
 	if parentID != 0 {
 		target.ParentVisible = EnforceTarget(rc.User, Target{
-			Res: rbac.ResourceProject, Act: ActionView, Owners: owners, ID: parentID, Ctx: target.Ctx,
+			Res: access.ResourceProject, Act: ActionView, Owners: owners, ID: parentID, Ctx: target.Ctx,
 		})
 	}
 	if !EnforceTarget(rc.User, target) {
@@ -128,7 +129,7 @@ func enforceUpdateTarget(rc *rbac.CheckCtx, res rbac.Resource, owners rbac.Owner
 	return nil
 }
 
-func checkProjectUpdate(rc *rbac.CheckCtx, owners rbac.Owners, id int64) error {
+func checkProjectUpdate(rc *rbac.CheckCtx, owners access.Owners, id int64) error {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(rc.Body(), &fields); err != nil || fields == nil {
 		return errors.BadRequest("invalid project update")
@@ -143,13 +144,13 @@ func checkProjectUpdate(rc *rbac.CheckCtx, owners rbac.Owners, id int64) error {
 		action   Action
 	}{{priority, ActionPrioritize}, {metadata, ActionUpdate}} {
 		if check.required && !EnforceTarget(rc.User, Target{
-			Res: rbac.ResourceProject, Act: check.action, Owners: owners, ID: id, Ctx: rc.C.Request.Context(),
+			Res: access.ResourceProject, Act: check.action, Owners: owners, ID: id, Ctx: rc.C.Request.Context(),
 		}) {
 			return errors.ErrForbidden
 		}
 	}
 	if metadata {
-		return checkEntityUpdate(rc, rbac.ResourceProject, owners, id)
+		return checkEntityUpdate(rc, access.ResourceProject, owners, id)
 	}
 	return nil
 }

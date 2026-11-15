@@ -9,22 +9,22 @@ package engine
 import (
 	"context"
 
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 )
 
 // OwnerProbe — the data-dependent questions of scope evaluation (need the DB):
 //   - descendant — does uid own a node below (res, id) in the tree?
 //   - peer — does uid own a process/task in the selected shared group?
 type OwnerProbe struct {
-	Parents    func(ctx context.Context, res rbac.Resource, id int64) ([]Target, error)
+	Parents    func(ctx context.Context, res access.Resource, id int64) ([]Target, error)
 	Related    func(ctx context.Context, target Target, userID int64, scope string) (bool, error)
-	Descendant func(ctx context.Context, res rbac.Resource, id, userID int64) (bool, error)
+	Descendant func(ctx context.Context, res access.Resource, id, userID int64) (bool, error)
 	Peer       func(ctx context.Context, target Target, userID int64, project bool) (bool, error)
 }
 
 // evalOwnerChain — chain-based evaluation of one move (self/up1/up) against
 // the entity's owner chain.
-func evalChainMove(m moveToken, res rbac.Resource, owners rbac.Owners, uid int64) bool {
+func evalChainMove(m moveToken, res access.Resource, owners access.Owners, uid int64) bool {
 	if uid == 0 {
 		return false
 	}
@@ -47,8 +47,8 @@ func evalChainMove(m moveToken, res rbac.Resource, owners rbac.Owners, uid int64
 func EvalScope(
 	ctx context.Context,
 	expr string,
-	res rbac.Resource,
-	owners rbac.Owners,
+	res access.Resource,
+	owners access.Owners,
 	uid int64,
 	id int64,
 	probe *OwnerProbe,
@@ -104,10 +104,10 @@ func evalMove(m moveToken, target Target, uid int64, probe *OwnerProbe) bool {
 }
 
 func processOwnerMatch(target Target, uid int64) bool {
-	if target.Res == rbac.ResourceProcess && target.Act == ActionCreate {
+	if target.Res == access.ResourceProcess && target.Act == ActionCreate {
 		return target.ProposedOwner == uid && target.ParentVisible
 	}
-	if target.Res == rbac.ResourceProcess && target.ParentID != 0 && !target.ParentVisible {
+	if target.Res == access.ResourceProcess && target.ParentID != 0 && !target.ParentVisible {
 		return false
 	}
 	return target.Owners.ProcessOwner == uid

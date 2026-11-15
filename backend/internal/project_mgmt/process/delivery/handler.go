@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"strconv"
 
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/process/service"
 	"github.com/Koshsky/erp-backend/pkg/errors"
 
@@ -58,7 +59,7 @@ func (h *ProcessHandler) ListProcesses(c *gin.Context) {
 	items, total, err := h.service.ListProcesses(
 		c.Request.Context(),
 		user.ID,
-		engine.CompileViewScopeUser(user, rbac.ResourceProcess),
+		engine.CompileViewScopeUser(user, access.ResourceProcess),
 		response.QueryID(c, "owner_id"),
 		limit,
 		offset,
@@ -118,7 +119,7 @@ func (h *ProcessHandler) CreateProcess(c *gin.Context) {
 
 	if process.OwnerID == nil {
 		if user, err := userctx.GetUser(c); err == nil &&
-			engine.ScopeForUser(user, rbac.ResourceProcess, engine.ActionCreate) != engine.ScopeAll {
+			engine.ScopeForUser(user, access.ResourceProcess, engine.ActionCreate) != engine.ScopeAll {
 			process.OwnerID = &user.ID
 		}
 	}

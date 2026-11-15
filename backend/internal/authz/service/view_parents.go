@@ -3,14 +3,14 @@ package service
 import (
 	"context"
 
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/authz/engine"
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
 )
 
-func (p *OwnerProbe) parents(ctx context.Context, res rbac.Resource, id int64) ([]engine.Target, error) {
-	if res == rbac.ResourceProcess {
+func (p *OwnerProbe) parents(ctx context.Context, res access.Resource, id int64) ([]engine.Target, error) {
+	if res == access.ResourceProcess {
 		var target engine.Target
-		target.Res = rbac.ResourceProject
+		target.Res = access.ResourceProject
 		err := p.executor(ctx).QueryRow(ctx, `
  SELECT pr.id, COALESCE(pr.owner_id,0) FROM projects pr
  JOIN processes p ON p.project_id=pr.id WHERE p.id=$1`, id).
@@ -39,7 +39,7 @@ func (p *OwnerProbe) parents(ctx context.Context, res rbac.Resource, id int64) (
  SELECT $4::int, t.id, COALESCE(pr.owner_id,0), COALESCE(p.owner_id,0), COALESCE(t.owner_id,0)
  FROM task_chain t JOIN processes p ON p.id=t.process_id JOIN projects pr ON pr.id=p.project_id`
 	rows, err := p.executor(ctx).Query(ctx, query, id,
-		int(rbac.ResourceProject), int(rbac.ResourceProcess), int(rbac.ResourceTask))
+		int(access.ResourceProject), int(access.ResourceProcess), int(access.ResourceTask))
 	if err != nil {
 		return nil, err
 	}
@@ -56,26 +56,26 @@ func (p *OwnerProbe) parents(ctx context.Context, res rbac.Resource, id int64) (
 	return targets, rows.Err()
 }
 
-func viewParentSubject(res rbac.Resource) string {
+func viewParentSubject(res access.Resource) string {
 	switch res {
-	case rbac.ResourceTask:
+	case access.ResourceTask:
 		return `SELECT process_id, parent_id AS task_id FROM tasks WHERE id=$1`
-	case rbac.ResourceMilestone:
+	case access.ResourceMilestone:
 		return `SELECT process_id, NULL::bigint AS task_id FROM milestones WHERE id=$1`
-	case rbac.ResourceAssignment:
+	case access.ResourceAssignment:
 		return `SELECT t.process_id,t.id AS task_id FROM assignments a JOIN tasks t ON t.id=a.task_id WHERE a.id=$1`
-	case rbac.ResourceProject,
-		rbac.ResourceProcess,
-		rbac.ResourceState,
-		rbac.ResourceResource,
-		rbac.ResourceWorker,
-		rbac.ResourceComment,
-		rbac.ResourceUserCatalog,
-		rbac.ResourceRBACConfig,
-		rbac.ResourceUserAdmin,
-		rbac.ResourceStateAdmin,
-		rbac.ResourceOrgStructure,
-		rbac.ResourceAudit, rbac.ResourceAutoCreate:
+	case access.ResourceProject,
+		access.ResourceProcess,
+		access.ResourceState,
+		access.ResourceResource,
+		access.ResourceWorker,
+		access.ResourceComment,
+		access.ResourceUserCatalog,
+		access.ResourceRBACConfig,
+		access.ResourceUserAdmin,
+		access.ResourceStateAdmin,
+		access.ResourceOrgStructure,
+		access.ResourceAudit, access.ResourceAutoCreate:
 		return ""
 	}
 	return ""

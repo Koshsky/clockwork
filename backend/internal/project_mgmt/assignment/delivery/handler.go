@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"strconv"
 
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/assignment/service"
 	"github.com/Koshsky/erp-backend/pkg/errors"
 
@@ -58,7 +59,7 @@ func (h *AssignmentHandler) ListAssignments(c *gin.Context) {
 	items, total, err := h.service.ListAssignments(
 		c.Request.Context(),
 		user.ID,
-		engine.CompileViewScopeUser(user, rbac.ResourceAssignment),
+		engine.CompileViewScopeUser(user, access.ResourceAssignment),
 		response.QueryID(c, "owner_id"),
 		limit,
 		offset,

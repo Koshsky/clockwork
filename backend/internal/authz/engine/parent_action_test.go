@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/authz/engine"
 	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
 	tracingpkg "github.com/Koshsky/erp-backend/internal/tracing"
@@ -38,7 +39,7 @@ func parentActionRouter(policyName string, data rbac.Data, role string, userID i
 	mw := rbac.ProvideMiddleware(nil, tracingpkg.New(nil), data, built)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
-		c.Set(userctx.KeyUser, userctx.UserContext{ID: userID, Preset: role, Admin: role == "admin"})
+		c.Set(userctx.KeyUser, access.UserContext{ID: userID, Preset: role, Admin: role == "admin"})
 		c.Next()
 	})
 	router.PUT("/order", mw.Check(policyName), func(c *gin.Context) {
@@ -52,9 +53,9 @@ func parentActionRouter(policyName string, data rbac.Data, role string, userID i
 func TestParentActionTaskOrder(t *testing.T) {
 	t.Parallel()
 	data := rbac.Data{
-		ProcessOwners: func(_ context.Context, id int64) (rbac.Owners, error) {
+		ProcessOwners: func(_ context.Context, id int64) (access.Owners, error) {
 			if id == 0 {
-				return rbac.Owners{}, errors.ErrNotFound
+				return access.Owners{}, errors.ErrNotFound
 			}
 			return processOfVP1, nil
 		},
@@ -96,9 +97,9 @@ func TestParentActionTaskOrder(t *testing.T) {
 func TestParentActionProcessOrder(t *testing.T) {
 	t.Parallel()
 	data := rbac.Data{
-		ProjectOwners: func(_ context.Context, id int64) (rbac.Owners, error) {
+		ProjectOwners: func(_ context.Context, id int64) (access.Owners, error) {
 			if id == 0 {
-				return rbac.Owners{}, errors.ErrNotFound
+				return access.Owners{}, errors.ErrNotFound
 			}
 			return projectOfRP, nil
 		},

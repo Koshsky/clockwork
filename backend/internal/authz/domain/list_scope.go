@@ -1,4 +1,4 @@
-package rbac
+package domain
 
 // ListScope — the compiled scope-expression of a list request. Engine
 // (engine.CompileListScope) translates the effective view expression of the

@@ -3,8 +3,8 @@ package engine_test
 import (
 	"testing"
 
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/authz/engine"
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
 )
 
 const (
@@ -24,10 +24,10 @@ const (
 // Canonical owners: the project belongs to rp, the process to vp1.
 //
 //nolint:gochecknoglobals // rule registry
-var projectOfRP = rbac.Owners{ProjectOwner: uRP}
+var projectOfRP = access.Owners{ProjectOwner: uRP}
 
 //nolint:gochecknoglobals // rule registry
-var processOfVP1 = rbac.Owners{ProjectOwner: uRP, ProcessOwner: uVP1}
+var processOfVP1 = access.Owners{ProjectOwner: uRP, ProcessOwner: uVP1}
 
 func TestAuthorize_Project(t *testing.T) {
 	t.Parallel()
@@ -35,23 +35,23 @@ func TestAuthorize_Project(t *testing.T) {
 		name    string
 		role    string
 		act     engine.Action
-		owners  rbac.Owners
+		owners  access.Owners
 		userID  int64
 		allowed bool
 	}{
 		// View
-		{"admin sees any", admin, engine.ActionView, rbac.Owners{}, uAdmin, true},
-		{"dp sees any", dp, engine.ActionView, rbac.Owners{}, uDP, true},
+		{"admin sees any", admin, engine.ActionView, access.Owners{}, uAdmin, true},
+		{"dp sees any", dp, engine.ActionView, access.Owners{}, uDP, true},
 		{"rp sees own", rp, engine.ActionView, projectOfRP, uRP, true},
 		{"rp does not see foreign", rp, engine.ActionView, projectOfRP, uVP1, false},
 		{"vp sees none", vp, engine.ActionView, projectOfRP, uVP1, false},
 		{"worker sees none", worker, engine.ActionView, projectOfRP, uAdmin, false},
 		// Create
-		{"admin creates", admin, engine.ActionCreate, rbac.Owners{}, uAdmin, true},
-		{"rp creates own", rp, engine.ActionCreate, rbac.Owners{ProjectOwner: uRP}, uRP, true},
-		{"rp cannot create for another", rp, engine.ActionCreate, rbac.Owners{ProjectOwner: uVP1}, uRP, false},
-		{"dp cannot create", dp, engine.ActionCreate, rbac.Owners{}, uDP, false},
-		{"vp cannot create", vp, engine.ActionCreate, rbac.Owners{}, uVP1, false},
+		{"admin creates", admin, engine.ActionCreate, access.Owners{}, uAdmin, true},
+		{"rp creates own", rp, engine.ActionCreate, access.Owners{ProjectOwner: uRP}, uRP, true},
+		{"rp cannot create for another", rp, engine.ActionCreate, access.Owners{ProjectOwner: uVP1}, uRP, false},
+		{"dp cannot create", dp, engine.ActionCreate, access.Owners{}, uDP, false},
+		{"vp cannot create", vp, engine.ActionCreate, access.Owners{}, uVP1, false},
 		// Update (all fields including priority are one action)
 		{"admin updates any", admin, engine.ActionUpdate, projectOfRP, uAdmin, true},
 		{"dp cannot edit metadata", dp, engine.ActionUpdate, projectOfRP, uDP, false},
@@ -70,7 +70,7 @@ func TestAuthorize_Project(t *testing.T) {
 			t.Parallel()
 			if got := engine.Authorize(
 				tc.role,
-				rbac.ResourceProject,
+				access.ResourceProject,
 				tc.act,
 				tc.owners,
 				tc.userID,
@@ -87,7 +87,7 @@ func TestAuthorize_Process(t *testing.T) {
 		name    string
 		role    string
 		act     engine.Action
-		owners  rbac.Owners
+		owners  access.Owners
 		userID  int64
 		allowed bool
 	}{
@@ -117,7 +117,7 @@ func TestAuthorize_Process(t *testing.T) {
 			t.Parallel()
 			if got := engine.Authorize(
 				tc.role,
-				rbac.ResourceProcess,
+				access.ResourceProcess,
 				tc.act,
 				tc.owners,
 				tc.userID,
@@ -132,11 +132,11 @@ func TestAuthorize_TaskMilestoneAssignment(t *testing.T) {
 	t.Parallel()
 	resources := []struct {
 		name string
-		res  rbac.Resource
+		res  access.Resource
 	}{
-		{"task", rbac.ResourceTask},
-		{"milestone", rbac.ResourceMilestone},
-		{"assignment", rbac.ResourceAssignment},
+		{"task", access.ResourceTask},
+		{"milestone", access.ResourceMilestone},
+		{"assignment", access.ResourceAssignment},
 	}
 	for _, r := range resources {
 		t.Run(r.name, func(t *testing.T) {
@@ -145,7 +145,7 @@ func TestAuthorize_TaskMilestoneAssignment(t *testing.T) {
 				name    string
 				role    string
 				act     engine.Action
-				owners  rbac.Owners
+				owners  access.Owners
 				userID  int64
 				allowed bool
 			}{
@@ -165,7 +165,7 @@ func TestAuthorize_TaskMilestoneAssignment(t *testing.T) {
 				},
 				{"rp — не совпал ни с одним владельцем", rp, engine.ActionView, processOfVP1, uVP2, false},
 				// ancestor = the whole ownership chain, including the row owner (self).
-				{"row ownership alone is insufficient", rp, engine.ActionView, rbac.Owners{Owner: uVP1}, uVP1, false},
+				{"row ownership alone is insufficient", rp, engine.ActionView, access.Owners{Owner: uVP1}, uVP1, false},
 				{"vp sees own process's", vp, engine.ActionView, processOfVP1, uVP1, true},
 				{"vp does not see foreign process's", vp, engine.ActionView, processOfVP1, uVP2, false},
 				{"worker sees none", worker, engine.ActionView, processOfVP1, uVP1, false},
@@ -205,22 +205,22 @@ func TestAuthorize_TaskMilestoneAssignment(t *testing.T) {
 
 func TestOwnersSharesOwner(t *testing.T) {
 	t.Parallel()
-	taskOfVP1 := rbac.Owners{ProjectOwner: uRP, ProcessOwner: uVP1}
-	taskOfVP2 := rbac.Owners{ProjectOwner: uRP, ProcessOwner: uVP2}
-	resourceOfVP1 := rbac.Owners{Owner: uVP1}
-	resourceOfVP2 := rbac.Owners{Owner: uVP2}
-	noOwner := rbac.Owners{}
+	taskOfVP1 := access.Owners{ProjectOwner: uRP, ProcessOwner: uVP1}
+	taskOfVP2 := access.Owners{ProjectOwner: uRP, ProcessOwner: uVP2}
+	resourceOfVP1 := access.Owners{Owner: uVP1}
+	resourceOfVP2 := access.Owners{Owner: uVP2}
+	noOwner := access.Owners{}
 
 	cases := []struct {
 		name string
-		a    rbac.Owners
-		b    rbac.Owners
+		a    access.Owners
+		b    access.Owners
 		want bool
 	}{
 		{"shares process owner", taskOfVP1, resourceOfVP1, true},
 		{"shares process owner (vp2)", taskOfVP2, resourceOfVP2, true},
 		{"different owners", taskOfVP1, resourceOfVP2, false},
-		{"shares project owner", rbac.Owners{ProjectOwner: uRP}, rbac.Owners{ProjectOwner: uRP}, true},
+		{"shares project owner", access.Owners{ProjectOwner: uRP}, access.Owners{ProjectOwner: uRP}, true},
 		{"no owners", noOwner, noOwner, false},
 		{"empty chain on one side", noOwner, resourceOfVP1, false},
 	}
@@ -238,17 +238,17 @@ func TestCan(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		role string
-		res  rbac.Resource
+		res  access.Resource
 		act  engine.Action
 		want bool
 	}{
-		{rp, rbac.ResourceTask, engine.ActionUpdate, true},     // RP manages project contents
-		{vp, rbac.ResourceTask, engine.ActionUpdate, true},     // vp changes tasks of own processes
-		{rp, rbac.ResourceProcess, engine.ActionCreate, true},  // rp creates processes
-		{vp, rbac.ResourceProcess, engine.ActionCreate, true},  // VP creates own processes in visible projects
-		{dp, rbac.ResourceProject, engine.ActionUpdate, false}, // DP only changes priorities
-		{vp, rbac.ResourceProject, engine.ActionUpdate, false}, // vp does not edit projects
-		{worker, rbac.ResourceTask, engine.ActionView, false},  // worker sees nothing
+		{rp, access.ResourceTask, engine.ActionUpdate, true},     // RP manages project contents
+		{vp, access.ResourceTask, engine.ActionUpdate, true},     // vp changes tasks of own processes
+		{rp, access.ResourceProcess, engine.ActionCreate, true},  // rp creates processes
+		{vp, access.ResourceProcess, engine.ActionCreate, true},  // VP creates own processes in visible projects
+		{dp, access.ResourceProject, engine.ActionUpdate, false}, // DP only changes priorities
+		{vp, access.ResourceProject, engine.ActionUpdate, false}, // vp does not edit projects
+		{worker, access.ResourceTask, engine.ActionView, false},  // worker sees nothing
 	}
 	for _, tc := range cases {
 		if got := engine.Can(tc.role, tc.res, tc.act); got != tc.want {
@@ -259,115 +259,115 @@ func TestCan(t *testing.T) {
 
 func TestAuthorize_Timesheet(t *testing.T) {
 	t.Parallel()
-	resourceOfVP := rbac.Owners{Owner: uVP1}
-	workerOfVP := rbac.Owners{Owner: uVP1}
+	resourceOfVP := access.Owners{Owner: uVP1}
+	workerOfVP := access.Owners{Owner: uVP1}
 
 	cases := []struct {
 		name    string
-		res     rbac.Resource
+		res     access.Resource
 		act     engine.Action
 		role    string
-		owners  rbac.Owners
+		owners  access.Owners
 		userID  int64
 		allowed bool
 	}{
 		// === States ===
-		{"admin views states", rbac.ResourceState, engine.ActionView, admin, rbac.Owners{}, uAdmin, true},
+		{"admin views states", access.ResourceState, engine.ActionView, admin, access.Owners{}, uAdmin, true},
 		{
 			"vp views states (reference for the timesheet)",
-			rbac.ResourceState,
+			access.ResourceState,
 			engine.ActionView,
 			vp,
-			rbac.Owners{},
+			access.Owners{},
 			uVP1,
 			true,
 		},
-		{"rp does not view states", rbac.ResourceState, engine.ActionView, rp, rbac.Owners{}, uRP, false},
-		{"dp does not view states", rbac.ResourceState, engine.ActionView, dp, rbac.Owners{}, uDP, false},
-		{"admin creates state", rbac.ResourceState, engine.ActionCreate, admin, rbac.Owners{}, uAdmin, true},
-		{"vp cannot create state", rbac.ResourceState, engine.ActionCreate, vp, rbac.Owners{}, uVP1, false},
-		{"vp cannot update state", rbac.ResourceState, engine.ActionUpdate, vp, rbac.Owners{}, uVP1, false},
-		{"vp cannot delete state", rbac.ResourceState, engine.ActionDelete, vp, rbac.Owners{}, uVP1, false},
+		{"rp does not view states", access.ResourceState, engine.ActionView, rp, access.Owners{}, uRP, false},
+		{"dp does not view states", access.ResourceState, engine.ActionView, dp, access.Owners{}, uDP, false},
+		{"admin creates state", access.ResourceState, engine.ActionCreate, admin, access.Owners{}, uAdmin, true},
+		{"vp cannot create state", access.ResourceState, engine.ActionCreate, vp, access.Owners{}, uVP1, false},
+		{"vp cannot update state", access.ResourceState, engine.ActionUpdate, vp, access.Owners{}, uVP1, false},
+		{"vp cannot delete state", access.ResourceState, engine.ActionDelete, vp, access.Owners{}, uVP1, false},
 		// === Timesheet resources ===
-		{"admin views all resources", rbac.ResourceResource, engine.ActionView, admin, rbac.Owners{}, uAdmin, true},
-		{"vp views own resource", rbac.ResourceResource, engine.ActionView, vp, resourceOfVP, uVP1, true},
+		{"admin views all resources", access.ResourceResource, engine.ActionView, admin, access.Owners{}, uAdmin, true},
+		{"vp views own resource", access.ResourceResource, engine.ActionView, vp, resourceOfVP, uVP1, true},
 		{
 			"vp does not view foreign resource",
-			rbac.ResourceResource,
+			access.ResourceResource,
 			engine.ActionView,
 			vp,
 			resourceOfVP,
 			uVP2,
 			false,
 		},
-		{"rp does not view resources", rbac.ResourceResource, engine.ActionView, rp, resourceOfVP, uRP, false},
-		{"dp views resources", rbac.ResourceResource, engine.ActionView, dp, resourceOfVP, uDP, true},
-		{"vp creates own resource", rbac.ResourceResource, engine.ActionCreate, vp, resourceOfVP, uVP1, true},
+		{"rp does not view resources", access.ResourceResource, engine.ActionView, rp, resourceOfVP, uRP, false},
+		{"dp views resources", access.ResourceResource, engine.ActionView, dp, resourceOfVP, uDP, true},
+		{"vp creates own resource", access.ResourceResource, engine.ActionCreate, vp, resourceOfVP, uVP1, true},
 		{
 			"vp cannot create resource for another",
-			rbac.ResourceResource,
+			access.ResourceResource,
 			engine.ActionCreate,
 			vp,
-			rbac.Owners{Owner: uVP2},
+			access.Owners{Owner: uVP2},
 			uVP1,
 			false,
 		},
 		{
 			"rp cannot create resource",
-			rbac.ResourceResource,
+			access.ResourceResource,
 			engine.ActionCreate,
 			rp,
-			rbac.Owners{Owner: uRP},
+			access.Owners{Owner: uRP},
 			uRP,
 			false,
 		},
-		{"vp updates own resource", rbac.ResourceResource, engine.ActionUpdate, vp, resourceOfVP, uVP1, true},
+		{"vp updates own resource", access.ResourceResource, engine.ActionUpdate, vp, resourceOfVP, uVP1, true},
 		{
 			"vp does not update foreign resource",
-			rbac.ResourceResource,
+			access.ResourceResource,
 			engine.ActionUpdate,
 			vp,
 			resourceOfVP,
 			uVP2,
 			false,
 		},
-		{"vp deletes own resource", rbac.ResourceResource, engine.ActionDelete, vp, resourceOfVP, uVP1, true},
+		{"vp deletes own resource", access.ResourceResource, engine.ActionDelete, vp, resourceOfVP, uVP1, true},
 		// === Employees ===
-		{"admin views all employees", rbac.ResourceWorker, engine.ActionView, admin, rbac.Owners{}, uAdmin, true},
-		{"vp views own employee", rbac.ResourceWorker, engine.ActionView, vp, workerOfVP, uVP1, true},
-		{"vp does not view foreign employee", rbac.ResourceWorker, engine.ActionView, vp, workerOfVP, uVP2, false},
-		{"rp does not view employees", rbac.ResourceWorker, engine.ActionView, rp, workerOfVP, uRP, false},
-		{"admin creates employee", rbac.ResourceWorker, engine.ActionCreate, admin, rbac.Owners{}, uAdmin, true},
-		{"vp cannot create employee", rbac.ResourceWorker, engine.ActionCreate, vp, workerOfVP, uVP1, false},
+		{"admin views all employees", access.ResourceWorker, engine.ActionView, admin, access.Owners{}, uAdmin, true},
+		{"vp views own employee", access.ResourceWorker, engine.ActionView, vp, workerOfVP, uVP1, true},
+		{"vp does not view foreign employee", access.ResourceWorker, engine.ActionView, vp, workerOfVP, uVP2, false},
+		{"rp does not view employees", access.ResourceWorker, engine.ActionView, rp, workerOfVP, uRP, false},
+		{"admin creates employee", access.ResourceWorker, engine.ActionCreate, admin, access.Owners{}, uAdmin, true},
+		{"vp cannot create employee", access.ResourceWorker, engine.ActionCreate, vp, workerOfVP, uVP1, false},
 		{
 			"vp cannot create employee for another",
-			rbac.ResourceWorker,
+			access.ResourceWorker,
 			engine.ActionCreate,
 			vp,
-			rbac.Owners{Owner: uVP2},
+			access.Owners{Owner: uVP2},
 			uVP1,
 			false,
 		},
 		{
 			"rp cannot create employee",
-			rbac.ResourceWorker,
+			access.ResourceWorker,
 			engine.ActionCreate,
 			rp,
-			rbac.Owners{Owner: uRP},
+			access.Owners{Owner: uRP},
 			uRP,
 			false,
 		},
-		{"vp updates own employee", rbac.ResourceWorker, engine.ActionUpdate, vp, workerOfVP, uVP1, true},
+		{"vp updates own employee", access.ResourceWorker, engine.ActionUpdate, vp, workerOfVP, uVP1, true},
 		{
 			"vp does not update foreign employee",
-			rbac.ResourceWorker,
+			access.ResourceWorker,
 			engine.ActionUpdate,
 			vp,
 			workerOfVP,
 			uVP2,
 			false,
 		},
-		{"vp deletes own employee", rbac.ResourceWorker, engine.ActionDelete, vp, workerOfVP, uVP1, true},
+		{"vp deletes own employee", access.ResourceWorker, engine.ActionDelete, vp, workerOfVP, uVP1, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -384,19 +384,19 @@ func TestViewScopeCode(t *testing.T) {
 	cases := []struct {
 		name string
 		role string
-		res  rbac.Resource
+		res  access.Resource
 		want string
 	}{
-		{"rp project view = own (self)", rp, rbac.ResourceProject, "self"},
-		{"dp project view = all", dp, rbac.ResourceProject, "all"},
-		{"rp process view = parent (up1)", rp, rbac.ResourceProcess, "project_owner"},
-		{"vp process view = all", vp, rbac.ResourceProcess, "process_owner"},
-		{"vp task view = parent (up1)", vp, rbac.ResourceTask, "process_owner"},
-		{"rp task view = ancestor (up)", rp, rbac.ResourceTask, "project_owner"},
-		{"dp task view = all", dp, rbac.ResourceTask, "all"},
-		{"vp resource view = own (self)", vp, rbac.ResourceResource, "self"},
-		{"worker task view = none", worker, rbac.ResourceTask, ""},
-		{"admin anything = all", admin, rbac.ResourceTask, "all"},
+		{"rp project view = own (self)", rp, access.ResourceProject, "self"},
+		{"dp project view = all", dp, access.ResourceProject, "all"},
+		{"rp process view = parent (up1)", rp, access.ResourceProcess, "project_owner"},
+		{"vp process view = all", vp, access.ResourceProcess, "process_owner"},
+		{"vp task view = parent (up1)", vp, access.ResourceTask, "process_owner"},
+		{"rp task view = ancestor (up)", rp, access.ResourceTask, "project_owner"},
+		{"dp task view = all", dp, access.ResourceTask, "all"},
+		{"vp resource view = own (self)", vp, access.ResourceResource, "self"},
+		{"worker task view = none", worker, access.ResourceTask, ""},
+		{"admin anything = all", admin, access.ResourceTask, "all"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

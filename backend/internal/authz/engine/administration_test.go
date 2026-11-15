@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/authz/engine"
 	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
 	tracingpkg "github.com/Koshsky/erp-backend/internal/tracing"
@@ -69,7 +70,7 @@ func checkAdministrationCapability(t *testing.T, name, key, mode string, allowed
 	mw := rbac.ProvideMiddleware(nil, tracingpkg.New(nil), rbac.Data{}, built)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
-		c.Set(userctx.KeyUser, userctx.UserContext{ID: 42, Preset: "worker", Admin: mode == "admin"})
+		c.Set(userctx.KeyUser, access.UserContext{ID: 42, Preset: "worker", Admin: mode == "admin"})
 	})
 	router.GET("/check", mw.Check(name), func(c *gin.Context) { c.Status(http.StatusNoContent) })
 	reply := httptest.NewRecorder()

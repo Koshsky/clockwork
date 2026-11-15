@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
 	userdomain "github.com/Koshsky/erp-backend/internal/user/domain"
 	"github.com/Koshsky/erp-backend/pkg/errors"
@@ -271,7 +272,7 @@ func buildEntity(params map[string]any) (func(*rbac.CheckCtx) error, error) {
 }
 
 // noOwnerCheck — matrix check for a resource without owners (state, virtual ones).
-func noOwnerCheck(res rbac.Resource, act Action) func(*rbac.CheckCtx) error {
+func noOwnerCheck(res access.Resource, act Action) func(*rbac.CheckCtx) error {
 	return func(rc *rbac.CheckCtx) error {
 		if !EnforceTarget(rc.User, Target{Res: res, Act: act, Ctx: rc.C.Request.Context()}) {
 			return viewOrForbidden(act)
@@ -350,11 +351,11 @@ func buildCreate(params map[string]any) (func(*rbac.CheckCtx) error, error) {
 	}, nil
 }
 
-func createInParentCheck(res, parentRes rbac.Resource, parentFrom string) func(*rbac.CheckCtx) error {
+func createInParentCheck(res, parentRes access.Resource, parentFrom string) func(*rbac.CheckCtx) error {
 	base := CreateCheck(res, parentByID(parentRes, parentFrom))
 
 	return func(rc *rbac.CheckCtx) error {
-		if res == rbac.ResourceTask {
+		if res == access.ResourceTask {
 			if err := checkTaskCreateParent(rc); err != nil {
 				return err
 			}
@@ -365,17 +366,17 @@ func createInParentCheck(res, parentRes rbac.Resource, parentFrom string) func(*
 
 // createOwners returns an owners constructor for creating "into one's own
 // ownership" (the field depends on the resource).
-func createOwners(res rbac.Resource) (func(int64) rbac.Owners, bool) {
+func createOwners(res access.Resource) (func(int64) access.Owners, bool) {
 	switch res {
-	case rbac.ResourceProject:
-		return func(id int64) rbac.Owners { return rbac.Owners{ProjectOwner: id} }, true
-	case rbac.ResourceWorker, rbac.ResourceResource:
-		return func(id int64) rbac.Owners { return rbac.Owners{Owner: id} }, true
-	case rbac.ResourceProcess, rbac.ResourceTask, rbac.ResourceMilestone,
-		rbac.ResourceAssignment, rbac.ResourceState, rbac.ResourceComment,
-		rbac.ResourceUserCatalog, rbac.ResourceRBACConfig,
-		rbac.ResourceUserAdmin, rbac.ResourceStateAdmin, rbac.ResourceOrgStructure,
-		rbac.ResourceAudit, rbac.ResourceAutoCreate:
+	case access.ResourceProject:
+		return func(id int64) access.Owners { return access.Owners{ProjectOwner: id} }, true
+	case access.ResourceWorker, access.ResourceResource:
+		return func(id int64) access.Owners { return access.Owners{Owner: id} }, true
+	case access.ResourceProcess, access.ResourceTask, access.ResourceMilestone,
+		access.ResourceAssignment, access.ResourceState, access.ResourceComment,
+		access.ResourceUserCatalog, access.ResourceRBACConfig,
+		access.ResourceUserAdmin, access.ResourceStateAdmin, access.ResourceOrgStructure,
+		access.ResourceAudit, access.ResourceAutoCreate:
 		return nil, false
 	}
 	return nil, false
@@ -383,11 +384,11 @@ func createOwners(res rbac.Resource) (func(int64) rbac.Owners, bool) {
 
 // ownerMatchSpec — parsed parameters of the owner_match kind.
 type ownerMatchSpec struct {
-	res         rbac.Resource
+	res         access.Resource
 	act         Action
-	primaryRes  rbac.Resource
+	primaryRes  access.Resource
 	primaryFrom string
-	compareRes  rbac.Resource
+	compareRes  access.Resource
 	compareFrom string
 	exemptRoles []string
 }
@@ -434,7 +435,7 @@ func parseOwnerMatch(params map[string]any) (ownerMatchSpec, error) {
 }
 
 // parseResourceParam reads a resource code from kind parameters.
-func parseResourceParam(params map[string]any, kind, key string) (rbac.Resource, error) {
+func parseResourceParam(params map[string]any, kind, key string) (access.Resource, error) {
 	name, err := strParam(params, key, true)
 	if err != nil {
 		return 0, kindError(kind, key, err)
@@ -443,7 +444,7 @@ func parseResourceParam(params map[string]any, kind, key string) (rbac.Resource,
 }
 
 // parseResourceCode parses a string resource code, reporting failures as kind errors.
-func parseResourceCode(name, kind, key string) (rbac.Resource, error) {
+func parseResourceCode(name, kind, key string) (access.Resource, error) {
 	res, ok := ParseResource(name)
 	if !ok {
 		return 0, kindError(kind, key, fmt.Errorf("неизвестный ресурс %q", name))
@@ -469,14 +470,14 @@ func buildOwnerMatch(params map[string]any) (func(*rbac.CheckCtx) error, error) 
 		if ownerErr != nil {
 			return ownerErr
 		}
-		if spec.res == rbac.ResourceAssignment {
+		if spec.res == access.ResourceAssignment {
 			return checkAssignmentTarget(rc, spec, primaryOwners, primaryID)
 		}
 		mode := ModeOwnerMatch
 		if slices.Contains(spec.exemptRoles, rc.User.Preset) {
 			mode = ""
 		}
-		compareOwners := rbac.Owners{}
+		compareOwners := access.Owners{}
 		if mode == ModeOwnerMatch {
 			compareID, cmpErr := rc.BodyID(spec.compareFrom)
 			if cmpErr != nil {
@@ -499,7 +500,7 @@ func buildOwnerMatch(params map[string]any) (func(*rbac.CheckCtx) error, error) 
 	}, nil
 }
 
-func checkAssignmentTarget(rc *rbac.CheckCtx, spec ownerMatchSpec, primaryOwners rbac.Owners, primaryID int64) error {
+func checkAssignmentTarget(rc *rbac.CheckCtx, spec ownerMatchSpec, primaryOwners access.Owners, primaryID int64) error {
 	resourceID, readErr := rc.BodyID(spec.compareFrom)
 	if readErr != nil {
 		return readErr
@@ -514,7 +515,7 @@ func checkAssignmentTarget(rc *rbac.CheckCtx, spec ownerMatchSpec, primaryOwners
 	if !EnforceTarget(
 		rc.User,
 		Target{
-			Res:    rbac.ResourceTask,
+			Res:    access.ResourceTask,
 			Act:    ActionView,
 			Owners: primaryOwners,
 			ID:     primaryID,
@@ -661,7 +662,7 @@ func CommentDeleteCheck() func(*rbac.CheckCtx) error {
 // =============================================
 
 // ListCheck — the standard listing rule (see buildList).
-func ListCheck(rsrc rbac.Resource, key string) func(*rbac.CheckCtx) error {
+func ListCheck(rsrc access.Resource, key string) func(*rbac.CheckCtx) error {
 	return func(rc *rbac.CheckCtx) error {
 		scope := scopeForUser(rc.User, rsrc, ActionView)
 		if !CanUser(rc.User, rsrc, ActionView) {
@@ -683,11 +684,11 @@ func ListCheck(rsrc rbac.Resource, key string) func(*rbac.CheckCtx) error {
 }
 
 // parentByID resolves the parent owner from the body by key (for CreateCheck).
-func parentByID(rsrc rbac.Resource, key string) func(*rbac.CheckCtx) (rbac.Owners, error) {
-	return func(rc *rbac.CheckCtx) (rbac.Owners, error) {
+func parentByID(rsrc access.Resource, key string) func(*rbac.CheckCtx) (access.Owners, error) {
+	return func(rc *rbac.CheckCtx) (access.Owners, error) {
 		id, err := rc.BodyID(key)
 		if err != nil {
-			return rbac.Owners{}, err
+			return access.Owners{}, err
 		}
 		return rc.Owners(rsrc, id)
 	}
@@ -695,7 +696,7 @@ func parentByID(rsrc rbac.Resource, key string) func(*rbac.CheckCtx) (rbac.Owner
 
 // EntityCheck — the standard entity-by-id-from-URL rule: matrix against
 // owners; a denied view does not disclose existence (404).
-func EntityCheck(rsrc rbac.Resource, act Action) func(*rbac.CheckCtx) error {
+func EntityCheck(rsrc access.Resource, act Action) func(*rbac.CheckCtx) error {
 	return func(rc *rbac.CheckCtx) error {
 		id, err := rc.ParamID()
 		if err != nil {
@@ -705,10 +706,10 @@ func EntityCheck(rsrc rbac.Resource, act Action) func(*rbac.CheckCtx) error {
 		if err != nil {
 			return err
 		}
-		if rsrc == rbac.ResourceProject && act == ActionUpdate {
+		if rsrc == access.ResourceProject && act == ActionUpdate {
 			return checkProjectUpdate(rc, owners, id)
 		}
-		if rsrc == rbac.ResourceAssignment && act != ActionView && scopeForUser(rc.User, rsrc, act) == ScopeParent &&
+		if rsrc == access.ResourceAssignment && act != ActionView && scopeForUser(rc.User, rsrc, act) == ScopeParent &&
 			(owners.Owner != rc.User.ID || owners.ResourceOwner != rc.User.ID) {
 			return viewOrForbidden(act)
 		}
@@ -727,7 +728,7 @@ func EntityCheck(rsrc rbac.Resource, act Action) func(*rbac.CheckCtx) error {
 }
 
 // CreateCheck — the standard creation rule by the parent owner from the body.
-func CreateCheck(rsrc rbac.Resource, parent func(*rbac.CheckCtx) (rbac.Owners, error)) func(*rbac.CheckCtx) error {
+func CreateCheck(rsrc access.Resource, parent func(*rbac.CheckCtx) (access.Owners, error)) func(*rbac.CheckCtx) error {
 	return func(rc *rbac.CheckCtx) error {
 		owners, err := parent(rc)
 		if err != nil {
@@ -735,21 +736,21 @@ func CreateCheck(rsrc rbac.Resource, parent func(*rbac.CheckCtx) (rbac.Owners, e
 		}
 		var parentID int64
 		switch rsrc {
-		case rbac.ResourceTask:
+		case access.ResourceTask:
 			parentID, err = rc.BodyID(bodyKeyProcessID)
-		case rbac.ResourceProcess:
+		case access.ResourceProcess:
 			parentID, err = rc.BodyID(bodyKeyProjectID)
-		case rbac.ResourceProject, rbac.ResourceMilestone, rbac.ResourceAssignment,
-			rbac.ResourceState, rbac.ResourceResource, rbac.ResourceWorker,
-			rbac.ResourceComment, rbac.ResourceUserCatalog, rbac.ResourceRBACConfig,
-			rbac.ResourceUserAdmin, rbac.ResourceStateAdmin, rbac.ResourceOrgStructure,
-			rbac.ResourceAudit, rbac.ResourceAutoCreate:
+		case access.ResourceProject, access.ResourceMilestone, access.ResourceAssignment,
+			access.ResourceState, access.ResourceResource, access.ResourceWorker,
+			access.ResourceComment, access.ResourceUserCatalog, access.ResourceRBACConfig,
+			access.ResourceUserAdmin, access.ResourceStateAdmin, access.ResourceOrgStructure,
+			access.ResourceAudit, access.ResourceAutoCreate:
 		}
 		if err != nil {
 			return err
 		}
 		target := Target{Res: rsrc, Act: ActionCreate, Owners: owners, ParentID: parentID, Ctx: rc.C.Request.Context()}
-		if rsrc == rbac.ResourceProcess {
+		if rsrc == access.ResourceProcess {
 			target.ProposedOwner, err = rc.BodyID(bodyKeyOwnerID)
 			if err != nil {
 				return err
@@ -758,7 +759,7 @@ func CreateCheck(rsrc rbac.Resource, parent func(*rbac.CheckCtx) (rbac.Owners, e
 				target.ProposedOwner = rc.User.ID
 			}
 			target.ParentVisible = EnforceTarget(rc.User, Target{
-				Res: rbac.ResourceProject, Act: ActionView, Owners: owners, ID: parentID, Ctx: target.Ctx,
+				Res: access.ResourceProject, Act: ActionView, Owners: owners, ID: parentID, Ctx: target.Ctx,
 			})
 		}
 		if !EnforceTarget(rc.User, target) {

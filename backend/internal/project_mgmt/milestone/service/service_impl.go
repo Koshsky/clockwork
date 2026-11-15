@@ -5,8 +5,7 @@ import (
 	"database/sql"
 	"log/slog"
 
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
-
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	repo "github.com/Koshsky/erp-backend/internal/project_mgmt/milestone/repository"
 	tracingpkg "github.com/Koshsky/erp-backend/internal/tracing"
 
@@ -151,7 +150,7 @@ func (s *MilestoneService) DeleteMilestone(ctx context.Context, id int64) error 
 func (s *MilestoneService) ListMilestones(
 	ctx context.Context,
 	userID int64,
-	scope rbac.ListScope,
+	scope access.ListScope,
 	ownerID int64,
 	limit, offset int,
 ) ([]dto.MilestoneResponse, int64, error) {

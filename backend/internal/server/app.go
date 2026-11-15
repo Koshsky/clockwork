@@ -23,6 +23,7 @@ import (
 	"github.com/Koshsky/erp-backend/internal/middleware/cors"
 	"github.com/Koshsky/erp-backend/internal/middleware/locale"
 	"github.com/Koshsky/erp-backend/internal/middleware/ratelimit"
+	tracingmw "github.com/Koshsky/erp-backend/internal/middleware/tracing"
 	"github.com/Koshsky/erp-backend/internal/server/profiler"
 	"github.com/Koshsky/erp-backend/internal/server/swagger"
 	tracingpkg "github.com/Koshsky/erp-backend/internal/tracing"
@@ -162,7 +163,7 @@ func (a *App) Start() error {
 	router.Use(a.bodyLimit())
 	router.Use(a.requestTimeout())
 	// Root request span (trace): method/path/status/duration + user_id.
-	router.Use(a.tracer.HTTPRootSpan())
+	router.Use(tracingmw.HTTPRootSpan(a.tracer))
 	// Fallback text request logging (independent of tracing).
 	router.Use(a.requestLog())
 	// Register routes

@@ -23,6 +23,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	idem "github.com/Koshsky/erp-backend/internal/idempotency"
 	idemrepo "github.com/Koshsky/erp-backend/internal/idempotency/repository"
 	processdelivery "github.com/Koshsky/erp-backend/internal/project_mgmt/process/delivery"
@@ -171,7 +172,7 @@ func appendOrderRouter(pool *pgxpool.Pool) *gin.Engine {
 	router := gin.New()
 	group := router.Group("/api/v1")
 	group.Use(func(c *gin.Context) {
-		c.Set(userctx.KeyUser, userctx.UserContext{ID: 1, Admin: true, Preset: "admin"})
+		c.Set(userctx.KeyUser, access.UserContext{ID: 1, Admin: true, Preset: "admin"})
 		c.Next()
 	})
 	group.Use(middleware.Handler(), middleware.RevisionHandler())

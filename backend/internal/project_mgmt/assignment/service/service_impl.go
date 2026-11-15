@@ -4,8 +4,7 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
-
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	repo "github.com/Koshsky/erp-backend/internal/project_mgmt/assignment/repository"
 	tracingpkg "github.com/Koshsky/erp-backend/internal/tracing"
 
@@ -128,7 +127,7 @@ func (s *AssignmentService) DeleteAssignment(ctx context.Context, id int64) erro
 func (s *AssignmentService) ListAssignments(
 	ctx context.Context,
 	userID int64,
-	scope rbac.ListScope,
+	scope access.ListScope,
 	ownerID int64,
 	limit, offset int,
 ) ([]dto.AssignmentResponse, int64, error) {

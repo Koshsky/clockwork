@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/timesheet/calendar/dto"
 	"github.com/Koshsky/erp-backend/internal/timesheet/calendar/repository/sqlc"
 	"github.com/Koshsky/erp-backend/internal/tracing"
@@ -17,9 +17,9 @@ import (
 )
 
 // lsAll/lsOwn/lsNone — compiled scope bundles for tests.
-func lsAll() rbac.ListScope  { return rbac.ListScope{All: true} }
-func lsOwn() rbac.ListScope  { return rbac.ListScope{Self: true} }
-func lsNone() rbac.ListScope { return rbac.ListScope{None: true} }
+func lsAll() access.ListScope  { return access.ListScope{All: true} }
+func lsOwn() access.ListScope  { return access.ListScope{Self: true} }
+func lsNone() access.ListScope { return access.ListScope{None: true} }
 
 func dt(s string) time.Time {
 	d, err := date.Parse(s)
@@ -156,13 +156,13 @@ type stubCalendarRepo struct {
 
 	listResourcesCalls int
 	lastUserID         int64
-	lastViewScope      rbac.ListScope
+	lastViewScope      access.ListScope
 }
 
 func (s *stubCalendarRepo) ListResources(
 	_ context.Context,
 	userID int64,
-	scope rbac.ListScope,
+	scope access.ListScope,
 ) ([]sqlc.ListResourcesRow, error) {
 	s.listResourcesCalls++
 	s.lastUserID = userID

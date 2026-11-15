@@ -8,10 +8,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/authz/engine"
 	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
 	userdomain "github.com/Koshsky/erp-backend/internal/user/domain"
-	userctx "github.com/Koshsky/erp-backend/internal/userctx"
 	"github.com/Koshsky/erp-backend/pkg/errors"
 )
 
@@ -47,16 +47,16 @@ func TestAssignmentViewOwnRequiresTaskAndResource(t *testing.T) {
 				}
 				check := &rbac.CheckCtx{
 					C: c,
-					User: userctx.UserContext{
+					User: access.UserContext{
 						ID: uid, Preset: tc.role, Admin: tc.role == userdomain.PresetAdmin,
 					},
-					Data: rbac.Data{AssignmentOwners: func(context.Context, int64) (rbac.Owners, error) {
-						return rbac.Owners{
+					Data: rbac.Data{AssignmentOwners: func(context.Context, int64) (access.Owners, error) {
+						return access.Owners{
 							ProjectOwner: 9, ProcessOwner: 3, Owner: tc.taskOwner, ResourceOwner: tc.resourceOwner,
 						}, nil
 					}},
 				}
-				err := engine.EntityCheck(rbac.ResourceAssignment, engine.ActionView)(check)
+				err := engine.EntityCheck(access.ResourceAssignment, engine.ActionView)(check)
 				if err == nil {
 					c.Status(http.StatusOK)
 					return
@@ -109,14 +109,14 @@ func TestAssignmentMutationsOwnRequireTaskAndResource(t *testing.T) {
 					c.Params = gin.Params{{Key: "id", Value: "1"}}
 					check := &rbac.CheckCtx{
 						C:    c,
-						User: userctx.UserContext{ID: 3, Preset: userdomain.PresetProcessOwner, Admin: tc.admin},
-						Data: rbac.Data{AssignmentOwners: func(context.Context, int64) (rbac.Owners, error) {
-							return rbac.Owners{
+						User: access.UserContext{ID: 3, Preset: userdomain.PresetProcessOwner, Admin: tc.admin},
+						Data: rbac.Data{AssignmentOwners: func(context.Context, int64) (access.Owners, error) {
+							return access.Owners{
 								ProjectOwner: 9, ProcessOwner: 3, Owner: tc.taskOwner, ResourceOwner: tc.resourceOwner,
 							}, nil
 						}},
 					}
-					err := engine.EntityCheck(rbac.ResourceAssignment, action)(check)
+					err := engine.EntityCheck(access.ResourceAssignment, action)(check)
 					if tc.allowed && err != nil {
 						t.Fatalf("own or administrator mutation denied: %v", err)
 					}

@@ -3,7 +3,7 @@ package service
 import (
 	"context"
 
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/planning/dto"
 	"github.com/Koshsky/erp-backend/internal/planning/repository/sqlc"
 )
@@ -24,7 +24,7 @@ func getSlice[T any](m map[int64][]T, key int64) []T {
 func (s *PlanningService) loadProcesses(
 	ctx context.Context,
 	userID int64,
-	scope rbac.ListScope,
+	scope access.ListScope,
 ) ([]dto.Process, error) {
 	rows, err := s.repository.ListProcessesByTaskScope(ctx, userID, scope)
 	if err != nil {
@@ -46,8 +46,8 @@ func (s *PlanningService) loadAllData(
 	ctx context.Context,
 	processes []dto.Process,
 	userID int64,
-	resourceScope rbac.ListScope,
-	taskScope rbac.ListScope,
+	resourceScope access.ListScope,
+	taskScope access.ListScope,
 ) (map[int64][]dto.Milestone, map[int64][]dto.Task, map[int64][]dto.Assignment, map[int64]dto.Resource, map[int64]int64, map[int64][]dto.TaskDependency, error) {
 	processIDs := make([]int64, len(processes))
 	for i, p := range processes {

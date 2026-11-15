@@ -18,7 +18,7 @@ import (
 	"github.com/casbin/casbin/v2"
 	"github.com/casbin/govaluate"
 
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 )
 
 // modelText is the Casbin model.
@@ -88,8 +88,8 @@ type Object struct {
 	// AuthorID — the author leg of the author_or mode.
 	AuthorID string
 	// OwnerA / OwnerB — the compared owner chains of the owner_match mode.
-	OwnerA rbac.Owners
-	OwnerB rbac.Owners
+	OwnerA access.Owners
+	OwnerB access.Owners
 }
 
 // Minimum number of arguments the owner-chain ABAC function accepts.
@@ -102,8 +102,8 @@ func sharesOwnerFunc(args ...any) (any, error) {
 	if len(args) < minOwnersArgs {
 		return false, nil
 	}
-	a, okA := args[0].(rbac.Owners)
-	b, okB := args[1].(rbac.Owners)
+	a, okA := args[0].(access.Owners)
+	b, okB := args[1].(access.Owners)
 	if !okA || !okB {
 		return false, nil
 	}

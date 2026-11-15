@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"sort"
 
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	repo "github.com/Koshsky/erp-backend/internal/planning/repository"
 	tracingpkg "github.com/Koshsky/erp-backend/internal/tracing"
 
@@ -30,7 +30,7 @@ func NewPlanningService(logger *slog.Logger, tracer *tracingpkg.Tracer, r *repo.
 func (s *PlanningService) GetProjectPlanning(
 	ctx context.Context,
 	userID int64,
-	scope rbac.ListScope,
+	scope access.ListScope,
 ) (*dto.ProjectPlanning, error) {
 	ctx, end := s.tracer.Start(ctx, "planning.GetProjectPlanning")
 	defer end(nil)
@@ -52,8 +52,8 @@ func (s *PlanningService) GetProjectPlanning(
 func (s *PlanningService) GetProcessPlanning(
 	ctx context.Context,
 	userID int64,
-	scope rbac.ListScope,
-	projectScope rbac.ListScope,
+	scope access.ListScope,
+	projectScope access.ListScope,
 ) (*dto.ProcessPlanning, error) {
 	ctx, end := s.tracer.Start(ctx, "planning.GetProcessPlanning")
 	defer end(nil)
@@ -115,8 +115,8 @@ func (s *PlanningService) GetProcessPlanning(
 func (s *PlanningService) GetTaskPlanning(
 	ctx context.Context,
 	userID int64,
-	scope rbac.ListScope,
-	resourceScope rbac.ListScope,
+	scope access.ListScope,
+	resourceScope access.ListScope,
 ) (*dto.TaskPlanning, error) {
 	ctx, end := s.tracer.Start(ctx, "planning.GetTaskPlanning")
 	defer end(nil)
@@ -137,7 +137,7 @@ func (s *PlanningService) GetTaskPlanning(
 		processes,
 		userID,
 		resourceScope,
-		rbac.ListScope{All: true},
+		access.ListScope{All: true},
 	)
 	if err != nil {
 		return nil, err

@@ -3,9 +3,8 @@ package delivery
 import (
 	"context"
 
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/user/dto"
-	userctx "github.com/Koshsky/erp-backend/internal/userctx"
 	"github.com/Koshsky/erp-backend/pkg/date"
 )
 
@@ -17,7 +16,7 @@ type UserService interface {
 	ListUsers(
 		ctx context.Context,
 		userID int64,
-		scope rbac.ListScope,
+		scope access.ListScope,
 		presetFilter string,
 		managerID int64,
 		search string,
@@ -27,16 +26,16 @@ type UserService interface {
 	CreateUserWithCreds(
 		ctx context.Context,
 		req dto.CreateUserRequest,
-		caller userctx.UserContext,
+		caller access.UserContext,
 	) (*dto.CreateUserResult, error)
-	ResetPassword(ctx context.Context, id int64, caller userctx.UserContext) (string, error)
+	ResetPassword(ctx context.Context, id int64, caller access.UserContext) (string, error)
 	DeleteUser(ctx context.Context, id int64) error
 	ChangePassword(ctx context.Context, userID int64, oldPassword, newPassword string) error
 	UpdateUser(
 		ctx context.Context,
 		id int64,
 		user dto.UpdateUserRequest,
-		caller userctx.UserContext,
+		caller access.UserContext,
 		callerID int64,
 	) (*dto.UserResponse, error)
 	UpdateManager(
@@ -51,7 +50,7 @@ type UserService interface {
 	// each requested id is authorized like the single worker.view endpoint.
 	ListStatesBatch(
 		ctx context.Context,
-		caller userctx.UserContext,
+		caller access.UserContext,
 		userIDs []int64,
 		start, end date.Date,
 	) ([]dto.UserStatesResponse, error)

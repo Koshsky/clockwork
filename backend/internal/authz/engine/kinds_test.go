@@ -3,14 +3,14 @@ package engine_test
 import (
 	"testing"
 
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/authz/engine"
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
 )
 
 // Codecs: roundtrip for each resource/action/scope + invalid values.
 func TestResourceCodecs(t *testing.T) {
 	t.Parallel()
-	for i := rbac.ResourceProject; i <= rbac.ResourceRBACConfig; i++ {
+	for i := access.ResourceProject; i <= access.ResourceRBACConfig; i++ {
 		name := engine.ResourceName(i)
 		if name == "" {
 			t.Fatalf("ResourceName(%v) пуст", i)
@@ -60,61 +60,61 @@ func TestScopeCodecs(t *testing.T) {
 // Exact scope applicability table per resource (mirrors the backend ScopeApplicable).
 func TestScopeApplicableTable(t *testing.T) {
 	t.Parallel()
-	ownRes := map[rbac.Resource]bool{
-		rbac.ResourceProject:      true,
-		rbac.ResourceProcess:      false,
-		rbac.ResourceTask:         false,
-		rbac.ResourceMilestone:    false,
-		rbac.ResourceAssignment:   false,
-		rbac.ResourceState:        false,
-		rbac.ResourceResource:     true,
-		rbac.ResourceWorker:       true,
-		rbac.ResourceComment:      false,
-		rbac.ResourceUserCatalog:  false,
-		rbac.ResourceRBACConfig:   false,
-		rbac.ResourceUserAdmin:    false,
-		rbac.ResourceStateAdmin:   false,
-		rbac.ResourceOrgStructure: false,
-		rbac.ResourceAudit:        false,
-		rbac.ResourceAutoCreate:   false,
+	ownRes := map[access.Resource]bool{
+		access.ResourceProject:      true,
+		access.ResourceProcess:      false,
+		access.ResourceTask:         false,
+		access.ResourceMilestone:    false,
+		access.ResourceAssignment:   false,
+		access.ResourceState:        false,
+		access.ResourceResource:     true,
+		access.ResourceWorker:       true,
+		access.ResourceComment:      false,
+		access.ResourceUserCatalog:  false,
+		access.ResourceRBACConfig:   false,
+		access.ResourceUserAdmin:    false,
+		access.ResourceStateAdmin:   false,
+		access.ResourceOrgStructure: false,
+		access.ResourceAudit:        false,
+		access.ResourceAutoCreate:   false,
 	}
-	parentRes := map[rbac.Resource]bool{
-		rbac.ResourceProject:      false,
-		rbac.ResourceProcess:      true,
-		rbac.ResourceTask:         true,
-		rbac.ResourceMilestone:    true,
-		rbac.ResourceAssignment:   true,
-		rbac.ResourceState:        false,
-		rbac.ResourceResource:     false,
-		rbac.ResourceWorker:       false,
-		rbac.ResourceComment:      false,
-		rbac.ResourceUserCatalog:  false,
-		rbac.ResourceRBACConfig:   false,
-		rbac.ResourceUserAdmin:    false,
-		rbac.ResourceStateAdmin:   false,
-		rbac.ResourceOrgStructure: false,
-		rbac.ResourceAudit:        false,
-		rbac.ResourceAutoCreate:   false,
+	parentRes := map[access.Resource]bool{
+		access.ResourceProject:      false,
+		access.ResourceProcess:      true,
+		access.ResourceTask:         true,
+		access.ResourceMilestone:    true,
+		access.ResourceAssignment:   true,
+		access.ResourceState:        false,
+		access.ResourceResource:     false,
+		access.ResourceWorker:       false,
+		access.ResourceComment:      false,
+		access.ResourceUserCatalog:  false,
+		access.ResourceRBACConfig:   false,
+		access.ResourceUserAdmin:    false,
+		access.ResourceStateAdmin:   false,
+		access.ResourceOrgStructure: false,
+		access.ResourceAudit:        false,
+		access.ResourceAutoCreate:   false,
 	}
-	ancestorRes := map[rbac.Resource]bool{
-		rbac.ResourceProject:      false,
-		rbac.ResourceProcess:      true,
-		rbac.ResourceTask:         true,
-		rbac.ResourceMilestone:    true,
-		rbac.ResourceAssignment:   true,
-		rbac.ResourceState:        false,
-		rbac.ResourceResource:     false,
-		rbac.ResourceWorker:       false,
-		rbac.ResourceComment:      false,
-		rbac.ResourceUserCatalog:  false,
-		rbac.ResourceRBACConfig:   false,
-		rbac.ResourceUserAdmin:    false,
-		rbac.ResourceStateAdmin:   false,
-		rbac.ResourceOrgStructure: false,
-		rbac.ResourceAudit:        false,
-		rbac.ResourceAutoCreate:   false,
+	ancestorRes := map[access.Resource]bool{
+		access.ResourceProject:      false,
+		access.ResourceProcess:      true,
+		access.ResourceTask:         true,
+		access.ResourceMilestone:    true,
+		access.ResourceAssignment:   true,
+		access.ResourceState:        false,
+		access.ResourceResource:     false,
+		access.ResourceWorker:       false,
+		access.ResourceComment:      false,
+		access.ResourceUserCatalog:  false,
+		access.ResourceRBACConfig:   false,
+		access.ResourceUserAdmin:    false,
+		access.ResourceStateAdmin:   false,
+		access.ResourceOrgStructure: false,
+		access.ResourceAudit:        false,
+		access.ResourceAutoCreate:   false,
 	}
-	for i := rbac.ResourceProject; i <= rbac.ResourceRBACConfig; i++ {
+	for i := access.ResourceProject; i <= access.ResourceRBACConfig; i++ {
 		if !engine.ScopeApplicable(i, engine.ScopeAll) {
 			t.Errorf("ScopeApplicable(%v, all) = false; want true", i)
 		}
@@ -140,13 +140,13 @@ func TestScopeApplicableTable(t *testing.T) {
 func TestNewMatrixLastWins(t *testing.T) {
 	t.Parallel()
 	m := engine.NewMatrix([]engine.MatrixRule{
-		{Res: rbac.ResourceTask, Act: engine.ActionView, Role: "rp", Scope: engine.ScopeParent},
-		{Res: rbac.ResourceTask, Act: engine.ActionView, Role: "rp", Scope: engine.ScopeAncestor},
+		{Res: access.ResourceTask, Act: engine.ActionView, Role: "rp", Scope: engine.ScopeParent},
+		{Res: access.ResourceTask, Act: engine.ActionView, Role: "rp", Scope: engine.ScopeAncestor},
 	})
-	if got := m.ScopeFor("rp", rbac.ResourceTask, engine.ActionView); got != engine.ScopeAncestor {
+	if got := m.ScopeFor("rp", access.ResourceTask, engine.ActionView); got != engine.ScopeAncestor {
 		t.Errorf("ScopeFor(rp, task, view) = %v; want ancestor (last wins)", got)
 	}
-	if got := m.ScopeFor("vp", rbac.ResourceTask, engine.ActionView); got != engine.ScopeNone {
+	if got := m.ScopeFor("vp", access.ResourceTask, engine.ActionView); got != engine.ScopeNone {
 		t.Errorf("ScopeFor(vp, task, view) = %v; want none", got)
 	}
 }
@@ -157,7 +157,7 @@ func TestDefaultMatrixRoundTrip(t *testing.T) {
 	t.Parallel()
 	rebuilt := engine.NewMatrix(engine.DefaultMatrixRules())
 	roles := []string{"admin", "dp", "rp", "vp", "worker", "ghost"}
-	for i := rbac.ResourceProject; i <= rbac.ResourceRBACConfig; i++ {
+	for i := access.ResourceProject; i <= access.ResourceRBACConfig; i++ {
 		for act := engine.ActionView; act <= engine.ActionDelete; act++ {
 			for _, role := range roles {
 				want := engine.DefaultMatrix().ScopeFor(role, i, act)

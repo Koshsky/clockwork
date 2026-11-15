@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"strconv"
 
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/milestone/service"
 	"github.com/Koshsky/erp-backend/pkg/errors"
 
@@ -58,7 +59,7 @@ func (h *MilestoneHandler) ListMilestones(c *gin.Context) {
 	items, total, err := h.service.ListMilestones(
 		c.Request.Context(),
 		user.ID,
-		engine.CompileViewScopeUser(user, rbac.ResourceMilestone),
+		engine.CompileViewScopeUser(user, access.ResourceMilestone),
 		response.QueryID(c, "owner_id"),
 		limit,
 		offset,

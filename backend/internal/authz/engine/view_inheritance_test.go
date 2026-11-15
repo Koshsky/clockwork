@@ -5,9 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/authz/engine"
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
-	userctx "github.com/Koshsky/erp-backend/internal/userctx"
 )
 
 //nolint:paralleltest // Publishes grants and ancestor probes in the shared snapshot.
@@ -19,14 +18,14 @@ func TestParentViewWinsOverChildDenials(t *testing.T) {
 		{Sub: "7", Key: "milestone/view"}, {Sub: "7", Key: "assignment/view"},
 	}, nil)
 	engine.SetOwnerProbe(&engine.OwnerProbe{
-		Parents: func(_ context.Context, _ rbac.Resource, id int64) ([]engine.Target, error) {
-			return []engine.Target{{Res: rbac.ResourceProject, ID: 1, Owners: rbac.Owners{ProjectOwner: id}}}, nil
+		Parents: func(_ context.Context, _ access.Resource, id int64) ([]engine.Target, error) {
+			return []engine.Target{{Res: access.ResourceProject, ID: 1, Owners: access.Owners{ProjectOwner: id}}}, nil
 		},
 	})
 	t.Cleanup(func() { engine.SetOwnerProbe(nil) })
-	user := userctx.UserContext{ID: 7, Preset: "worker"}
-	for _, res := range []rbac.Resource{
-		rbac.ResourceProcess, rbac.ResourceTask, rbac.ResourceMilestone, rbac.ResourceAssignment,
+	user := access.UserContext{ID: 7, Preset: "worker"}
+	for _, res := range []access.Resource{
+		access.ResourceProcess, access.ResourceTask, access.ResourceMilestone, access.ResourceAssignment,
 	} {
 		t.Run(engine.ResourceName(res), func(t *testing.T) {
 			if !engine.CanUser(user, res, engine.ActionView) {
@@ -41,7 +40,7 @@ func TestParentViewWinsOverChildDenials(t *testing.T) {
 			}
 		})
 	}
-	if engine.CanUser(user, rbac.ResourceResource, engine.ActionView) {
+	if engine.CanUser(user, access.ResourceResource, engine.ActionView) {
 		t.Fatal("planning view inherited into resource management")
 	}
 }
@@ -50,19 +49,19 @@ func TestParentViewWinsOverChildDenials(t *testing.T) {
 func TestViewInheritanceProbeFailsClosed(t *testing.T) {
 	publishWithRules(t, []engine.RuleGrant{{Sub: "7", Key: "project/view", Scope: "all"}}, nil, nil)
 	engine.SetOwnerProbe(&engine.OwnerProbe{
-		Parents: func(context.Context, rbac.Resource, int64) ([]engine.Target, error) {
+		Parents: func(context.Context, access.Resource, int64) ([]engine.Target, error) {
 			return nil, errors.New("database unavailable")
 		},
 	})
 	t.Cleanup(func() { engine.SetOwnerProbe(nil) })
-	if engine.EnforceTarget(userctx.UserContext{ID: 7, Preset: "worker"}, engine.Target{
-		Res: rbac.ResourceTask, Act: engine.ActionView, ID: 1, Ctx: t.Context(),
+	if engine.EnforceTarget(access.UserContext{ID: 7, Preset: "worker"}, engine.Target{
+		Res: access.ResourceTask, Act: engine.ActionView, ID: 1, Ctx: t.Context(),
 	}) {
 		t.Fatal("failed ancestry lookup granted access")
 	}
 }
 
-func assertInheritedTarget(t *testing.T, user userctx.UserContext, res rbac.Resource, id int64) {
+func assertInheritedTarget(t *testing.T, user access.UserContext, res access.Resource, id int64) {
 	t.Helper()
 	target := engine.Target{Res: res, Act: engine.ActionView, ID: id, Ctx: t.Context()}
 	if got := engine.EnforceTarget(user, target); got != (id == 7) {

@@ -21,6 +21,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/database"
 	idem "github.com/Koshsky/erp-backend/internal/idempotency"
 	"github.com/Koshsky/erp-backend/internal/idempotency/repository"
@@ -136,7 +137,7 @@ func (f *operationFixture) routes(handler gin.HandlerFunc) *gin.Engine {
 			c.AbortWithStatus(http.StatusUnauthorized)
 			return
 		}
-		c.Set(userctx.KeyUser, userctx.UserContext{ID: id})
+		c.Set(userctx.KeyUser, access.UserContext{ID: id})
 		c.Next()
 	})
 	group.Use(middleware.Handler())

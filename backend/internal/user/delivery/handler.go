@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/authz/engine"
 	userservice "github.com/Koshsky/erp-backend/internal/user/service"
 	"github.com/Koshsky/erp-backend/pkg/errors"
@@ -99,9 +100,9 @@ func (h *UserHandler) listUsers(c *gin.Context, accounts bool) {
 		response.Error(c, h.logger, err)
 		return
 	}
-	scope := engine.CompileViewScopeUser(user, rbac.ResourceWorker)
+	scope := engine.CompileViewScopeUser(user, access.ResourceWorker)
 	if accounts {
-		scope = rbac.ListScope{All: true}
+		scope = access.ListScope{All: true}
 	}
 	items, total, err := h.service.ListUsers(
 		c.Request.Context(),

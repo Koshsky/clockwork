@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/authz/engine"
 	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
 	tracingpkg "github.com/Koshsky/erp-backend/internal/tracing"
@@ -49,20 +50,20 @@ func TestTaskCreateParentAccess(t *testing.T) {
 				userID = 7
 			}
 			data := rbac.Data{
-				ProcessOwners: func(context.Context, int64) (rbac.Owners, error) {
-					return rbac.Owners{ProjectOwner: 9, ProcessOwner: 3}, nil
+				ProcessOwners: func(context.Context, int64) (access.Owners, error) {
+					return access.Owners{ProjectOwner: 9, ProcessOwner: 3}, nil
 				},
-				TaskOwners: func(_ context.Context, id int64) (rbac.Owners, error) {
+				TaskOwners: func(_ context.Context, id int64) (access.Owners, error) {
 					if id == 999 {
-						return rbac.Owners{}, errors.ErrNotFound
+						return access.Owners{}, errors.ErrNotFound
 					}
-					return rbac.Owners{ProjectOwner: 9, ProcessOwner: tc.parentOwner, Owner: 4}, nil
+					return access.Owners{ProjectOwner: 9, ProcessOwner: tc.parentOwner, Owner: 4}, nil
 				},
 			}
 			middleware := rbac.ProvideMiddleware(nil, tracingpkg.New(nil), data, policies)
 			router := gin.New()
 			router.Use(func(c *gin.Context) {
-				c.Set(userctx.KeyUser, userctx.UserContext{
+				c.Set(userctx.KeyUser, access.UserContext{
 					ID: userID, Preset: userdomain.PresetWorker, Admin: tc.admin,
 				})
 			})

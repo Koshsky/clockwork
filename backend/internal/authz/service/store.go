@@ -15,7 +15,6 @@ import (
 	"github.com/Koshsky/erp-backend/internal/config"
 	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
 	userdomain "github.com/Koshsky/erp-backend/internal/user/domain"
-	userctx "github.com/Koshsky/erp-backend/internal/userctx"
 )
 
 // reloadTimeout — budget of a single rule reload from the DB.
@@ -37,7 +36,7 @@ type PolicyStore struct {
 	stop     chan struct{}
 
 	mu      sync.RWMutex
-	users   map[int64]userctx.UserContext
+	users   map[int64]domain.UserContext
 	started bool
 }
 
@@ -54,7 +53,7 @@ func NewPolicyStore(
 		mw:       mw,
 		interval: time.Duration(interval),
 		stop:     make(chan struct{}),
-		users:    map[int64]userctx.UserContext{},
+		users:    map[int64]domain.UserContext{},
 	}
 }
 
@@ -172,12 +171,12 @@ func (s *PolicyStore) Reload(ctx context.Context) error {
 // assigned preset, individual overrides). It never touches the DB per request:
 // the snapshot is refreshed by Start/Reload. A missing entry (unknown or
 // not-yet-loaded user) returns the default deny principal.
-func (s *PolicyStore) EffectiveUser(_ context.Context, userID int64) (userctx.UserContext, error) {
+func (s *PolicyStore) EffectiveUser(_ context.Context, userID int64) (domain.UserContext, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	u, ok := s.users[userID]
 	if !ok {
-		return userctx.UserContext{ID: userID}, nil
+		return domain.UserContext{ID: userID}, nil
 	}
 	return u, nil
 }
@@ -185,7 +184,7 @@ func (s *PolicyStore) EffectiveUser(_ context.Context, userID int64) (userctx.Us
 // loadPrincipals builds the user → principal snapshot: every active user with
 // the assigned preset (admin preset ⇒ the admin bypass) and the individual
 // overrides grouped by user.
-func (s *PolicyStore) loadPrincipals(ctx context.Context) (map[int64]userctx.UserContext, error) {
+func (s *PolicyStore) loadPrincipals(ctx context.Context) (map[int64]domain.UserContext, error) {
 	rows, err := s.repo.ListUserPrincipals(ctx)
 	if err != nil {
 		return nil, err
@@ -194,22 +193,22 @@ func (s *PolicyStore) loadPrincipals(ctx context.Context) (map[int64]userctx.Use
 	if err != nil {
 		return nil, err
 	}
-	overrides := make(map[int64][]userctx.PermissionRule, len(perms))
+	overrides := make(map[int64][]domain.PermissionRule, len(perms))
 	for _, p := range perms {
-		overrides[p.UserID] = append(overrides[p.UserID], userctx.PermissionRule{
+		overrides[p.UserID] = append(overrides[p.UserID], domain.PermissionRule{
 			Resource: p.Resource,
 			Action:   p.Action,
 			Scope:    p.Scope,
 			Granted:  p.Granted,
 		})
 	}
-	users := make(map[int64]userctx.UserContext, len(rows))
+	users := make(map[int64]domain.UserContext, len(rows))
 	for _, row := range rows {
 		preset := ""
 		if row.Preset.Valid {
 			preset = row.Preset.String
 		}
-		users[row.UserID] = userctx.UserContext{
+		users[row.UserID] = domain.UserContext{
 			ID:     row.UserID,
 			Admin:  preset == userdomain.PresetAdmin,
 			Preset: preset,

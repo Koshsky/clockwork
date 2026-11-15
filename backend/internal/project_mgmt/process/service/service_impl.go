@@ -7,7 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/order"
 	repo "github.com/Koshsky/erp-backend/internal/project_mgmt/process/repository"
 	tracingpkg "github.com/Koshsky/erp-backend/internal/tracing"
@@ -199,7 +199,7 @@ func (s *ProcessService) ReorderProcesses(
 func (s *ProcessService) ListProcesses(
 	ctx context.Context,
 	userID int64,
-	scope rbac.ListScope,
+	scope access.ListScope,
 	ownerID int64,
 	limit, offset int,
 ) ([]dto.ProcessResponse, int64, error) {

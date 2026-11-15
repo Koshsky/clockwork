@@ -5,10 +5,9 @@ import (
 	"sync"
 	"testing"
 
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/authz/engine"
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
 	userdomain "github.com/Koshsky/erp-backend/internal/user/domain"
-	userctx "github.com/Koshsky/erp-backend/internal/userctx"
 )
 
 // userByPreset — test users for the golden equivalence check (uid, preset).
@@ -25,9 +24,9 @@ func userByPreset() map[string][2]string {
 // The acting user is the role's own uid (the subject id must match the role
 // assignment, exactly as in production).
 type ownerSample struct {
-	res rbac.Resource
+	res access.Resource
 	act engine.Action
-	own rbac.Owners
+	own access.Owners
 }
 
 // TestCasbinGoldenScope checks that the Casbin-backed decisions (ScopeForUser /
@@ -44,18 +43,18 @@ func TestCasbinGoldenScope(t *testing.T) { //nolint:paralleltest // общий s
 
 	m := engine.DefaultMatrix()
 	samples := []ownerSample{
-		{rbac.ResourceProject, engine.ActionView, rbac.Owners{ProjectOwner: 2}},
-		{rbac.ResourceProject, engine.ActionView, rbac.Owners{ProjectOwner: 9}},
-		{rbac.ResourceTask, engine.ActionView, rbac.Owners{ProjectOwner: 2, ProcessOwner: 3}},
-		{rbac.ResourceTask, engine.ActionView, rbac.Owners{ProjectOwner: 8, ProcessOwner: 9}},
-		{rbac.ResourceProcess, engine.ActionUpdate, rbac.Owners{ProjectOwner: 2, ProcessOwner: 1}},
-		{rbac.ResourceResource, engine.ActionCreate, rbac.Owners{Owner: 3}},
-		{rbac.ResourceWorker, engine.ActionView, rbac.Owners{Owner: 3}},
-		{rbac.ResourceState, engine.ActionView, rbac.Owners{}},
+		{access.ResourceProject, engine.ActionView, access.Owners{ProjectOwner: 2}},
+		{access.ResourceProject, engine.ActionView, access.Owners{ProjectOwner: 9}},
+		{access.ResourceTask, engine.ActionView, access.Owners{ProjectOwner: 2, ProcessOwner: 3}},
+		{access.ResourceTask, engine.ActionView, access.Owners{ProjectOwner: 8, ProcessOwner: 9}},
+		{access.ResourceProcess, engine.ActionUpdate, access.Owners{ProjectOwner: 2, ProcessOwner: 1}},
+		{access.ResourceResource, engine.ActionCreate, access.Owners{Owner: 3}},
+		{access.ResourceWorker, engine.ActionView, access.Owners{Owner: 3}},
+		{access.ResourceState, engine.ActionView, access.Owners{}},
 	}
 	for _, ids := range userByPreset() {
 		uid := parseUID(t, ids[0])
-		u := userctx.UserContext{ID: uid, Preset: ids[1]}
+		u := access.UserContext{ID: uid, Preset: ids[1]}
 		for _, s := range samples {
 			want := m.ScopeForUser(u, s.res, s.act)
 			if got := engine.ScopeForUser(u, s.res, s.act); got != want {
@@ -70,8 +69,8 @@ func TestCasbinGoldenScope(t *testing.T) { //nolint:paralleltest // общий s
 		}
 	}
 	for _, ids := range userByPreset() {
-		u := userctx.UserContext{ID: parseUID(t, ids[0]), Preset: ids[1]}
-		for res := rbac.ResourceProject; res <= rbac.ResourceAudit; res++ {
+		u := access.UserContext{ID: parseUID(t, ids[0]), Preset: ids[1]}
+		for res := access.ResourceProject; res <= access.ResourceAudit; res++ {
 			want := engine.ScopeName(m.ScopeForUser(u, res, engine.ActionView))
 			if got := engine.ViewScopeCodeUser(u, res); got != want {
 				t.Errorf("preset %s: view scope of %v = %q, want %q", ids[1], res, got, want)
@@ -83,7 +82,7 @@ func TestCasbinGoldenScope(t *testing.T) { //nolint:paralleltest // общий s
 // authorizeFromMatrix mirrors the old owner-chain decision over the data
 // matrix — the golden reference for the Casbin matcher. The acting user id is
 // u.ID (the subject id must match the role assignment).
-func authorizeFromMatrix(m engine.Matrix, u userctx.UserContext, s ownerSample) bool {
+func authorizeFromMatrix(m engine.Matrix, u access.UserContext, s ownerSample) bool {
 	switch m.ScopeForUser(u, s.res, s.act) {
 	case engine.ScopeProjectOwner:
 		return u.ID != 0 && s.own.ProjectOwner == u.ID
@@ -104,33 +103,33 @@ func authorizeFromMatrix(m engine.Matrix, u userctx.UserContext, s ownerSample) 
 	}
 }
 
-func ownerOf(res rbac.Resource, o rbac.Owners) int64 {
+func ownerOf(res access.Resource, o access.Owners) int64 {
 	switch res {
-	case rbac.ResourceProject:
+	case access.ResourceProject:
 		return o.ProjectOwner
-	case rbac.ResourceProcess:
+	case access.ResourceProcess:
 		return o.ProcessOwner
-	case rbac.ResourceTask, rbac.ResourceResource, rbac.ResourceWorker:
+	case access.ResourceTask, access.ResourceResource, access.ResourceWorker:
 		return o.Owner
-	case rbac.ResourceMilestone, rbac.ResourceAssignment, rbac.ResourceState,
-		rbac.ResourceComment, rbac.ResourceUserCatalog, rbac.ResourceRBACConfig,
-		rbac.ResourceUserAdmin, rbac.ResourceStateAdmin, rbac.ResourceOrgStructure,
-		rbac.ResourceAudit, rbac.ResourceAutoCreate:
+	case access.ResourceMilestone, access.ResourceAssignment, access.ResourceState,
+		access.ResourceComment, access.ResourceUserCatalog, access.ResourceRBACConfig,
+		access.ResourceUserAdmin, access.ResourceStateAdmin, access.ResourceOrgStructure,
+		access.ResourceAudit, access.ResourceAutoCreate:
 		return 0
 	}
 	return 0
 }
 
-func parentOf(res rbac.Resource, o rbac.Owners) int64 {
+func parentOf(res access.Resource, o access.Owners) int64 {
 	switch res {
-	case rbac.ResourceProcess:
+	case access.ResourceProcess:
 		return o.ProjectOwner
-	case rbac.ResourceTask, rbac.ResourceMilestone, rbac.ResourceAssignment:
+	case access.ResourceTask, access.ResourceMilestone, access.ResourceAssignment:
 		return o.ProcessOwner
-	case rbac.ResourceProject, rbac.ResourceState, rbac.ResourceResource,
-		rbac.ResourceWorker, rbac.ResourceComment, rbac.ResourceUserCatalog,
-		rbac.ResourceRBACConfig, rbac.ResourceUserAdmin, rbac.ResourceStateAdmin,
-		rbac.ResourceOrgStructure, rbac.ResourceAudit, rbac.ResourceAutoCreate:
+	case access.ResourceProject, access.ResourceState, access.ResourceResource,
+		access.ResourceWorker, access.ResourceComment, access.ResourceUserCatalog,
+		access.ResourceRBACConfig, access.ResourceUserAdmin, access.ResourceStateAdmin,
+		access.ResourceOrgStructure, access.ResourceAudit, access.ResourceAutoCreate:
 		return 0
 	}
 	return 0
@@ -152,18 +151,18 @@ func TestCasbinOverridePrecedence(t *testing.T) { //nolint:paralleltest // об�
 	)
 
 	// Grant wins over the (empty) worker preset.
-	granted := userctx.UserContext{ID: 7, Preset: userdomain.PresetWorker}
-	if got := engine.ScopeForUser(granted, rbac.ResourceTask, engine.ActionView); got != engine.ScopeAll {
+	granted := access.UserContext{ID: 7, Preset: userdomain.PresetWorker}
+	if got := engine.ScopeForUser(granted, access.ResourceTask, engine.ActionView); got != engine.ScopeAll {
 		t.Errorf("grant override: got %v; want all", got)
 	}
 	// The revoke beats the worker's (absent) preset — no task.create at all.
-	if engine.CanUser(granted, rbac.ResourceTask, engine.ActionCreate) {
+	if engine.CanUser(granted, access.ResourceTask, engine.ActionCreate) {
 		t.Errorf("revoke override: task.create must be denied")
 	}
 
 	// Admin bypass ignores the deny rows entirely.
-	adminUser := userctx.UserContext{ID: 9, Preset: userdomain.PresetAdmin, Admin: true}
-	if got := engine.ViewScopeCodeUser(adminUser, rbac.ResourceProject); got != "all" {
+	adminUser := access.UserContext{ID: 9, Preset: userdomain.PresetAdmin, Admin: true}
+	if got := engine.ViewScopeCodeUser(adminUser, access.ResourceProject); got != "all" {
 		t.Errorf("admin bypass vs deny row: got %q; want all", got)
 	}
 
@@ -180,7 +179,7 @@ func TestCasbinOverridePrecedence(t *testing.T) { //nolint:paralleltest // об�
 // is read-only and immutable).
 func TestCasbinConcurrentReads(t *testing.T) { //nolint:paralleltest // общий snapshot движка — не параллельно
 	publishWithRules(t, nil, nil, []engine.RoleAssign{{User: "5", Preset: userdomain.PresetProjectManager}})
-	u := userctx.UserContext{ID: 5, Preset: userdomain.PresetProjectManager}
+	u := access.UserContext{ID: 5, Preset: userdomain.PresetProjectManager}
 	var wg sync.WaitGroup
 	for i := range 64 {
 		wg.Add(1)
@@ -188,15 +187,15 @@ func TestCasbinConcurrentReads(t *testing.T) { //nolint:paralleltest // общи
 			defer wg.Done()
 			ok := engine.AuthorizeUser(
 				u,
-				rbac.ResourceTask,
+				access.ResourceTask,
 				engine.ActionView,
-				rbac.Owners{ProjectOwner: 1, ProcessOwner: id},
+				access.Owners{ProjectOwner: 1, ProcessOwner: id},
 				u.ID,
 			)
 			if ok {
 				t.Errorf("RP cannot gain project access through process ownership")
 			}
-			_ = engine.ViewScopeCodeUser(u, rbac.ResourceProject)
+			_ = engine.ViewScopeCodeUser(u, access.ResourceProject)
 		}(int64(1 + i%10))
 	}
 	wg.Wait()

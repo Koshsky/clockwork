@@ -33,6 +33,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	tracingmw "github.com/Koshsky/erp-backend/internal/middleware/tracing"
 	"github.com/Koshsky/erp-backend/internal/response"
 	"github.com/Koshsky/erp-backend/internal/userctx"
 )
@@ -46,7 +47,7 @@ import (
 // own token bucket keyed by user id.
 func (a *App) registerRoutes(router *gin.Engine) {
 	api := router.Group("/api/v1")
-	api.Use(a.tracer.GinSpan("middleware.ratelimit.public"))
+	api.Use(tracingmw.GinSpan(a.tracer, "middleware.ratelimit.public"))
 	api.Use(a.rateLimiter.FromConfig(a.cfg.RateLimit))
 	// Audit capture for the public routes (only the /auth/* mutations are
 	// classified; everything else passes through untouched).
@@ -63,23 +64,23 @@ func (a *App) registerRoutes(router *gin.Engine) {
 	}
 
 	protected := router.Group("/api/v1")
-	protected.Use(a.tracer.GinSpan("middleware.auth"))
+	protected.Use(tracingmw.GinSpan(a.tracer, "middleware.auth"))
 	protected.Use(a.authMw.RequireAuth())
 	// Audit capture for protected routes: runs right after auth (so the actor
 	// is known) and before idempotency/handlers, reading the body first and
 	// restoring it for the downstream chain.
 	if a.auditMw != nil {
-		protected.Use(a.tracer.GinSpan("middleware.audit"))
+		protected.Use(tracingmw.GinSpan(a.tracer, "middleware.audit"))
 		protected.Use(a.auditMw.Handler())
 	}
 	// Idempotency-Key: pass-through without a header; with a header — idempotent
 	// create (replay-safe). Mounted globally on protected, since the key is
 	// scoped by (key, user_id, method, path) and active only when an
 	// Idempotency-Key header is present.
-	protected.Use(a.tracer.GinSpan("middleware.idempotency"))
+	protected.Use(tracingmw.GinSpan(a.tracer, "middleware.idempotency"))
 	protected.Use(a.idemMw.Handler())
 	protected.Use(a.idemMw.RevisionHandler())
-	protected.Use(a.tracer.GinSpan("middleware.ratelimit.user"))
+	protected.Use(tracingmw.GinSpan(a.tracer, "middleware.ratelimit.user"))
 	protected.Use(a.rateLimiter.FromConfigKeyed(a.cfg.UserRateLimit, a.userKey))
 	a.idemMw.RegisterRoutes(protected)
 	for _, m := range a.modules {

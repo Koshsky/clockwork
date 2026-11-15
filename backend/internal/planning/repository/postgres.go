@@ -7,8 +7,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/database"
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
 	"github.com/Koshsky/erp-backend/internal/planning/repository/sqlc"
 )
 
@@ -37,7 +37,7 @@ func (r *PlanningRepository) q(ctx context.Context) *sqlc.Queries {
 func (r *PlanningRepository) ListProjects(
 	ctx context.Context,
 	userID int64,
-	scope rbac.ListScope,
+	scope access.ListScope,
 ) ([]sqlc.Project, error) {
 	return r.q(ctx).ListProjects(ctx, sqlc.ListProjectsParams{
 		UserID:            userID,
@@ -57,7 +57,7 @@ func (r *PlanningRepository) ListProjectsByIDs(
 	ctx context.Context,
 	ids []int64,
 	userID int64,
-	scope rbac.ListScope,
+	scope access.ListScope,
 ) ([]sqlc.Project, error) {
 	return r.q(ctx).ListProjectsByIDs(ctx, sqlc.ListProjectsByIDsParams{
 		Ids:               ids,
@@ -74,7 +74,7 @@ func (r *PlanningRepository) ListProjectsByIDs(
 func (r *PlanningRepository) ListProcesses(
 	ctx context.Context,
 	userID int64,
-	scope rbac.ListScope,
+	scope access.ListScope,
 ) ([]sqlc.ListProcessesRow, error) {
 	return r.q(ctx).ListProcesses(ctx, sqlc.ListProcessesParams{
 		UserID:         userID,
@@ -98,7 +98,7 @@ func (r *PlanningRepository) ListProcesses(
 func (r *PlanningRepository) ListProcessesByTaskScope(
 	ctx context.Context,
 	userID int64,
-	scope rbac.ListScope,
+	scope access.ListScope,
 ) ([]sqlc.ListProcessesByTaskScopeRow, error) {
 	return r.q(ctx).ListProcessesByTaskScope(ctx, sqlc.ListProcessesByTaskScopeParams{
 		UserID:         userID,
@@ -121,7 +121,7 @@ func (r *PlanningRepository) ListTasksByProcessIDs(
 	ctx context.Context,
 	processIDs []int64,
 	userID int64,
-	scope rbac.ListScope,
+	scope access.ListScope,
 ) ([]sqlc.Task, error) {
 	return r.q(ctx).ListTasksByProcessIDs(ctx, sqlc.ListTasksByProcessIDsParams{
 		ProcessIds:     processIDs,
@@ -185,7 +185,7 @@ func (r *PlanningRepository) ListTaskDependenciesByProcessIDs(
 func (r *PlanningRepository) ListResources(
 	ctx context.Context,
 	userID int64,
-	scope rbac.ListScope,
+	scope access.ListScope,
 ) ([]sqlc.Resource, error) {
 	return r.q(ctx).ListResources(ctx, sqlc.ListResourcesParams{
 		UserID:             userID,
