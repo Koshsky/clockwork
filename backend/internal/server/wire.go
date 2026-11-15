@@ -9,6 +9,7 @@ import (
 	"github.com/Koshsky/erp-backend/internal/audit"
 	"github.com/Koshsky/erp-backend/internal/auth"
 	authRepo "github.com/Koshsky/erp-backend/internal/auth/repository"
+	authService "github.com/Koshsky/erp-backend/internal/auth/service"
 	"github.com/Koshsky/erp-backend/internal/authz"
 	"github.com/Koshsky/erp-backend/internal/authz/engine"
 	authzService "github.com/Koshsky/erp-backend/internal/authz/service"
@@ -65,6 +66,8 @@ func InitializeApp() (*App, error) {
 		// The audit client consumes the user service to resolve the `user`
 		// filter (login/full name) and to enrich actor display names.
 		wire.Bind(new(audit.UserLookup), new(*userservice.UserService)),
+		// Auth consumes the user service provided by a sibling module.
+		wire.Bind(new(authService.UserService), new(*userservice.UserService)),
 		// The auth middleware resolves the caller's current rights from the
 		// in-memory RBAC snapshot (PolicyStore) — no per-request DB call.
 		wire.Bind(new(authMw.PrincipalResolver), new(*authzService.PolicyStore)),

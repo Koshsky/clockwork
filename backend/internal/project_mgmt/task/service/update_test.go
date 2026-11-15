@@ -3,6 +3,7 @@ package service //nolint:testpackage // Verifies the service with an injected re
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"testing"
 
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/task/domain"
@@ -99,10 +100,7 @@ func TestUpdateTaskDateConstraints(t *testing.T) {
 			if tc.rejected {
 				checker.err = dependencyErr
 			}
-			service := &TaskService{
-				repository: repository, tracer: tracing.New(nil), mapper: &TaskMapper{},
-				validator: &TaskValidator{}, deps: checker,
-			}
+			service := NewTaskService(slog.New(slog.DiscardHandler), tracing.New(nil), repository, checker)
 			if tc.noChecker {
 				service.deps = nil
 			}

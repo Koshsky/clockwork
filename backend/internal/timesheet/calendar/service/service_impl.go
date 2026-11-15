@@ -10,7 +10,6 @@ import (
 
 	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/timesheet/calendar/dto"
-	repo "github.com/Koshsky/erp-backend/internal/timesheet/calendar/repository"
 	"github.com/Koshsky/erp-backend/internal/timesheet/calendar/repository/sqlc"
 	tracingpkg "github.com/Koshsky/erp-backend/internal/tracing"
 	"github.com/Koshsky/erp-backend/pkg/date"
@@ -31,7 +30,7 @@ type CalendarService struct {
 }
 
 // NewCalendarService builds the CalendarService service.
-func NewCalendarService(logger *slog.Logger, tracer *tracingpkg.Tracer, r *repo.CalendarRepository) *CalendarService {
+func NewCalendarService(logger *slog.Logger, tracer *tracingpkg.Tracer, r CalendarRepository) *CalendarService {
 	return &CalendarService{
 		logger:     logger.With("component", "calendar_service"),
 		repository: r,

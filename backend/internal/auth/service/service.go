@@ -13,10 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 
-	userservice "github.com/Koshsky/erp-backend/internal/user/service"
-
 	"github.com/Koshsky/erp-backend/internal/auth/dto"
-	repo "github.com/Koshsky/erp-backend/internal/auth/repository"
 	"github.com/Koshsky/erp-backend/internal/auth/repository/sqlc"
 	"github.com/Koshsky/erp-backend/internal/security/hasher"
 	"github.com/Koshsky/erp-backend/internal/security/jwt"
@@ -57,9 +54,9 @@ type AuthService struct {
 // NewAuthService builds the auth service.
 func NewAuthService(
 	logger *slog.Logger,
-	users *userservice.UserService,
+	users UserService,
 	jwtService *jwt.Service,
-	sessions *repo.AuthRepository,
+	sessions SessionRepository,
 	tracer *tracingpkg.Tracer,
 ) *AuthService {
 	return &AuthService{

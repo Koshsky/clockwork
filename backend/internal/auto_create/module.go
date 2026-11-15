@@ -15,6 +15,7 @@ import (
 //nolint:gochecknoglobals // wire provider set (established module pattern)
 var ProviderSet = wire.NewSet(
 	repository.NewAutoCreateRepository,
+	wire.Bind(new(service.AutoCreateRepository), new(*repository.AutoCreateRepository)),
 	service.NewAutoCreateService,
 	delivery.NewAutoCreateHandler,
 	ProvideModule,

@@ -48,6 +48,7 @@ const (
 var ProviderSet = wire.NewSet(
 	service.NewAuthService,
 	repository.NewAuthRepository,
+	wire.Bind(new(service.SessionRepository), new(*repository.AuthRepository)),
 	delivery.NewAuthHandler,
 	ProvideModule,
 )

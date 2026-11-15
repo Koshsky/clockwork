@@ -6,7 +6,6 @@ import (
 	"log/slog"
 
 	access "github.com/Koshsky/erp-backend/internal/authz/domain"
-	repo "github.com/Koshsky/erp-backend/internal/timesheet/resource/repository"
 
 	"github.com/Koshsky/erp-backend/internal/timesheet/resource/dto"
 	tracingpkg "github.com/Koshsky/erp-backend/internal/tracing"
@@ -24,7 +23,7 @@ type ResourceService struct {
 }
 
 // NewResourceService builds the ResourceService service.
-func NewResourceService(logger *slog.Logger, tracer *tracingpkg.Tracer, r *repo.ResourceRepository) *ResourceService {
+func NewResourceService(logger *slog.Logger, tracer *tracingpkg.Tracer, r ResourceRepository) *ResourceService {
 	return &ResourceService{
 		logger:     logger.With("component", "resource_service"),
 		repository: r,

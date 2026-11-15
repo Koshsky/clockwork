@@ -1,4 +1,4 @@
-//nolint:testpackage // service tests drive the unexported repository seam (policyRepository)
+//nolint:testpackage // tests inspect snapshot publication and repository call ordering.
 package service
 
 import (
@@ -22,7 +22,7 @@ import (
 	"github.com/Koshsky/erp-backend/pkg/errors"
 )
 
-// stubPolicyRepo is an in-memory policyRepository. It records every call in
+// stubPolicyRepo is an in-memory PolicyRepository. It records every call in
 // callLog and implements the transactional contract of ResetPolicies on its
 // persisted state: the deletes and the upserts are applied step by step, and a
 // failure on the failOnInsert-th insert rolls the whole state back — nothing
@@ -187,16 +187,9 @@ func (s *stubPolicyRepo) ListAllUserPermissions(_ context.Context) ([]repository
 // in-memory PolicyStore, so every repository call and the engine apply that
 // the service triggers are observable through the stub.
 func newAuthzTestService(repo *stubPolicyRepo) *Service {
-	store := &PolicyStore{
-		logger: slog.New(slog.DiscardHandler),
-		repo:   repo,
-		mw:     &rbac.Middleware{},
-	}
-	return &Service{
-		logger: slog.New(slog.DiscardHandler),
-		repo:   repo,
-		store:  store,
-	}
+	logger := slog.New(slog.DiscardHandler)
+	store := NewPolicyStore(logger, repo, &rbac.Middleware{}, 0)
+	return NewRBACService(logger, repo, store)
 }
 
 // defaultRoutePolicies returns the default route policy set as repository

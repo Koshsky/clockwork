@@ -172,11 +172,7 @@ func (s *stubPlanningRepo) ListTaskDependenciesByProcessIDs(
 
 // newPlanningTestService builds a PlanningService over the stub repository.
 func newPlanningTestService(repo *stubPlanningRepo) *PlanningService {
-	return &PlanningService{
-		logger:     slog.New(slog.DiscardHandler),
-		tracer:     tracing.New(nil),
-		repository: repo,
-	}
+	return NewPlanningService(slog.New(slog.DiscardHandler), tracing.New(nil), repo)
 }
 
 // projectRow builds a project row (only the fields the aggregate reads).

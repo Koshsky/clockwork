@@ -10,7 +10,6 @@ import (
 
 	"github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/authz/engine"
-	"github.com/Koshsky/erp-backend/internal/authz/repository"
 	"github.com/Koshsky/erp-backend/internal/authz/repository/sqlc"
 	"github.com/Koshsky/erp-backend/internal/config"
 	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
@@ -30,7 +29,7 @@ const reloadTimeout = 10 * time.Second
 // applied.
 type PolicyStore struct {
 	logger   *slog.Logger
-	repo     policyRepository
+	repo     PolicyRepository
 	mw       *rbac.Middleware
 	interval time.Duration
 	stop     chan struct{}
@@ -43,7 +42,7 @@ type PolicyStore struct {
 // NewPolicyStore builds the policy store.
 func NewPolicyStore(
 	logger *slog.Logger,
-	repo *repository.RuleRepository,
+	repo PolicyRepository,
 	mw *rbac.Middleware,
 	interval config.Duration,
 ) *PolicyStore {

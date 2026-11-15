@@ -21,14 +21,17 @@ import (
 //nolint:gochecknoglobals // wire provider set (established module pattern)
 var ProviderSet = wire.NewSet(
 	resourceRepo.NewResourceRepository,
+	wire.Bind(new(resourceService.ResourceRepository), new(*resourceRepo.ResourceRepository)),
 	resourceService.NewResourceService,
 	resourceDelivery.NewResourceHandler,
 
 	stateRepo.NewStateRepository,
+	wire.Bind(new(stateService.StateRepository), new(*stateRepo.StateRepository)),
 	stateService.NewStateService,
 	stateDelivery.NewStateHandler,
 
 	calendarRepo.NewCalendarRepository,
+	wire.Bind(new(calendarService.CalendarRepository), new(*calendarRepo.CalendarRepository)),
 	calendarService.NewCalendarService,
 	calendarDelivery.NewCalendarHandler,
 

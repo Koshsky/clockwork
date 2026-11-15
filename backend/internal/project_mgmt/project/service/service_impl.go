@@ -8,7 +8,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	access "github.com/Koshsky/erp-backend/internal/authz/domain"
-	repo "github.com/Koshsky/erp-backend/internal/project_mgmt/project/repository"
 	tracingpkg "github.com/Koshsky/erp-backend/internal/tracing"
 
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/project/dto"
@@ -25,7 +24,7 @@ type ProjectService struct {
 }
 
 // NewProjectService builds the ProjectService service.
-func NewProjectService(logger *slog.Logger, tracer *tracingpkg.Tracer, r *repo.ProjectRepository) *ProjectService {
+func NewProjectService(logger *slog.Logger, tracer *tracingpkg.Tracer, r ProjectRepository) *ProjectService {
 	return &ProjectService{
 		logger:     logger.With("component", "project_service"),
 		tracer:     tracer,

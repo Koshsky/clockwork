@@ -163,18 +163,18 @@ func testUser() *userDTO.UserResponse {
 // newTestAuthService wires the service with an in-memory session store, a fake
 // user source and a real JWT service (only its expiry durations matter here).
 func newTestAuthService(store *fakeSessionStore) *AuthService {
-	return &AuthService{
-		logger: slog.New(slog.DiscardHandler),
-		users:  fakeUserService{},
-		jwt: erpjwt.ProvideJWTService(config.JWTConfig{
+	return NewAuthService(
+		slog.New(slog.DiscardHandler),
+		fakeUserService{},
+		erpjwt.ProvideJWTService(config.JWTConfig{
 			SecretKey:     testJWTSecret,
 			AccessExpiry:  config.Duration(15 * time.Minute),
 			RefreshExpiry: config.Duration(168 * time.Hour),
 			Issuer:        "mvs-erp-test",
 		}),
-		sessions: store,
-		tracer:   tracingpkg.New(nil),
-	}
+		store,
+		tracingpkg.New(nil),
+	)
 }
 
 // TestRefreshTokenBenignReuseWithinGrace — a client retry presenting the

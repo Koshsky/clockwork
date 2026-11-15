@@ -159,13 +159,7 @@ func (r *stubRepo) DeleteStateRange(_ context.Context, _ int64, _, _ date.Date, 
 
 // newStubService builds a UserService over the stub repo.
 func newStubService(repo *stubRepo) *UserService {
-	return &UserService{
-		logger:     slog.New(slog.DiscardHandler),
-		repository: repo,
-		mapper:     &UserMapper{},
-		validator:  &UserValidator{},
-		tracer:     tracing.New(nil),
-	}
+	return NewUserService(slog.New(slog.DiscardHandler), tracing.New(nil), repo, nil, nil, nil)
 }
 
 // userRow builds a user row (preset as [sql.NullString]; "" = no preset).

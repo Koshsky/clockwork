@@ -9,7 +9,6 @@ import (
 
 	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/order"
-	repo "github.com/Koshsky/erp-backend/internal/project_mgmt/process/repository"
 	tracingpkg "github.com/Koshsky/erp-backend/internal/tracing"
 
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/process/dto"
@@ -26,7 +25,7 @@ type ProcessService struct {
 }
 
 // NewProcessService builds the ProcessService service.
-func NewProcessService(logger *slog.Logger, tracer *tracingpkg.Tracer, r *repo.ProcessRepository) *ProcessService {
+func NewProcessService(logger *slog.Logger, tracer *tracingpkg.Tracer, r ProcessRepository) *ProcessService {
 	return &ProcessService{
 		logger:     logger.With("component", "process_service"),
 		tracer:     tracer,

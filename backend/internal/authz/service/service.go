@@ -18,11 +18,9 @@ import (
 	"github.com/Koshsky/erp-backend/pkg/errors"
 )
 
-// policyRepository is the repository seam of the RBAC administration service
-// and the policy store; implemented by *repository.RuleRepository and by the
-// test fakes. Keeping the seam here lets the service be unit-tested without a
-// database (the concrete repository is injected unchanged by the constructors).
-type policyRepository interface {
+// PolicyRepository is shared by policy administration and snapshot loading.
+// It is exported so module composition can bind the existing SQL implementation.
+type PolicyRepository interface {
 	ListActivePresets(ctx context.Context) ([]sqlc.ListActivePresetsRow, error)
 	ListActiveRules(ctx context.Context) ([]sqlc.ListActivePresetRulesRow, error)
 	UpsertRule(
@@ -53,12 +51,12 @@ type policyRepository interface {
 // immediate application through the PolicyStore).
 type Service struct {
 	logger *slog.Logger
-	repo   policyRepository
+	repo   PolicyRepository
 	store  *PolicyStore
 }
 
 // NewRBACService builds the RBAC administration service.
-func NewRBACService(logger *slog.Logger, repo *repository.RuleRepository, store *PolicyStore) *Service {
+func NewRBACService(logger *slog.Logger, repo PolicyRepository, store *PolicyStore) *Service {
 	return &Service{logger: logger.With("component", "rbacpolicy_service"), repo: repo, store: store}
 }
 
@@ -599,7 +597,7 @@ func findRulePreset(rules []sqlc.ListActivePresetRulesRow, id int64) (string, bo
 
 // resolvePresetRename validates an optional tag rename target of a preset
 // (pattern, built-in and catalog collisions); returns the effective tag.
-func resolvePresetRename(ctx context.Context, repo policyRepository, tag string, rename *string) (string, error) {
+func resolvePresetRename(ctx context.Context, repo PolicyRepository, tag string, rename *string) (string, error) {
 	if rename == nil {
 		return tag, nil
 	}

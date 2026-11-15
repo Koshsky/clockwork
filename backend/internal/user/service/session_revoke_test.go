@@ -32,14 +32,7 @@ func (s *stubSessionRevoker) revokedIDs() []int64 { return s.revoked }
 // newRevokeTestService builds a UserService over the stub repo with the given
 // session revoker (mirrors newStubService, adding the sessions hook).
 func newRevokeTestService(repo *stubRepo, revoker SessionRevoker) *UserService {
-	return &UserService{
-		logger:     slog.New(slog.DiscardHandler),
-		repository: repo,
-		mapper:     &UserMapper{},
-		validator:  &UserValidator{},
-		tracer:     tracing.New(nil),
-		sessions:   revoker,
-	}
+	return NewUserService(slog.New(slog.DiscardHandler), tracing.New(nil), repo, nil, revoker, nil)
 }
 
 // testUserID is the user id used across these tests.

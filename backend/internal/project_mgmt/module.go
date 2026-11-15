@@ -33,18 +33,22 @@ import (
 //nolint:gochecknoglobals // wire provider set (established module pattern)
 var ProviderSet = wire.NewSet(
 	projectRepo.NewProjectRepository,
+	wire.Bind(new(projectService.ProjectRepository), new(*projectRepo.ProjectRepository)),
 	projectService.NewProjectService,
 	projectDelivery.NewProjectHandler,
 
 	processRepo.NewProcessRepository,
+	wire.Bind(new(processService.ProcessRepository), new(*processRepo.ProcessRepository)),
 	processService.NewProcessService,
 	processDelivery.NewProcessHandler,
 
 	taskRepo.NewTaskRepository,
+	wire.Bind(new(taskService.TaskRepository), new(*taskRepo.TaskRepository)),
 	taskService.NewTaskService,
 	taskDelivery.NewTaskHandler,
 
 	depRepo.NewTaskDependencyRepository,
+	wire.Bind(new(depService.TaskDependencyRepository), new(*depRepo.TaskDependencyRepository)),
 	depService.NewTaskDependencyService,
 	depDelivery.NewTaskDependencyHandler,
 	// The task service validates date changes against the dependency links
@@ -52,14 +56,17 @@ var ProviderSet = wire.NewSet(
 	wire.Bind(new(taskService.ConstraintSource), new(*depService.TaskDependencyService)),
 
 	commentRepo.NewCommentRepository,
+	wire.Bind(new(commentService.CommentRepository), new(*commentRepo.CommentRepository)),
 	commentService.NewCommentService,
 	commentDelivery.NewCommentHandler,
 
 	milestoneRepo.NewMilestoneRepository,
+	wire.Bind(new(milestoneService.MilestoneRepository), new(*milestoneRepo.MilestoneRepository)),
 	milestoneService.NewMilestoneService,
 	milestoneDelivery.NewMilestoneHandler,
 
 	assignmentRepo.NewAssignmentRepository,
+	wire.Bind(new(service.AssignmentRepository), new(*assignmentRepo.AssignmentRepository)),
 	service.NewAssignmentService,
 	delivery.NewAssignmentHandler,
 

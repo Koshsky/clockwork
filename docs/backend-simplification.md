@@ -326,3 +326,42 @@ unnecessary layers. Package count is still not a success criterion.
   No database or runtime stack was started. No push, merge, CI, image build,
   release or deployment was performed. Local logs are outside Git in
   `../local/backend-b02-b03-20261115/` relative to the repository root.
+
+## B06 implementation ledger — 2026-11-15
+
+Continued on `refactor/backend-access-tracing` after `ac33371`, without starting
+another implementation branch. All 16 affected constructors now accept their
+existing consumer interfaces instead of concrete repositories; auth also accepts
+its existing `UserService` interface. Constructors still return concrete service
+pointers and retain their original bodies, logger/mapper/validator initialization,
+optional hooks and nil handling. Tokenized AST comparison confirmed unchanged
+bodies for 176 functions across the 16 production service files.
+
+The existing `policyRepository` was exported as `PolicyRepository` so module
+composition can name it in `wire.Bind`; no new interface, wrapper or method was
+introduced. Its existing repository-owned principal projections remain unchanged;
+removing that data-shape dependency is outside B06. PolicyStore's concrete HTTP
+publisher is still deferred to B05.
+
+Fifteen repository-interface bindings live with their module providers. Auth's
+user-service binding lives in server composition because the concrete user
+provider belongs to a sibling module. Wire 0.7.0 regenerated the same
+`wire_gen.go` bytes, preserving the runtime object graph.
+
+Existing session rotation/reuse, RBAC protection/reset, user session revocation,
+planning, calendar and task date-constraint tests now construct services through
+the real public constructors and existing fakes rather than private struct
+literals. Added three test functions with 21 named scenarios: the interface and
+concrete-return contracts of all 16 constructors, PolicyStore load failure and
+cancellation/default deny, and configuration reads/error/cancellation through an
+injected repository. No existing test functions were removed.
+
+Validation: build, vet and the full normal-tag suite passed (278 top-level tests,
+16 skipped; 2,450 pass events including subtests, 20 skips). All 358 Test functions
+compile/list with the integration tag; 64 integration-tagged functions are not
+executed by the normal suite. Full lint 2.15.0 passed with 0 issues; full race
+checks passed in all 35 packages with tests. Repository policy and whitespace
+checks passed. Frozen API/SDK/DTO/SQL/sqlc/migration/error and version groups
+remain identical to B01. No live DB/API/Electron acceptance or
+fresh SDK generation is claimed. Local evidence is outside Git in
+`../local/backend-b06-20261115/`; no push, merge, release or deployment is performed.

@@ -103,7 +103,7 @@ func TestBuildPeriodsTerminationAndMerge(t *testing.T) {
 // newTestCalendarService builds a CalendarService whose repository is never
 // reached by the validation tests (validation runs before any repo call).
 func newTestCalendarService() *CalendarService {
-	return &CalendarService{tracer: tracing.New(nil)}
+	return NewCalendarService(slog.New(slog.DiscardHandler), tracing.New(nil), nil)
 }
 
 // TestGetCalendarReversedRangeIsBadRequest checks that an inverted date range
@@ -193,11 +193,7 @@ func (s *stubCalendarRepo) ListUnavailableRanges(
 
 // newScopedCalendarService builds a CalendarService over the stub repository.
 func newScopedCalendarService(repo CalendarRepository) *CalendarService {
-	return &CalendarService{
-		logger:     slog.New(slog.DiscardHandler),
-		repository: repo,
-		tracer:     tracing.New(nil),
-	}
+	return NewCalendarService(slog.New(slog.DiscardHandler), tracing.New(nil), repo)
 }
 
 // calendarWindow is the date range shared by the view-scope tests.

@@ -8,7 +8,6 @@ import (
 
 	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/authz/engine"
-	repo "github.com/Koshsky/erp-backend/internal/user/repository"
 
 	"github.com/Koshsky/erp-backend/internal/security/creds"
 	"github.com/Koshsky/erp-backend/internal/security/hasher"
@@ -59,7 +58,7 @@ const maxUsernameSuffixAttempts = 1000
 func NewUserService(
 	logger *slog.Logger,
 	tracer *tracingpkg.Tracer,
-	r *repo.UserRepository,
+	r UserRepository,
 	rbac RBACReloader,
 	sessions SessionRevoker,
 	hibpChecker *hibp.Checker,

@@ -4,7 +4,6 @@ import (
 	"context"
 	"log/slog"
 
-	repo "github.com/Koshsky/erp-backend/internal/project_mgmt/comment/repository"
 	tracingpkg "github.com/Koshsky/erp-backend/internal/tracing"
 
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/comment/dto"
@@ -24,7 +23,7 @@ type CommentService struct {
 func NewCommentService(
 	logger *slog.Logger,
 	tracer *tracingpkg.Tracer,
-	r *repo.CommentRepository,
+	r CommentRepository,
 ) *CommentService {
 	return &CommentService{
 		logger:     logger.With("component", "comment_service"),

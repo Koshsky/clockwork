@@ -5,8 +5,6 @@ import (
 	"database/sql"
 	"log/slog"
 
-	repo "github.com/Koshsky/erp-backend/internal/timesheet/state/repository"
-
 	"github.com/Koshsky/erp-backend/internal/timesheet/state/dto"
 	tracingpkg "github.com/Koshsky/erp-backend/internal/tracing"
 	nullable "github.com/Koshsky/erp-backend/pkg/database"
@@ -22,7 +20,7 @@ type StateService struct {
 }
 
 // NewStateService builds the StateService service.
-func NewStateService(logger *slog.Logger, tracer *tracingpkg.Tracer, r *repo.StateRepository) *StateService {
+func NewStateService(logger *slog.Logger, tracer *tracingpkg.Tracer, r StateRepository) *StateService {
 	return &StateService{
 		logger:     logger.With("component", "state_service"),
 		repository: r,

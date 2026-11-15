@@ -4,7 +4,6 @@ import (
 	"context"
 	"log/slog"
 
-	repo "github.com/Koshsky/erp-backend/internal/project_mgmt/task_dependency/repository"
 	tracingpkg "github.com/Koshsky/erp-backend/internal/tracing"
 
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/task_dependency/dto"
@@ -24,7 +23,7 @@ type TaskDependencyService struct {
 func NewTaskDependencyService(
 	logger *slog.Logger,
 	tracer *tracingpkg.Tracer,
-	r *repo.TaskDependencyRepository,
+	r TaskDependencyRepository,
 ) *TaskDependencyService {
 	return &TaskDependencyService{
 		logger:     logger.With("component", "task_dependency_service"),

@@ -10,7 +10,6 @@ import (
 	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/order"
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/task/domain"
-	repo "github.com/Koshsky/erp-backend/internal/project_mgmt/task/repository"
 	tracingpkg "github.com/Koshsky/erp-backend/internal/tracing"
 
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/task/dto"
@@ -33,7 +32,7 @@ type TaskService struct {
 func NewTaskService(
 	logger *slog.Logger,
 	tracer *tracingpkg.Tracer,
-	r *repo.TaskRepository,
+	r TaskRepository,
 	deps ConstraintSource,
 ) *TaskService {
 	return &TaskService{

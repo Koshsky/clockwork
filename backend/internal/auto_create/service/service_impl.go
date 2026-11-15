@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"strings"
 
-	repo "github.com/Koshsky/erp-backend/internal/auto_create/repository"
 	tracingpkg "github.com/Koshsky/erp-backend/internal/tracing"
 
 	"github.com/Koshsky/erp-backend/internal/auto_create/dto"
@@ -25,7 +24,7 @@ type AutoCreateService struct {
 func NewAutoCreateService(
 	logger *slog.Logger,
 	tracer *tracingpkg.Tracer,
-	r *repo.AutoCreateRepository,
+	r AutoCreateRepository,
 ) *AutoCreateService {
 	return &AutoCreateService{
 		logger:     logger.With("component", "auto_create_service"),

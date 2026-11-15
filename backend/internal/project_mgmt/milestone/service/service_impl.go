@@ -6,7 +6,6 @@ import (
 	"log/slog"
 
 	access "github.com/Koshsky/erp-backend/internal/authz/domain"
-	repo "github.com/Koshsky/erp-backend/internal/project_mgmt/milestone/repository"
 	tracingpkg "github.com/Koshsky/erp-backend/internal/tracing"
 
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/milestone/dto"
@@ -26,7 +25,7 @@ type MilestoneService struct {
 func NewMilestoneService(
 	logger *slog.Logger,
 	tracer *tracingpkg.Tracer,
-	r *repo.MilestoneRepository,
+	r MilestoneRepository,
 ) *MilestoneService {
 	return &MilestoneService{
 		logger:     logger.With("component", "milestone_service"),
