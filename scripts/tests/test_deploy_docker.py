@@ -13,6 +13,58 @@ deploy = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(deploy)
 
 
+def ensure_test_image(docker, image):
+    try:
+        docker('image', 'inspect', image)
+    except subprocess.CalledProcessError:
+        docker('pull', image)
+
+
+def create_proxy_test_network(docker, name):
+    seed = uuid.uuid4().int
+    for attempt in range(16):
+        subnet = f'172.{16 + (seed + attempt) % 16}.{seed // 16 % 256}.0/28'
+        try:
+            docker('network', 'create', '--subnet', subnet, name)
+            return
+        except subprocess.CalledProcessError as error:
+            if b'overlap' not in (error.stderr or b'').lower():
+                raise
+    raise RuntimeError('No non-overlapping test subnet available')
+
+
+class DockerFixtureTest(unittest.TestCase):
+    def test_cached_image_does_not_require_registry_access(self):
+        from unittest.mock import Mock
+        docker = Mock(return_value=b'cached image')
+        ensure_test_image(docker, 'caddy:2-alpine')
+        docker.assert_called_once_with('image', 'inspect', 'caddy:2-alpine')
+
+    def test_missing_image_is_pulled(self):
+        from unittest.mock import Mock, call
+        docker = Mock(side_effect=[subprocess.CalledProcessError(1, 'inspect'), b'pulled'])
+        ensure_test_image(docker, 'caddy:2-alpine')
+        self.assertEqual(docker.call_args_list, [call('image', 'inspect', 'caddy:2-alpine'), call('pull', 'caddy:2-alpine')])
+
+    def test_network_has_enough_addresses_and_retries_a_docker_overlap(self):
+        import ipaddress
+        from unittest.mock import Mock
+        docker = Mock(side_effect=[subprocess.CalledProcessError(1, 'network', stderr=b'Pool overlaps'), b'network'])
+        create_proxy_test_network(docker, 'isolated-test')
+        self.assertEqual(docker.call_count, 2)
+        subnets = [ipaddress.ip_network(c.args[3]) for c in docker.call_args_list]
+        self.assertNotEqual(subnets[0], subnets[1])
+        self.assertTrue(all(subnet.prefixlen == 28 for subnet in subnets))
+        self.assertTrue(all(c.args[-1] == 'isolated-test' for c in docker.call_args_list))
+
+    def test_non_overlap_daemon_errors_are_not_hidden_by_network_retries(self):
+        from unittest.mock import Mock
+        docker = Mock(side_effect=subprocess.CalledProcessError(1, 'network', stderr=b'daemon unavailable'))
+        with self.assertRaises(subprocess.CalledProcessError):
+            create_proxy_test_network(docker, 'isolated-test')
+        self.assertEqual(docker.call_count, 1)
+
+
 @unittest.skipUnless(os.environ.get('CLOCKWORK_DEPLOY_DOCKER_TESTS') == '1', 'enable isolated Docker smoke tests explicitly')
 class DockerReconcileTest(unittest.TestCase):
     def test_reconcile_preserves_data_secrets_and_container_identity_then_restores_dump(self):
@@ -105,5 +157,94 @@ class DockerLokiReadinessTest(unittest.TestCase):
                 deploy.wait_loki('caddy:2-alpine')
         finally:
             subprocess.run(['docker', 'rm', '-f', '-v', name], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                           check=False, timeout=30)
+            docker('network', 'rm', name)
+
+
+@unittest.skipUnless(os.environ.get('CLOCKWORK_DEPLOY_DOCKER_TESTS') == '1', 'enable isolated Docker smoke tests explicitly')
+class DockerProxyOrderTest(unittest.TestCase):
+    def test_proxy_keeps_reserved_ip_during_full_recreation_and_repeat_keeps_data_and_ids(self):
+        import ipaddress
+        name = 'clockwork-proxy-test-' + uuid.uuid4().hex
+        def docker(*args):
+            return subprocess.run(['docker', *args], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  check=True, timeout=180).stdout
+        ensure_test_image(docker, 'caddy:2-alpine')
+        create_proxy_test_network(docker, name)
+        try:
+            docker('volume', 'create', name)
+            network = json.loads(docker('network', 'inspect', name))[0]
+            gateway = ipaddress.ip_address(network['IPAM']['Config'][0]['Gateway'])
+            proxy_ip = str(gateway + 1)
+            with tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp).resolve() / 'compose.yml'
+                def configure(generation, legacy):
+                    model = {'services': {}, 'networks': {'app': {'external': True, 'name': name}},
+                             'volumes': {'data': {'external': True, 'name': name}}}
+                    for offset, service in enumerate(('caddy', 'db', 'loki', 'erp', 'frontend'), start=1):
+                        attachment = {'ipv4_address': str(gateway + offset)} if legacy or service == 'caddy' else {}
+                        model['services'][service] = {
+                            'image': 'caddy:2-alpine', 'entrypoint': ['/bin/sh'],
+                            'command': ['-c', 'exec sleep 300'], 'environment': {'GENERATION': generation},
+                            'networks': {'app': attachment},
+                        }
+                    model['services']['caddy']['depends_on'] = ['frontend', 'erp']
+                    model['services']['db']['volumes'] = ['data:/data']
+                    path.write_text(json.dumps(model))
+                def run(*args):
+                    return docker('compose', '--project-name', name, '--env-file', '/dev/null', '-f', str(path), *args)
+                def inspect():
+                    ids = run('ps', '-aq').decode().split()
+                    return {c['Config']['Labels']['com.docker.compose.service']: c
+                            for c in json.loads(docker('inspect', *ids))}
+                up = ('up', '-d', '--no-build', '--pull', 'never', '--wait', '--wait-timeout', '30')
+                configure('old', legacy=True)
+                try:
+                    run(*up)
+                    run('exec', '-T', 'db', 'sh', '-c', 'printf keep-data > /data/marker')
+                    before = inspect()
+                    run('stop', '--timeout', '1', 'caddy', 'erp')
+                    docker('network', 'disconnect', name, before['erp']['Id'])
+                    docker('network', 'connect', '--ip', proxy_ip, '--alias', 'erp', name, before['erp']['Id'])
+                    docker('start', before['erp']['Id'])
+                    with self.assertRaises(subprocess.CalledProcessError):
+                        docker('start', before['caddy']['Id'])
+                    from unittest.mock import patch
+                    stale = {s: dict(c, NetworkSettings={'Networks': {'erp_app-network': c['NetworkSettings']['Networks'][name]}})
+                             for s, c in inspect().items()}
+                    with patch.object(deploy, 'PROXY_IP', proxy_ip):
+                        claimants = deploy.proxy_ip_applications(stale)
+                    self.assertEqual(claimants, ['erp'])
+                    for service in claimants:
+                        run('stop', '--timeout', '1', service)
+                    configure('new', legacy=False)
+                    run(*up, '--no-deps', 'caddy')
+                    reserved = inspect()
+                    self.assertEqual(reserved['caddy']['NetworkSettings']['Networks'][name]['IPAddress'], proxy_ip)
+                    self.assertNotEqual(reserved['caddy']['Id'], before['caddy']['Id'])
+                    for service in ('db', 'loki', 'erp', 'frontend'):
+                        self.assertEqual(reserved[service]['Id'], before[service]['Id'])
+                    self.assertFalse(reserved['erp']['State']['Running'])
+                    run(*up, 'db', 'loki')
+                    self.assertFalse(inspect()['erp']['State']['Running'])
+                    run(*up)
+                    after = inspect()
+                    self.assertEqual(after['caddy']['Id'], reserved['caddy']['Id'])
+                    self.assertEqual(after['caddy']['NetworkSettings']['Networks'][name]['IPAddress'], proxy_ip)
+                    for service, container in after.items():
+                        self.assertTrue(container['State']['Running'])
+                        self.assertNotEqual(container['Id'], before[service]['Id'])
+                        if service != 'caddy':
+                            self.assertNotEqual(container['NetworkSettings']['Networks'][name]['IPAddress'], proxy_ip)
+                    self.assertEqual(run('exec', '-T', 'db', 'cat', '/data/marker'), b'keep-data')
+                    run(*up, '--no-deps', 'caddy')
+                    run(*up, 'db', 'loki')
+                    run(*up)
+                    self.assertEqual({s: c['Id'] for s, c in inspect().items()}, {s: c['Id'] for s, c in after.items()})
+                    self.assertEqual(run('exec', '-T', 'db', 'cat', '/data/marker'), b'keep-data')
+                finally:
+                    run('down', '--volumes', '--timeout', '1')
+        finally:
+            subprocess.run(['docker', 'volume', 'rm', name], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                            check=False, timeout=30)
             docker('network', 'rm', name)

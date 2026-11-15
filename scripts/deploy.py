@@ -168,7 +168,12 @@ def compose(path, *args, stdin=None, stdout=subprocess.PIPE):
                     '-f', str(path), *args], stdin=stdin, stdout=stdout, timeout=600)
 
 
-def inspect_stack(env):
+def proxy_ip_applications(containers):
+    return [service for service in ('erp', 'frontend')
+            if containers[service]['NetworkSettings']['Networks']['erp_app-network'].get('IPAddress') == PROXY_IP]
+
+
+def inspect_stack(env, *, recover_proxy_ip=False):
     volumes = {}
     containers = {}
     for service in SERVICES:
@@ -191,9 +196,11 @@ def inspect_stack(env):
     network = docker_json('network', 'inspect', 'erp_app-network')[0]
     if network['IPAM']['Config'] != [{'Subnet': '172.18.0.0/16', 'Gateway': '172.18.0.1'}]:
         raise DeployError('Unexpected proxy network subnet')
+    recoverable = {containers[service]['Id'] for service in proxy_ip_applications(containers)}
     for peer_id, peer in network.get('Containers', {}).items():
         if peer.get('IPv4Address', '').split('/')[0] == PROXY_IP and peer_id != containers['caddy']['Id']:
-            raise DeployError('The reserved reverse-proxy IP is occupied by another container')
+            if not recover_proxy_ip or peer_id not in recoverable:
+                raise DeployError('The reserved reverse-proxy IP is occupied by another container')
     current_env = dict(item.split('=', 1) for item in containers['db']['Config']['Env'] if '=' in item)
     if current_env.get('PGDATA') != PGDATA:
         raise DeployError('Custom PGDATA requires a separate database migration')
@@ -422,7 +429,7 @@ def apply(request):
                 raise DeployError('Existing server Compose is required; bootstrap is not a deploy')
             if shutil.disk_usage(ROOT).free < SPACE_RESERVE:
                 raise DeployError('At least 2 GiB of free disk is required')
-            containers, volumes = inspect_stack(env)
+            containers, volumes = inspect_stack(env, recover_proxy_ip=True)
             assets = directory(ROOT / 'assets' / 'custom', private=False)
             values = dict(env, CUSTOM_ASSETS=str(assets))
             for name, key in [('backend.yaml', 'BACKEND_CONFIG'), ('Caddyfile', 'CADDY_CONFIG'),
@@ -444,6 +451,8 @@ def apply(request):
             applied = json.loads(applied_file.read_text()) if applied_file.exists() else {}
             if (active.read_bytes() == candidate.read_bytes()
                     and applied.get('containers') == runtime_signature(containers)
+                    and not proxy_ip_applications(containers)
+                    and containers['caddy']['NetworkSettings']['Networks']['erp_app-network'].get('IPAddress') == PROXY_IP
                     and runtime_ready(containers)):
                 status['images'] = images
                 ready(active, model)
@@ -477,12 +486,18 @@ def apply(request):
             previous = safe_path(request / 'previous-compose.yml')
             if not previous.exists():
                 atomic_write(previous, active.read_bytes())
-            if loki_changes(candidate, containers):
+            paused_services = ['caddy', 'erp'] if loki_changes(candidate, containers) else []
+            for service in proxy_ip_applications(containers):
+                if service not in paused_services:
+                    paused_services.append(service)
+            if paused_services:
                 phase('pause-traffic')
-                compose(active, 'stop', '--timeout', '30', 'caddy')
-                compose(active, 'stop', '--timeout', '30', 'erp')
+                for service in paused_services:
+                    compose(active, 'stop', '--timeout', '30', service)
             phase('apply')
             atomic_write(active, candidate.read_bytes())
+            # Reserve the proxy IP before any dynamically addressed service is recreated.
+            compose(active, 'up', '-d', '--no-deps', '--no-build', '--pull', 'never', '--wait', '--wait-timeout', '180', 'caddy')
             compose(active, 'up', '-d', '--no-build', '--pull', 'never', '--wait', '--wait-timeout', '180', 'db', 'loki')
             phase('wait-audit')
             wait_loki(model['services']['caddy']['image'])

@@ -258,8 +258,29 @@ class InventoryTest(unittest.TestCase):
                 result[0]['Containers'] = {'foreign-id': {'IPv4Address': deploy.PROXY_IP + '/16'}}
             return result
         self.json.side_effect = inspect
-        with self.assertRaises(deploy.DeployError):
-            deploy.inspect_stack(ENV)
+        for recover in (False, True):
+            with self.subTest(recover=recover), self.assertRaises(deploy.DeployError):
+                deploy.inspect_stack(ENV, recover_proxy_ip=recover)
+
+    def test_only_inventoried_application_ip_claimants_can_pass_recovery_preflight(self):
+        original = self.json_call
+        for service in ('erp', 'frontend', 'db', 'loki'):
+            self.containers[service]['NetworkSettings']['Networks']['erp_app-network']['IPAddress'] = deploy.PROXY_IP
+            def inspect(*args):
+                result = original(*args)
+                if args[:2] == ('network', 'inspect'):
+                    result[0]['Containers'] = {service + '-id': {'IPv4Address': deploy.PROXY_IP + '/16'}}
+                return result
+            self.json.side_effect = inspect
+            with self.subTest(service=service):
+                with self.assertRaises(deploy.DeployError):
+                    deploy.inspect_stack(ENV)
+                if service in ('erp', 'frontend'):
+                    self.assertEqual(deploy.inspect_stack(ENV, recover_proxy_ip=True)[0], self.containers)
+                else:
+                    with self.assertRaises(deploy.DeployError):
+                        deploy.inspect_stack(ENV, recover_proxy_ip=True)
+            self.containers[service]['NetworkSettings']['Networks']['erp_app-network']['IPAddress'] = '172.18.0.9'
 
     def test_unexpected_network_is_rejected(self):
         self.containers['erp']['NetworkSettings']['Networks'] = {'other': {}}
@@ -292,7 +313,7 @@ class ApplyTest(unittest.TestCase):
         self.events = []
         self.model = {'services': {n: {'image': n + '@sha256:' + 'c' * 64} for n in ('db', 'caddy', 'loki')}}
         self.fail = None
-        self.inventory = patch.object(deploy, 'inspect_stack', side_effect=lambda env: (self.current, {})).start()
+        self.inventory = patch.object(deploy, 'inspect_stack', side_effect=lambda env, **kwargs: (self.current, {})).start()
         self.pinned = patch.object(deploy, 'pinned_image', side_effect=lambda repo, version: repo + '@sha256:' + 'd' * 64).start()
         self.compose = patch.object(deploy, 'compose', side_effect=self.compose_call).start()
         self.validate = patch.object(deploy, 'validate_model', side_effect=self.validate_call).start()
@@ -325,7 +346,7 @@ class ApplyTest(unittest.TestCase):
         self.events.append(args[0])
         if args[0] == self.fail:
             raise deploy.DeployError('simulated ' + self.fail + ' failure')
-        if args[0] == 'up' and args[-1] != 'loki':
+        if args[0] == 'up' and args[-1] == '180':
             self.current = self.new
         if args[0] == 'config' and '--hash' in args:
             return ('loki ' + 'c' * 64).encode()
@@ -343,7 +364,7 @@ class ApplyTest(unittest.TestCase):
 
     def test_apply_orders_validation_backup_activation_and_readiness(self):
         deploy.apply(self.request)
-        self.assertEqual(self.events, ['config', 'validate-model', 'pull', 'validate-container', 'validate-container', 'backup', 'config', 'up', 'loki-ready', 'up', 'ready'])
+        self.assertEqual(self.events, ['config', 'validate-model', 'pull', 'validate-container', 'validate-container', 'backup', 'config', 'up', 'up', 'loki-ready', 'up', 'ready'])
         self.validate.assert_called_once_with(self.model)
         self.assertEqual(self.status()['phase'], 'succeeded')
         self.assertEqual((self.request / 'previous-compose.yml').read_text(), 'old compose')
@@ -363,6 +384,111 @@ class ApplyTest(unittest.TestCase):
         self.assertEqual(self.events, ['config', 'validate-model', 'ready'])
         self.pinned.assert_not_called()
         self.assertEqual(self.active.stat().st_mtime_ns, before)
+        self.assertEqual(self.status()['phase'], 'succeeded')
+
+    def test_proxy_reserves_its_ip_without_starting_dependencies_before_infrastructure(self):
+        deploy.apply(self.request)
+        up_calls = [c.args[1:] for c in self.compose.call_args_list if c.args[1] == 'up']
+        self.assertEqual(len(up_calls), 3)
+        self.assertEqual(up_calls[0][-1], 'caddy')
+        self.assertIn('--no-deps', up_calls[0])
+        self.assertEqual(up_calls[1][-2:], ('db', 'loki'))
+        self.assertEqual(up_calls[2][-1], '180')
+        for args in up_calls:
+            self.assertIn('--no-build', args)
+            self.assertEqual(args[args.index('--pull') + 1], 'never')
+            self.assertNotIn('--force-recreate', args)
+
+    def test_proxy_start_failure_blocks_other_services_and_retry_reuses_image_plan(self):
+        def fail_proxy(path, *args, **kwargs):
+            if args[0] == 'up' and args[-1] == 'caddy':
+                raise deploy.DeployError('proxy failed')
+            return self.compose_call(path, *args, **kwargs)
+        self.compose.side_effect = fail_proxy
+        with self.assertRaises(deploy.DeployError):
+            deploy.apply(self.request)
+        up_calls = [c.args[1:] for c in self.compose.call_args_list if c.args[1] == 'up']
+        self.assertEqual(len(up_calls), 1)
+        self.assertEqual(up_calls[0][-1], 'caddy')
+        self.loki.assert_not_called()
+        self.ready.assert_not_called()
+        self.assertEqual(self.status()['phase'], 'failed')
+        self.assertFalse((self.root / '.clockwork/applied.json').exists())
+        self.pinned.reset_mock()
+        self.compose.side_effect = self.compose_call
+        deploy.apply(self.request)
+        self.pinned.assert_not_called()
+        self.assertEqual(self.status()['phase'], 'succeeded')
+        self.assertEqual((self.request / 'previous-compose.yml').read_text(), 'old compose')
+
+    def test_application_failure_after_proxy_reservation_can_resume(self):
+        def fail_application(path, *args, **kwargs):
+            if args[0] == 'up' and args[-1] == '180':
+                raise deploy.DeployError('application failed')
+            return self.compose_call(path, *args, **kwargs)
+        self.compose.side_effect = fail_application
+        with self.assertRaises(deploy.DeployError):
+            deploy.apply(self.request)
+        self.loki.assert_called_once()
+        self.ready.assert_not_called()
+        self.assertEqual(self.status()['phase'], 'failed')
+        self.assertFalse((self.root / '.clockwork/applied.json').exists())
+        self.pinned.reset_mock()
+        self.compose.side_effect = self.compose_call
+        deploy.apply(self.request)
+        self.pinned.assert_not_called()
+        self.assertEqual(self.status()['phase'], 'succeeded')
+
+    def test_own_application_ip_is_released_after_backup_before_starting_proxy(self):
+        for service in ('erp', 'frontend'):
+            self.current = self.old
+            self.old[service]['NetworkSettings']['Networks']['erp_app-network']['IPAddress'] = deploy.PROXY_IP
+            self.old['caddy']['State']['Running'] = False
+            self.events.clear()
+            self.compose.reset_mock()
+            with self.subTest(service=service):
+                deploy.apply(self.request)
+                stops = [c.args[1:] for c in self.compose.call_args_list if c.args[1] == 'stop']
+                self.assertEqual(stops, [('stop', '--timeout', '30', service)])
+                self.assertLess(self.events.index('backup'), self.events.index('stop'))
+                self.assertLess(self.events.index('stop'), self.events.index('up'))
+                self.assertEqual(self.status()['phase'], 'succeeded')
+                self.assertTrue(self.inventory.call_args_list[-2].kwargs['recover_proxy_ip'])
+                self.assertFalse(self.inventory.call_args_list[-1].kwargs)
+            self.old[service]['NetworkSettings']['Networks']['erp_app-network']['IPAddress'] = '172.18.0.9'
+
+    def test_recovery_does_not_stop_ip_claimant_when_backup_fails(self):
+        self.old['erp']['NetworkSettings']['Networks']['erp_app-network']['IPAddress'] = deploy.PROXY_IP
+        self.fail = 'backup'
+        with self.assertRaises(deploy.DeployError):
+            deploy.apply(self.request)
+        self.assertNotIn('stop', self.events)
+        self.assertNotIn('up', self.events)
+        self.assertEqual(self.active.read_text(), 'old compose')
+
+    def test_failed_claimant_stop_blocks_startup_and_can_retry_with_same_images(self):
+        self.old['erp']['NetworkSettings']['Networks']['erp_app-network']['IPAddress'] = deploy.PROXY_IP
+        self.fail = 'stop'
+        with self.assertRaises(deploy.DeployError):
+            deploy.apply(self.request)
+        self.assertNotIn('up', self.events)
+        self.assertEqual(self.status()['phase'], 'failed')
+        self.pinned.reset_mock()
+        self.fail = None
+        deploy.apply(self.request)
+        self.pinned.assert_not_called()
+        self.assertEqual(self.status()['phase'], 'succeeded')
+
+    def test_ip_drift_cannot_take_the_successful_noop_path(self):
+        deploy.apply(self.request)
+        self.current = copy.deepcopy(self.new)
+        self.current['erp']['NetworkSettings']['Networks']['erp_app-network']['IPAddress'] = deploy.PROXY_IP
+        self.current['caddy']['NetworkSettings']['Networks']['erp_app-network']['IPAddress'] = '172.18.0.6'
+        self.events.clear()
+        deploy.apply(self.request)
+        self.assertEqual(self.backup.call_count, 2)
+        self.assertIn('stop', self.events)
+        self.assertIn('up', self.events)
         self.assertEqual(self.status()['phase'], 'succeeded')
 
     def test_config_only_change_changes_only_its_bind_source(self):
@@ -430,7 +556,7 @@ class ApplyTest(unittest.TestCase):
         self.assertLess(stop_caddy, stop_backend)
         self.assertLess(stop_backend, infra_up)
         self.assertLess(self.events.index('backup'), self.events.index('stop'))
-        self.assertEqual(self.events[-4:], ['up', 'loki-ready', 'up', 'ready'])
+        self.assertEqual(self.events[-5:], ['up', 'up', 'loki-ready', 'up', 'ready'])
 
     def test_unready_loki_cannot_start_application_or_report_success(self):
         self.old['loki']['Config']['Labels']['com.docker.compose.config-hash'] = 'old-config'
@@ -438,8 +564,10 @@ class ApplyTest(unittest.TestCase):
         with self.assertRaises(deploy.DeployError):
             deploy.apply(self.request)
         up_calls = [c.args[1:] for c in self.compose.call_args_list if c.args[1] == 'up']
-        self.assertEqual(len(up_calls), 1)
-        self.assertEqual(up_calls[0][-2:], ('db', 'loki'))
+        self.assertEqual(len(up_calls), 2)
+        self.assertEqual(up_calls[0][-1], 'caddy')
+        self.assertIn('--no-deps', up_calls[0])
+        self.assertEqual(up_calls[1][-2:], ('db', 'loki'))
         self.ready.assert_not_called()
         self.assertEqual(self.status()['phase'], 'failed')
         self.fail = None

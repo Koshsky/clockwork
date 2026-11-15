@@ -21,8 +21,10 @@ These names are an explicit safety boundary:
 
 The external network is `erp_app-network`, subnet `172.18.0.0/16`. The backend
 trusts only Caddy at its reserved `172.18.0.5/32` address for proxy headers;
-other peers cannot supply a forwarded client IP. The deploy refuses an address
-collision. Custom assets stay in
+other peers cannot supply a forwarded client IP. A stale backend/frontend container
+of this exact Compose stack holding the proxy IP can be stopped after verified
+backups, before Caddy reserves its address. Foreign containers and infrastructure
+IP collisions still fail preflight without stopping them. Custom assets stay in
 `/opt/erp/assets/custom`. Production configs live in `deploy/production/`;
 root `compose.yaml` remains the optional development stack.
 
@@ -131,9 +133,15 @@ configuration/custom assets, and archives both Caddy volumes directly from their
 validated host mountpoints. This also works if Caddy was stopped by a failed run.
 
 If Loki configuration changes, the worker stops Caddy first and then the backend
-with a 30-second shutdown timeout before touching Loki. It activates Compose,
-reconciles only PostgreSQL and Loki, and waits for the real Loki `/ready` HTTP
-endpoint before starting the application and public gateway. The readiness probe
+with a 30-second shutdown timeout before touching Loki. After activating Compose,
+it starts Caddy alone with `--no-deps` before reconciling any other container.
+This reserves Caddy's fixed IP before Docker can allocate it to a dynamically
+addressed service, including PostgreSQL and Loki. The gateway may temporarily
+return 502 while its upstreams are stopped or being replaced.
+
+The worker then reconciles only PostgreSQL and Loki and waits for the real Loki
+`/ready` HTTP endpoint before starting the application. Caddy's early start never
+starts its backend/frontend dependencies. The readiness probe
 uses curl from the pinned Caddy image on the existing network, with no published
 ports or application credentials. Unchanged Loki does not require a traffic pause;
 its HTTP readiness is still checked before application reconciliation and again
