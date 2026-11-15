@@ -46,15 +46,13 @@ export const t = i18n.global.t
 
 /**
  * Switches the active locale (used by the settings watcher and by the tests)
- * and keeps the document metadata in sync: the html lang attribute for
- * accessibility and the window title (the static <title> in index.html is only
- * the pre-paint fallback).
+ * and keeps the html lang attribute in sync for accessibility.
+ * Deployment branding owns the window title independently of the UI language.
  */
 export function setAppLocale(locale: AppLocale): void {
   i18n.global.locale.value = locale
   try {
     document.documentElement.lang = locale
-    document.title = t('app.title')
   } catch {
     // non-browser environment (tests)
   }

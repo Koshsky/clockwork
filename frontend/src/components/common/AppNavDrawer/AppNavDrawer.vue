@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { branding } from '../../../branding'
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import type { NavCategory, NavItem } from '../../../composables/useNavigation'
@@ -9,7 +10,7 @@ import { resolveAssetWithCustom } from '../../../assets'
 import { t } from '../../../i18n'
 import type { AppNavDrawerEmits, AppNavDrawerProps } from './types'
 
-const props = withDefaults(defineProps<AppNavDrawerProps>(), { brand: 'MVS ERP' })
+const props = defineProps<AppNavDrawerProps>()
 const emit = defineEmits<AppNavDrawerEmits>()
 const router = useRouter()
 
@@ -366,11 +367,11 @@ watch(() => props.categories, (cats) => loadItemIcons(cats), { immediate: true }
     :aria-label="t('nav.sections')"
   >
     <div class="nd-inner">
-      <!-- Drawer header: the only place the product brand lives. Closing the
-           drawer is done by the burger (which turns into an ×), Escape, a
+      <!-- Closing the drawer is done by the burger (which turns into an ×), Escape, a
            menu item click, or the scrim on narrow screens -->
       <div class="nd-top">
-        <div class="nd-brand">{{ props.brand }}</div>
+        <img v-if="branding.logo" :src="branding.logo" alt="" class="nd-brand-image" />
+        <div class="nd-brand" :title="props.brand ?? branding.name">{{ props.brand ?? branding.name }}</div>
       </div>
 
       <nav class="nd-scroll">
@@ -493,7 +494,18 @@ watch(() => props.categories, (cats) => loadItemIcons(cats), { immediate: true }
   border-bottom: 1px solid var(--ui-surface-3);
 }
 
+.nd-brand-image {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  flex: none;
+  margin-right: 10px;
+}
+
 .nd-brand {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: calc(var(--ui-font-scale, 1) * 20px);
   font-weight: 750;
   letter-spacing: 0.2px;

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { branding } from './branding'
 import { ref, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import ReconnectToast from './offline/ReconnectToast.vue'
@@ -31,7 +32,8 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(splashTimer) })
 
 <template>
   <div v-if="!ready" class="boot-splash">
-    <div class="boot-logo">MVS ERP</div>
+    <img v-if="branding.logo" :src="branding.logo" alt="" class="boot-brand-image" />
+    <div class="boot-logo">{{ branding.name }}</div>
     <div class="boot-spinner" aria-hidden="true"></div>
   </div>
   <ReconnectToast />
@@ -45,6 +47,8 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(splashTimer) })
 
 <style>
 @import './styles/tokens.css';
+
+.boot-brand-image { width: 64px; height: 64px; object-fit: contain; }
 
 /* The app shell owns the full viewport: no browser-level scrollbar can ever
    appear and shrink the app/header width — all scrolling happens inside the

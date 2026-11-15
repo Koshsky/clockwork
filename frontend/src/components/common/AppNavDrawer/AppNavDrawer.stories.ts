@@ -52,7 +52,7 @@ const meta: Meta<typeof AppNavDrawer> = {
     open: true,
     categories: testCategories,
     activeName: 'planner',
-    brand: 'MVS ERP',
+    brand: 'Clockwork',
   },
 }
 

@@ -36,7 +36,15 @@
   margin-bottom: 28px;
 }
 
+.lp-brand-image {
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+  margin-bottom: 12px;
+}
+
 .lp-btitle {
+  overflow-wrap: anywhere;
   font-size: calc(var(--ui-font-scale, 1) * 30px);
   font-weight: 800;
   line-height: 1.2;

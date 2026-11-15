@@ -5,6 +5,7 @@ import { nextTick, reactive } from 'vue'
 const fake = vi.hoisted(() => ({
   create: vi.fn(), start: vi.fn(), stop: vi.fn(), mount: vi.fn(), dispose: vi.fn(),
   ports: vi.fn(), auth: { isAuthenticated: false, sessionMode: 'online' },
+  stopBranding: vi.fn(),
 }))
 vi.mock('vue', async original => ({
   ...await original<typeof import('vue')>(),
@@ -15,6 +16,7 @@ vi.mock('./App.vue', () => ({ default: {} }))
 vi.mock('./router', () => ({ default: { currentRoute: { value: { name: 'login', meta: {}, query: {} } }, push: vi.fn() } }))
 vi.mock('./http', () => ({ setupHttp: vi.fn() }))
 vi.mock('./theme', () => ({ initTheme: vi.fn() }))
+vi.mock('./branding', () => ({ initBranding: () => fake.stopBranding }))
 vi.mock('./settings', async () => ({ uiFontSize: (await import('vue')).ref('default'), applyUiSize: vi.fn() }))
 vi.mock('./store', () => ({ useAuthStore: () => fake.auth }))
 vi.mock('./i18n', () => ({ i18n: {} }))
@@ -53,6 +55,7 @@ it('unmount releases ports, stops services and detaches page lifecycle handlers 
   fake.dispose(); fake.dispose()
   expect(fake.stop).toHaveBeenCalledOnce()
   expect(fake.ports).toHaveBeenCalledOnce()
+  expect(fake.stopBranding).toHaveBeenCalledOnce()
   window.dispatchEvent(new PageTransitionEvent('pagehide'))
   window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }))
   await nextTick()

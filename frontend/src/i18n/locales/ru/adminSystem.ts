@@ -226,7 +226,7 @@ export default {
   // --- Server settings screen (views/ServerSettingsPage.vue) ---
   server: {
     brandTitle: 'Настройки сервера',
-    brandSubtitle: 'Укажите адрес вашего сервера MVS ERP',
+    brandSubtitle: 'Укажите адрес сервера {name}',
     featureLocal: 'Локальный сервер',
     featureLocalExample: 'например, https://localhost',
     featureRemote: 'Удалённый сервер',

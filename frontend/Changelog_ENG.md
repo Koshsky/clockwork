@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 The web app and the desktop wrapper are versioned together.
 
+## [Unreleased]
+
+### Added
+
+- Deployment branding configures the company name, logo and primary color for web and offline Electron, with Clockwork defaults.
+
 ## [2.0.0] - 2026-11-14
 
 ### Changed

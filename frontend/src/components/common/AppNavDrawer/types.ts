@@ -7,7 +7,7 @@ export interface AppNavDrawerProps {
   categories: NavCategory[]
   /** Currently active route name (for highlighting) */
   activeName?: string
-  /** Brand shown in the drawer header; this is the only place the brand lives */
+  /** Optional preview override for the configured product name */
   brand?: string
 }
 
