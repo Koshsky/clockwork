@@ -59,11 +59,15 @@ session and replay contracts when implementing each new boundary.
   Credentials are restricted to password verification; refresh receives an
   Account without a hash, and audit receives display/search Identities only.
   User repository/service currency remains sqlc; public HTTP DTOs stay unchanged.
-- Milestone, project, process, assignment, comment and `timesheet/state` keep `Service`, `Repository`, `Mapper` and
-  `Validator` in the feature root. Delivery imports that core; core may use its
+- Milestone, project, process, assignment, comment, task_dependency and
+  `timesheet/state` keep `Service`, `Repository`, `Mapper` and `Validator` in the
+  feature root. Delivery imports that core; core may use its
   own DTOs and repository/sqlc but never delivery or the concrete repository.
   Composition stays in parent `project_mgmt/module.go` or `timesheet/module.go`
   to avoid a core/delivery import cycle.
+- Task dependency types and pure date helpers live in the task_dependency core.
+  Task consumes its own ConstraintSource port; neither feature core imports the
+  other feature or its SQL adapter. Wire binds the concrete implementation.
 - Task comments keep authenticated authorship and same-task reply validation.
   Preserve content verbatim; safe Markdown/HTML rendering remains a client concern.
 

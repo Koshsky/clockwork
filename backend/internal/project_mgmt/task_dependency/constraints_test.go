@@ -1,11 +1,10 @@
 //nolint:testpackage // constraint helpers (boundDate/anchorDate/checkConstraint) are unexported
-package service
+package taskdependency
 
 import (
 	"strings"
 	"testing"
 
-	"github.com/Koshsky/erp-backend/internal/project_mgmt/task_dependency/domain"
 	"github.com/Koshsky/erp-backend/pkg/date"
 	"github.com/Koshsky/erp-backend/pkg/errors"
 	"github.com/Koshsky/erp-backend/pkg/messages"
@@ -32,7 +31,7 @@ func TestConstraintMatrix(t *testing.T) {
 		// fs — successor starts after predecessor ends.
 		{
 			name:        "fs satisfied (equal)",
-			typ:         domain.TypeFinishToStart,
+			typ:         TypeFinishToStart,
 			taskStart:   "2026-02-01",
 			taskEnd:     "2026-02-10",
 			predStart:   "2026-01-01",
@@ -41,7 +40,7 @@ func TestConstraintMatrix(t *testing.T) {
 		},
 		{
 			name:        "fs violated (start before pred end)",
-			typ:         domain.TypeFinishToStart,
+			typ:         TypeFinishToStart,
 			taskStart:   "2026-01-15",
 			taskEnd:     "2026-02-10",
 			predStart:   "2026-01-01",
@@ -50,7 +49,7 @@ func TestConstraintMatrix(t *testing.T) {
 		},
 		{
 			name:        "fs satisfied (late start)",
-			typ:         domain.TypeFinishToStart,
+			typ:         TypeFinishToStart,
 			taskStart:   "2026-03-01",
 			taskEnd:     "2026-03-10",
 			predStart:   "2026-01-01",
@@ -61,7 +60,7 @@ func TestConstraintMatrix(t *testing.T) {
 		// ss — successor starts after predecessor starts.
 		{
 			name:        "ss satisfied (equal)",
-			typ:         domain.TypeStartToStart,
+			typ:         TypeStartToStart,
 			taskStart:   "2026-01-01",
 			taskEnd:     "2026-02-10",
 			predStart:   "2026-01-01",
@@ -70,7 +69,7 @@ func TestConstraintMatrix(t *testing.T) {
 		},
 		{
 			name:        "ss violated (start before pred start)",
-			typ:         domain.TypeStartToStart,
+			typ:         TypeStartToStart,
 			taskStart:   "2025-12-30",
 			taskEnd:     "2026-02-10",
 			predStart:   "2026-01-01",
@@ -81,7 +80,7 @@ func TestConstraintMatrix(t *testing.T) {
 		// ff — successor ends after predecessor ends.
 		{
 			name:        "ff satisfied (equal)",
-			typ:         domain.TypeFinishToFinish,
+			typ:         TypeFinishToFinish,
 			taskStart:   "2026-01-01",
 			taskEnd:     "2026-02-10",
 			predStart:   "2026-01-01",
@@ -90,7 +89,7 @@ func TestConstraintMatrix(t *testing.T) {
 		},
 		{
 			name:        "ff violated (end before pred end)",
-			typ:         domain.TypeFinishToFinish,
+			typ:         TypeFinishToFinish,
 			taskStart:   "2026-01-01",
 			taskEnd:     "2026-01-30",
 			predStart:   "2026-01-01",
@@ -101,7 +100,7 @@ func TestConstraintMatrix(t *testing.T) {
 		// sf — successor ends after predecessor starts.
 		{
 			name:        "sf satisfied (equal)",
-			typ:         domain.TypeStartToFinish,
+			typ:         TypeStartToFinish,
 			taskStart:   "2026-01-01",
 			taskEnd:     "2026-01-05",
 			predStart:   "2026-01-05",
@@ -110,7 +109,7 @@ func TestConstraintMatrix(t *testing.T) {
 		},
 		{
 			name:        "sf violated (end before pred start)",
-			typ:         domain.TypeStartToFinish,
+			typ:         TypeStartToFinish,
 			taskStart:   "2026-01-01",
 			taskEnd:     "2026-01-04",
 			predStart:   "2026-01-05",
@@ -143,7 +142,7 @@ func TestConstraintMatrix(t *testing.T) {
 // task titles in either language.
 func TestViolationMessageNamesTasks(t *testing.T) {
 	t.Parallel()
-	for _, typ := range []string{domain.TypeFinishToStart, domain.TypeStartToStart, domain.TypeFinishToFinish, domain.TypeStartToFinish} {
+	for _, typ := range []string{TypeFinishToStart, TypeStartToStart, TypeFinishToFinish, TypeStartToFinish} {
 		m := violationTemplate(typ, "Монтаж", "Подготовка")
 		ru := m.Text(messages.LocaleRU)
 		if ru == "" {
@@ -165,19 +164,19 @@ func TestBoundAnchorSemantics(t *testing.T) {
 	start, end := d("2026-01-01", "2026-02-01")
 	ps, pe := d("2026-01-10", "2026-02-10")
 
-	if got := boundDate(domain.TypeFinishToStart, start, end); got != start {
+	if got := boundDate(TypeFinishToStart, start, end); got != start {
 		t.Errorf("boundDate(fs) = %q; want task start", got)
 	}
-	if got := boundDate(domain.TypeFinishToFinish, start, end); got != end {
+	if got := boundDate(TypeFinishToFinish, start, end); got != end {
 		t.Errorf("boundDate(ff) = %q; want task end", got)
 	}
-	if got := anchorDate(domain.TypeFinishToStart, ps, pe); got != pe {
+	if got := anchorDate(TypeFinishToStart, ps, pe); got != pe {
 		t.Errorf("anchorDate(fs) = %q; want pred end", got)
 	}
-	if got := anchorDate(domain.TypeStartToStart, ps, pe); got != ps {
+	if got := anchorDate(TypeStartToStart, ps, pe); got != ps {
 		t.Errorf("anchorDate(ss) = %q; want pred start", got)
 	}
-	if got := anchorDate(domain.TypeStartToFinish, ps, pe); got != ps {
+	if got := anchorDate(TypeStartToFinish, ps, pe); got != ps {
 		t.Errorf("anchorDate(sf) = %q; want pred start", got)
 	}
 }

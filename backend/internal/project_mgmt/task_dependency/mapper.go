@@ -1,14 +1,14 @@
-package service
+package taskdependency
 
 import (
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/task_dependency/dto"
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/task_dependency/repository/sqlc"
 )
 
-type TaskDependencyMapper struct{}
+type Mapper struct{}
 
 // ToDTO converts a dependency row to the API response shape.
-func (m *TaskDependencyMapper) ToDTO(d *sqlc.TaskDependency) *dto.DependencyResponse {
+func (m *Mapper) ToDTO(d *sqlc.TaskDependency) *dto.DependencyResponse {
 	if d == nil {
 		return nil
 	}
@@ -21,7 +21,7 @@ func (m *TaskDependencyMapper) ToDTO(d *sqlc.TaskDependency) *dto.DependencyResp
 }
 
 // ToDTOs converts a dependency row list (nil → empty slice).
-func (m *TaskDependencyMapper) ToDTOs(deps []sqlc.TaskDependency) []dto.DependencyResponse {
+func (m *Mapper) ToDTOs(deps []sqlc.TaskDependency) []dto.DependencyResponse {
 	if deps == nil {
 		return []dto.DependencyResponse{}
 	}

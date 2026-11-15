@@ -789,3 +789,63 @@ date/cascade shifts, concurrent append/reorder and revision/replay integration,
 was not executed. No browser/Electron acceptance or fresh frontend SDK generation
 is claimed. Evidence (started before midnight): `../local/backend-b13-20261115/`.
 No push, merge, CI, release, deployment or remote server changes were performed.
+
+## B14 implementation ledger — 2026-11-16
+
+Continued on `refactor/backend-access-tracing` after `5fd3978`. Task dependency
+service, repository port, mapper, validator and pure constraint helpers now live
+in the feature root, together with the four dependency types and catalog helpers
+from `domain/models.go`. Both `task_dependency/service` and its small `domain`
+package are removed. The root package is named `taskdependency`; DTO and SQL
+adapter boundaries remain unchanged. Composition stays in the parent module.
+Normalizing internal names, package declarations, the removed domain qualifier,
+formatting and the constructor comment reproduces all six original core files.
+
+Task's consumer-owned `ConstraintSource` file is byte-identical. Wire binds the
+relocated `*taskdependency.Service` to that existing port. Neither production
+core imports the sibling feature or its concrete SQL adapter; a new architecture
+guard rejects either direction. Regenerated Wire preserves provider calls,
+arguments and order after normalizing imports, the constructor and its generated
+local variable name. No task scheduling API or parallel service interface was
+introduced.
+
+All five existing constraint/validator Test functions were moved with their
+assertions retained; all 434 pre-existing Test functions remain. Eleven new Test
+functions add 67 named subcases and 78 passing outcomes. All 104 pre-move outcomes
+from dependency and task suites match the final run. New core checks cover
+self-links, invalid IDs/types, missing endpoints, different processes, subtasks,
+duplicate edges, cycle rejection and incompatible current dates before writes.
+Each fs/ss/ff/sf create boundary accepts equality. Type changes substitute only
+the target edge, retain the other incoming constraints, preserve endpoints and
+propagate lookup/constraint/date/write failures. List order, empty mapping,
+foreign-edge rejection and idempotent/error deletion behavior are preserved.
+
+The real task and dependency services are tested together through ConstraintSource:
+for all four types, equal boundaries persist and an earlier constrained date
+rejects the update without changing the stored task. A constraint read failure
+also blocks persistence. Existing task date/title-only guard tests remain intact.
+HTTP checks use real middleware, handlers and core with fake repositories/owner
+facts: view versus update permissions, hidden tasks, foreign nested edge IDs,
+URL task binding against a spoofed body task_id, self-link rejection, missing
+edges and idempotent deletion. Repository checks use the actual SQL adapter over
+a fake request-scoped pgx.Tx without a fallback pool, covering create/find/type
+update/delete, endpoint/duplicate/cycle probes and task dates, including argument
+order, errors and leaving commit/rollback to the request owner. They do not
+execute SQL graph traversal or prove real transactional rollback.
+
+Fresh Swagger JSON/YAML before and after are byte-identical (57 paths, 93
+operations, 92 definitions); all nine frozen contract groups still match B01.
+SQL, generated sqlc, DTOs, migrations, versions, published changelogs and
+revision/replay middleware are unchanged. Inclusive date comparisons and the
+existing database graph constraints/triggers retain their previous behavior.
+
+Validation: build/vet, full normal-tag suite (365 top-level pass, 16 skip; 2,996
+pass events and 20 skips including subtests), full race suite in 51 tested
+packages, lint 2.15.0 (0 issues), repository policy and whitespace checks pass.
+All 445 Test functions compile/list with the integration tag; 64 tagged
+functions were not executed. The local Docker daemon is unavailable, so real
+PostgreSQL/API graph, trigger, constraint and revision/replay acceptance was not
+executed. Graph/probe fixtures are not a substitute for SQL integration tests.
+No browser/Electron acceptance or fresh frontend SDK generation is claimed.
+Evidence: `../local/backend-b14-20261116/`. No push, merge, CI, release, deployment
+or remote server changes were performed.

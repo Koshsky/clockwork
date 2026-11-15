@@ -7,8 +7,8 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
+	taskdependency "github.com/Koshsky/erp-backend/internal/project_mgmt/task_dependency"
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/task_dependency/dto"
-	"github.com/Koshsky/erp-backend/internal/project_mgmt/task_dependency/service"
 	"github.com/Koshsky/erp-backend/internal/response"
 	"github.com/Koshsky/erp-backend/pkg/errors"
 )
@@ -22,7 +22,7 @@ type TaskDependencyHandler struct {
 // NewTaskDependencyHandler builds the TaskDependencyHandler handler.
 func NewTaskDependencyHandler(
 	logger *slog.Logger,
-	svc *service.TaskDependencyService,
+	svc *taskdependency.Service,
 	mw *rbac.Middleware,
 ) *TaskDependencyHandler {
 	return &TaskDependencyHandler{

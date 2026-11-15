@@ -1,4 +1,4 @@
-package domain
+package taskdependency
 
 // Dependency type catalog (fixed 4-set — see the task_dependencies.type CHECK):
 // fs — finish-to-start, ss — start-to-start, ff — finish-to-finish,

@@ -1,4 +1,4 @@
-package service
+package taskdependency
 
 import (
 	"context"
@@ -11,26 +11,26 @@ import (
 	"github.com/Koshsky/erp-backend/pkg/errors"
 )
 
-type TaskDependencyService struct {
+type Service struct {
 	logger     *slog.Logger
 	tracer     *tracingpkg.Tracer
-	repository TaskDependencyRepository
-	mapper     *TaskDependencyMapper
-	validator  *DependencyValidator
+	repository Repository
+	mapper     *Mapper
+	validator  *Validator
 }
 
-// NewTaskDependencyService builds the TaskDependencyService service.
-func NewTaskDependencyService(
+// NewService builds the task dependency service.
+func NewService(
 	logger *slog.Logger,
 	tracer *tracingpkg.Tracer,
-	r TaskDependencyRepository,
-) *TaskDependencyService {
-	return &TaskDependencyService{
+	r Repository,
+) *Service {
+	return &Service{
 		logger:     logger.With("component", "task_dependency_service"),
 		tracer:     tracer,
 		repository: r,
-		mapper:     &TaskDependencyMapper{},
-		validator:  &DependencyValidator{},
+		mapper:     &Mapper{},
+		validator:  &Validator{},
 	}
 }
 
@@ -38,7 +38,7 @@ func NewTaskDependencyService(
 // on req.DependsOnTaskID (the predecessor) with the given type. The link must
 // not close a cycle and the successor's current dates must already satisfy the
 // new constraint.
-func (s *TaskDependencyService) CreateDependency(
+func (s *Service) CreateDependency(
 	ctx context.Context,
 	taskID int64,
 	req dto.CreateDependencyRequest,
@@ -103,7 +103,7 @@ func (s *TaskDependencyService) CreateDependency(
 }
 
 // ListDependencies returns the predecessors (incoming links) of a task.
-func (s *TaskDependencyService) ListDependencies(
+func (s *Service) ListDependencies(
 	ctx context.Context,
 	taskID int64,
 ) ([]dto.DependencyResponse, error) {
@@ -122,7 +122,7 @@ func (s *TaskDependencyService) ListDependencies(
 
 // UpdateDependencyType changes the type of an existing link. The new type must
 // not contradict the successor's current dates.
-func (s *TaskDependencyService) UpdateDependencyType(
+func (s *Service) UpdateDependencyType(
 	ctx context.Context,
 	taskID, depID int64,
 	req dto.UpdateDependencyRequest,
@@ -160,7 +160,7 @@ func (s *TaskDependencyService) UpdateDependencyType(
 
 // DeleteDependency removes a link (idempotent: an already-removed link is not
 // an error; a link of another task is rejected).
-func (s *TaskDependencyService) DeleteDependency(ctx context.Context, taskID, depID int64) error {
+func (s *Service) DeleteDependency(ctx context.Context, taskID, depID int64) error {
 	ctx, end := s.tracer.Start(ctx, "task_dependency.DeleteDependency")
 	defer end(nil)
 
@@ -180,7 +180,7 @@ func (s *TaskDependencyService) DeleteDependency(ctx context.Context, taskID, de
 // CheckTaskDates validates a task's NEW dates against all its incoming links
 // (the task as a successor). Called by the task service on every date change
 // so no write can persist a schedule that violates the dependencies.
-func (s *TaskDependencyService) CheckTaskDates(
+func (s *Service) CheckTaskDates(
 	ctx context.Context,
 	taskID int64,
 	taskTitle string,
@@ -208,7 +208,7 @@ func (s *TaskDependencyService) CheckTaskDates(
 // checkDateChange validates the successor's current dates against all its
 // incoming links, substituting newType on the target link (used by a type
 // change, where the other links stay as stored).
-func (s *TaskDependencyService) checkDateChange(
+func (s *Service) checkDateChange(
 	ctx context.Context,
 	taskID, depID int64,
 	newType string,

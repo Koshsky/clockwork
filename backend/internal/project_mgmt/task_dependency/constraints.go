@@ -1,7 +1,6 @@
-package service
+package taskdependency
 
 import (
-	"github.com/Koshsky/erp-backend/internal/project_mgmt/task_dependency/domain"
 	"github.com/Koshsky/erp-backend/pkg/date"
 	"github.com/Koshsky/erp-backend/pkg/errors"
 	"github.com/Koshsky/erp-backend/pkg/messages"
@@ -10,7 +9,7 @@ import (
 // boundDate returns the date of the successor that the link constrains: its
 // start for fs/ss, its end for ff/sf.
 func boundDate(typ string, taskStart, taskEnd date.Date) date.Date {
-	if domain.BoundIsStart(typ) {
+	if BoundIsStart(typ) {
 		return taskStart
 	}
 	return taskEnd
@@ -19,7 +18,7 @@ func boundDate(typ string, taskStart, taskEnd date.Date) date.Date {
 // anchorDate returns the date of the predecessor that anchors the constraint:
 // its start for ss/sf, its end for fs/ff.
 func anchorDate(typ string, predStart, predEnd date.Date) date.Date {
-	if domain.AnchorIsStart(typ) {
+	if AnchorIsStart(typ) {
 		return predStart
 	}
 	return predEnd
@@ -29,13 +28,13 @@ func anchorDate(typ string, predStart, predEnd date.Date) date.Date {
 // link, carrying both task titles as arguments.
 func violationTemplate(typ, taskTitle, predTitle string) messages.Message {
 	switch typ {
-	case domain.TypeFinishToStart:
+	case TypeFinishToStart:
 		return messages.M("task_dependency.finish_to_start", taskTitle, predTitle)
-	case domain.TypeStartToStart:
+	case TypeStartToStart:
 		return messages.M("task_dependency.start_to_start", taskTitle, predTitle)
-	case domain.TypeFinishToFinish:
+	case TypeFinishToFinish:
 		return messages.M("task_dependency.finish_to_finish", taskTitle, predTitle)
-	case domain.TypeStartToFinish:
+	case TypeStartToFinish:
 		return messages.M("task_dependency.start_to_finish", taskTitle, predTitle)
 	default:
 		return messages.M("task_dependency.invalid_type")

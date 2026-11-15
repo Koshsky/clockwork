@@ -23,9 +23,9 @@ import (
 	taskDelivery "github.com/Koshsky/erp-backend/internal/project_mgmt/task/delivery"
 	taskRepo "github.com/Koshsky/erp-backend/internal/project_mgmt/task/repository"
 	taskService "github.com/Koshsky/erp-backend/internal/project_mgmt/task/service"
+	depService "github.com/Koshsky/erp-backend/internal/project_mgmt/task_dependency"
 	depDelivery "github.com/Koshsky/erp-backend/internal/project_mgmt/task_dependency/delivery"
 	depRepo "github.com/Koshsky/erp-backend/internal/project_mgmt/task_dependency/repository"
-	depService "github.com/Koshsky/erp-backend/internal/project_mgmt/task_dependency/service"
 )
 
 // ProviderSet aggregates the project management module's dependencies.
@@ -48,12 +48,12 @@ var ProviderSet = wire.NewSet(
 	taskDelivery.NewTaskHandler,
 
 	depRepo.NewTaskDependencyRepository,
-	wire.Bind(new(depService.TaskDependencyRepository), new(*depRepo.TaskDependencyRepository)),
-	depService.NewTaskDependencyService,
+	wire.Bind(new(depService.Repository), new(*depRepo.TaskDependencyRepository)),
+	depService.NewService,
 	depDelivery.NewTaskDependencyHandler,
 	// The task service validates date changes against the dependency links
 	// (implemented by the task_dependency service).
-	wire.Bind(new(taskService.ConstraintSource), new(*depService.TaskDependencyService)),
+	wire.Bind(new(taskService.ConstraintSource), new(*depService.Service)),
 
 	commentRepo.NewCommentRepository,
 	wire.Bind(new(commentService.Repository), new(*commentRepo.CommentRepository)),

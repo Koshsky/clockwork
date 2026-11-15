@@ -33,6 +33,7 @@ func TestNeutralCoresDoNotDependOnHTTPAdapters(t *testing.T) {
 		"./internal/project_mgmt/assignment",
 		"./internal/project_mgmt/project",
 		"./internal/project_mgmt/process",
+		"./internal/project_mgmt/task_dependency",
 	)
 	cmd.Dir = "../.."
 	output, err := cmd.CombinedOutput()
@@ -49,6 +50,7 @@ func TestNeutralCoresDoNotDependOnHTTPAdapters(t *testing.T) {
 			dependency == "github.com/Koshsky/erp-backend/internal/project_mgmt/assignment/repository" ||
 			dependency == "github.com/Koshsky/erp-backend/internal/project_mgmt/project/repository" ||
 			dependency == "github.com/Koshsky/erp-backend/internal/project_mgmt/process/repository" ||
+			dependency == "github.com/Koshsky/erp-backend/internal/project_mgmt/task_dependency/repository" ||
 			(strings.HasPrefix(dependency, "github.com/Koshsky/erp-backend/internal/") &&
 				strings.Contains(dependency, "/delivery")) {
 			t.Errorf("neutral core depends on HTTP adapter %s", dependency)
@@ -122,6 +124,46 @@ func checkAccessImports(t *testing.T, path, name string) {
 		}
 		if dependency == "github.com/Koshsky/erp-backend/internal/middleware/rbac" {
 			t.Errorf("%s depends on HTTP-owned access contracts", name)
+		}
+	}
+}
+
+func TestTaskAndDependencyCoresRetainConsumerBoundary(t *testing.T) {
+	t.Parallel()
+	for _, boundary := range []struct{ directory, forbidden string }{
+		{"../project_mgmt/task/service", "github.com/Koshsky/erp-backend/internal/project_mgmt/task_dependency"},
+		{"../project_mgmt/task_dependency", "github.com/Koshsky/erp-backend/internal/project_mgmt/task"},
+	} {
+		files, err := filepath.Glob(boundary.directory + "/*.go")
+		if err != nil || len(files) == 0 {
+			t.Fatalf("core sources missing: %s, %v", boundary.directory, err)
+		}
+		for _, path := range files {
+			if strings.HasSuffix(path, "_test.go") {
+				continue
+			}
+			checkSiblingImports(t, path, boundary.forbidden)
+		}
+	}
+}
+
+func checkSiblingImports(t *testing.T, path, forbidden string) {
+	t.Helper()
+	source, parseErr := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
+	if parseErr != nil {
+		t.Fatal(parseErr)
+	}
+	for _, imported := range source.Imports {
+		dependency, unquoteErr := strconv.Unquote(imported.Path.Value)
+		if unquoteErr != nil {
+			t.Fatal(unquoteErr)
+		}
+		if dependency == forbidden || strings.HasPrefix(dependency, forbidden+"/") {
+			t.Errorf(
+				"%s imports sibling implementation %s instead of its consumer-owned port",
+				path,
+				dependency,
+			)
 		}
 	}
 }
