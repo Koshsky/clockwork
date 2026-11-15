@@ -1,4 +1,4 @@
-package service
+package assignment
 
 import (
 	"context"
@@ -11,30 +11,30 @@ import (
 	"github.com/Koshsky/erp-backend/pkg/errors"
 )
 
-type AssignmentService struct {
+type Service struct {
 	logger     *slog.Logger
 	tracer     *tracingpkg.Tracer
-	repository AssignmentRepository
-	mapper     *AssignmentMapper
-	validator  *AssignmentValidator
+	repository Repository
+	mapper     *Mapper
+	validator  *Validator
 }
 
-// NewAssignmentService builds the AssignmentService service.
-func NewAssignmentService(
+// NewService builds the assignment service.
+func NewService(
 	logger *slog.Logger,
 	tracer *tracingpkg.Tracer,
-	r AssignmentRepository,
-) *AssignmentService {
-	return &AssignmentService{
+	r Repository,
+) *Service {
+	return &Service{
 		logger:     logger.With("component", "assignment_service"),
 		tracer:     tracer,
 		repository: r,
-		mapper:     NewAssignmentMapper(),
-		validator:  &AssignmentValidator{},
+		mapper:     NewMapper(),
+		validator:  &Validator{},
 	}
 }
 
-func (s *AssignmentService) CreateAssignment(
+func (s *Service) CreateAssignment(
 	ctx context.Context,
 	req dto.CreateAssignmentRequest,
 ) (*dto.AssignmentResponse, error) {
@@ -53,7 +53,7 @@ func (s *AssignmentService) CreateAssignment(
 	return s.mapper.ToDTO(created), nil
 }
 
-func (s *AssignmentService) FindAssignment(ctx context.Context, id int64) (*dto.AssignmentResponse, error) {
+func (s *Service) FindAssignment(ctx context.Context, id int64) (*dto.AssignmentResponse, error) {
 	ctx, end := s.tracer.Start(ctx, "assignment.FindAssignment")
 	defer end(nil)
 
@@ -70,7 +70,7 @@ func (s *AssignmentService) FindAssignment(ctx context.Context, id int64) (*dto.
 	return s.mapper.ToDTO(assignment), nil
 }
 
-func (s *AssignmentService) UpdateAssignment(
+func (s *Service) UpdateAssignment(
 	ctx context.Context,
 	id int64,
 	req dto.UpdateAssignmentRequest,
@@ -105,7 +105,7 @@ func (s *AssignmentService) UpdateAssignment(
 	return s.mapper.ToDTO(updated), nil
 }
 
-func (s *AssignmentService) DeleteAssignment(ctx context.Context, id int64) error {
+func (s *Service) DeleteAssignment(ctx context.Context, id int64) error {
 	ctx, end := s.tracer.Start(ctx, "assignment.DeleteAssignment")
 	defer end(nil)
 
@@ -123,7 +123,7 @@ func (s *AssignmentService) DeleteAssignment(ctx context.Context, id int64) erro
 	return s.repository.DeleteAssignment(ctx, id)
 }
 
-func (s *AssignmentService) ListAssignments(
+func (s *Service) ListAssignments(
 	ctx context.Context,
 	userID int64,
 	scope access.ListScope,

@@ -8,7 +8,7 @@ import (
 	authz "github.com/Koshsky/erp-backend/internal/authz/service"
 	autocreate "github.com/Koshsky/erp-backend/internal/auto_create/service"
 	planning "github.com/Koshsky/erp-backend/internal/planning/service"
-	assignment "github.com/Koshsky/erp-backend/internal/project_mgmt/assignment/service"
+	assignment "github.com/Koshsky/erp-backend/internal/project_mgmt/assignment"
 	comment "github.com/Koshsky/erp-backend/internal/project_mgmt/comment"
 	milestone "github.com/Koshsky/erp-backend/internal/project_mgmt/milestone"
 	process "github.com/Koshsky/erp-backend/internal/project_mgmt/process/service"
@@ -33,7 +33,7 @@ func TestServiceConstructorsAcceptInterfacesAndReturnStructs(t *testing.T) {
 		{"policy administration", authz.NewRBACService, []int{1, 3}},
 		{"auto create", autocreate.NewAutoCreateService, []int{2}},
 		{"planning", planning.NewPlanningService, []int{2}},
-		{"assignment", assignment.NewAssignmentService, []int{2}},
+		{"assignment", assignment.NewService, []int{2}},
 		{"comment", comment.NewService, []int{2}},
 		{"milestone", milestone.NewService, []int{2}},
 		{"process", process.NewProcessService, []int{2}},

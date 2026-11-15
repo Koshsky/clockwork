@@ -59,7 +59,7 @@ session and replay contracts when implementing each new boundary.
   Credentials are restricted to password verification; refresh receives an
   Account without a hash, and audit receives display/search Identities only.
   User repository/service currency remains sqlc; public HTTP DTOs stay unchanged.
-- Milestone, comment and `timesheet/state` keep `Service`, `Repository`, `Mapper` and
+- Milestone, assignment, comment and `timesheet/state` keep `Service`, `Repository`, `Mapper` and
   `Validator` in the feature root. Delivery imports that core; core may use its
   own DTOs and repository/sqlc but never delivery or the concrete repository.
   Composition stays in parent `project_mgmt/module.go` or `timesheet/module.go`

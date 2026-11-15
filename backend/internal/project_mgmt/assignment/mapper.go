@@ -1,17 +1,17 @@
-package service
+package assignment
 
 import (
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/assignment/dto"
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/assignment/repository/sqlc"
 )
 
-type AssignmentMapper struct{}
+type Mapper struct{}
 
-func NewAssignmentMapper() *AssignmentMapper {
-	return &AssignmentMapper{}
+func NewMapper() *Mapper {
+	return &Mapper{}
 }
 
-func (m *AssignmentMapper) ToDTO(assignment *sqlc.Assignment) *dto.AssignmentResponse {
+func (m *Mapper) ToDTO(assignment *sqlc.Assignment) *dto.AssignmentResponse {
 	if assignment == nil {
 		return nil
 	}
@@ -23,7 +23,7 @@ func (m *AssignmentMapper) ToDTO(assignment *sqlc.Assignment) *dto.AssignmentRes
 	}
 }
 
-func (m *AssignmentMapper) ToDTOs(assignments []sqlc.Assignment) []dto.AssignmentResponse {
+func (m *Mapper) ToDTOs(assignments []sqlc.Assignment) []dto.AssignmentResponse {
 	if assignments == nil {
 		return []dto.AssignmentResponse{}
 	}

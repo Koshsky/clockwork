@@ -5,7 +5,7 @@ import (
 	"strconv"
 
 	access "github.com/Koshsky/erp-backend/internal/authz/domain"
-	"github.com/Koshsky/erp-backend/internal/project_mgmt/assignment/service"
+	"github.com/Koshsky/erp-backend/internal/project_mgmt/assignment"
 	"github.com/Koshsky/erp-backend/pkg/errors"
 
 	"github.com/gin-gonic/gin"
@@ -24,7 +24,7 @@ type AssignmentHandler struct {
 }
 
 // NewAssignmentHandler builds the AssignmentHandler handler.
-func NewAssignmentHandler(logger *slog.Logger, svc *service.AssignmentService, mw *rbac.Middleware) *AssignmentHandler {
+func NewAssignmentHandler(logger *slog.Logger, svc *assignment.Service, mw *rbac.Middleware) *AssignmentHandler {
 	return &AssignmentHandler{
 		logger:  logger.With("component", "assignment_handler"),
 		service: svc,

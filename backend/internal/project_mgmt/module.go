@@ -5,9 +5,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/wire"
 
+	"github.com/Koshsky/erp-backend/internal/project_mgmt/assignment"
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/assignment/delivery"
 	assignmentRepo "github.com/Koshsky/erp-backend/internal/project_mgmt/assignment/repository"
-	"github.com/Koshsky/erp-backend/internal/project_mgmt/assignment/service"
 	commentService "github.com/Koshsky/erp-backend/internal/project_mgmt/comment"
 	commentDelivery "github.com/Koshsky/erp-backend/internal/project_mgmt/comment/delivery"
 	commentRepo "github.com/Koshsky/erp-backend/internal/project_mgmt/comment/repository"
@@ -66,8 +66,8 @@ var ProviderSet = wire.NewSet(
 	milestoneDelivery.NewMilestoneHandler,
 
 	assignmentRepo.NewAssignmentRepository,
-	wire.Bind(new(service.AssignmentRepository), new(*assignmentRepo.AssignmentRepository)),
-	service.NewAssignmentService,
+	wire.Bind(new(assignment.Repository), new(*assignmentRepo.AssignmentRepository)),
+	assignment.NewService,
 	delivery.NewAssignmentHandler,
 
 	ProvideModule,

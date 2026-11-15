@@ -619,3 +619,54 @@ PostgreSQL/API, cross-user browser/Electron/PDF XSS acceptance or fresh frontend
 SDK generation is claimed. The guarded XSS end-to-end harness is unchanged.
 Evidence: `../local/backend-b10-20261115/`. No push, merge, CI, release, deployment
 or remote server changes were performed.
+
+## B11 implementation ledger — 2026-11-15
+
+Continued on `refactor/backend-access-tracing` after `52516ce`. Assignment service,
+repository port, mapper and validator now live in the feature root;
+`assignment/service` is removed. Delivery, DTO and SQL adapter remain separate;
+parent `project_mgmt/module.go` owns composition. Root types and constructors
+follow the preceding pilots (`Service`, `Repository`, `Mapper`, `Validator`,
+`NewService`, `NewMapper`). Normalizing these names, the package declaration and
+one constructor comment reproduces all four original core files exactly.
+
+Nine Test functions were added, with 55 named subcases; all 402 existing Test
+functions are retained. The first 56 assignment test outcomes passed against the
+original service layout and match the final run; additional HTTP list/deny cases
+bring the final assignment run to 64 passing outcomes. Core tests cover CRUD,
+positive IDs/quantity, absent/null/zero patches, mapping/order, identical
+list/count scope filters and pagination, repository failures and idempotent
+deletion. Existing lookup-error classification is preserved, including update's
+conversion to assignment-not-found; this structural step does not change errors.
+
+HTTP tests exercise real middleware, handlers and core with fake repositories
+and owner resolvers: own/all/no-access rules, foreign IDs for read/update/delete,
+foreign tasks within an owned process, create-time task visibility, task/resource
+replacement, common-owner checks including administrator, and list scope,
+owner-filter and pagination forwarding. They do not execute SQL list predicates.
+Repository tests use the actual SQL adapter over a request-scoped fake pgx.Tx
+with no fallback pool: create/find/find-by-key/update/delete preserve the context,
+arguments and errors without committing or rolling back the request. Duplicate
+create reads the existing pair in that same transaction, preserving its stored
+quantity, and propagates lookup errors. These tests do not simulate database
+constraints or prove real transaction rollback.
+
+Architecture guards include the assignment core and reject concrete-repository
+coupling. Regenerated Wire preserves provider calls, arguments and order after
+normalizing imports and the moved constructor. Fresh Swagger JSON/YAML before
+and after are byte-identical (57 paths, 93 operations, 92 definitions); all nine
+frozen contract groups still match B01. SQL, generated sqlc, migrations, DTOs,
+versions and published changelogs remain unchanged. In particular, the database
+owner-equality guard and assignment cleanup triggers are untouched; update-time
+owner equality continues to rely on that database guard where applicable.
+
+Validation: build/vet, full normal-tag suite (331 top-level pass, 16 skip; 2,759
+pass events and 20 skips including subtests), full race suite and final focused
+assignment race checks, lint 2.15.0 (0 issues), repository policy and whitespace
+checks pass. All 411 Test functions compile/list with the integration tag; 64
+tagged functions were not executed. The local Docker daemon is unavailable, so
+real PostgreSQL/API acceptance, including TestAssignmentOwnerInvariant and
+owner-change cleanup/rollback, was not executed. No browser/Electron acceptance
+or fresh frontend SDK generation is claimed. Evidence:
+`../local/backend-b11-20261115/`. No push, merge, CI, release, deployment or remote
+server changes were performed.

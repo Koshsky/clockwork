@@ -1,15 +1,15 @@
-package service
+package assignment
 
 import (
 	"github.com/Koshsky/erp-backend/pkg/errors"
 	"github.com/Koshsky/erp-backend/pkg/validator"
 )
 
-type AssignmentValidator struct {
+type Validator struct {
 	validator.Validator
 }
 
-func (v *AssignmentValidator) ValidateAssignment(taskID, resourceID int64, quantity int) error {
+func (v *Validator) ValidateAssignment(taskID, resourceID int64, quantity int) error {
 	if err := v.ValidatePositiveID(taskID, "task_id"); err != nil {
 		return err
 	}

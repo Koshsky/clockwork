@@ -1,4 +1,4 @@
-package service
+package assignment
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/assignment/repository/sqlc"
 )
 
-type AssignmentRepository interface {
+type Repository interface {
 	CreateAssignment(ctx context.Context, taskID, resourceID int64, quantity int) (*sqlc.Assignment, error)
 	FindAssignment(ctx context.Context, id int64) (*sqlc.Assignment, error)
 	UpdateAssignment(ctx context.Context, assignment sqlc.Assignment, quantity int) (*sqlc.Assignment, error)
