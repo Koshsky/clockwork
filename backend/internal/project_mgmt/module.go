@@ -8,9 +8,9 @@ import (
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/assignment/delivery"
 	assignmentRepo "github.com/Koshsky/erp-backend/internal/project_mgmt/assignment/repository"
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/assignment/service"
+	commentService "github.com/Koshsky/erp-backend/internal/project_mgmt/comment"
 	commentDelivery "github.com/Koshsky/erp-backend/internal/project_mgmt/comment/delivery"
 	commentRepo "github.com/Koshsky/erp-backend/internal/project_mgmt/comment/repository"
-	commentService "github.com/Koshsky/erp-backend/internal/project_mgmt/comment/service"
 	milestoneService "github.com/Koshsky/erp-backend/internal/project_mgmt/milestone"
 	milestoneDelivery "github.com/Koshsky/erp-backend/internal/project_mgmt/milestone/delivery"
 	milestoneRepo "github.com/Koshsky/erp-backend/internal/project_mgmt/milestone/repository"
@@ -56,8 +56,8 @@ var ProviderSet = wire.NewSet(
 	wire.Bind(new(taskService.ConstraintSource), new(*depService.TaskDependencyService)),
 
 	commentRepo.NewCommentRepository,
-	wire.Bind(new(commentService.CommentRepository), new(*commentRepo.CommentRepository)),
-	commentService.NewCommentService,
+	wire.Bind(new(commentService.Repository), new(*commentRepo.CommentRepository)),
+	commentService.NewService,
 	commentDelivery.NewCommentHandler,
 
 	milestoneRepo.NewMilestoneRepository,

@@ -59,11 +59,13 @@ session and replay contracts when implementing each new boundary.
   Credentials are restricted to password verification; refresh receives an
   Account without a hash, and audit receives display/search Identities only.
   User repository/service currency remains sqlc; public HTTP DTOs stay unchanged.
-- Milestone and `timesheet/state` keep `Service`, `Repository`, `Mapper` and
+- Milestone, comment and `timesheet/state` keep `Service`, `Repository`, `Mapper` and
   `Validator` in the feature root. Delivery imports that core; core may use its
   own DTOs and repository/sqlc but never delivery or the concrete repository.
   Composition stays in parent `project_mgmt/module.go` or `timesheet/module.go`
   to avoid a core/delivery import cycle.
+- Task comments keep authenticated authorship and same-task reply validation.
+  Preserve content verbatim; safe Markdown/HTML rendering remains a client concern.
 
 - Outside these flattened feature cores, domains retain `internal/<domain>/{delivery,service,repository,domain,dto}`. Structs are constructed by exported `New*` constructors kept in the same file as the struct (`handler.go`/`service_impl.go`/`postgres.go`); there are no `provide.go` files in the layers. Each domain root ships a single `module.go` with a `wire.ProviderSet` referencing those `New*` constructors and a `Module` implementing the `server.Module` interface (`RegisterPublicRoutes`/`RegisterProtectedRoutes`) — the module owns route registration, prefixes and per-route RBAC checks. The app only collects modules via `ProvideModules` in `internal/server/providers.go`; the graph is assembled in `internal/server/wire.go` (generated into `wire_gen.go`). Auxiliary HTTP servers live in `internal/server/*` (`profiler` pprof, `swagger` registrar). New handlers are added to the module's `ProviderSet`; new modules add a `Module` + one line in `ProvideModules`.
 - Access control is the single domain `internal/authz`: its `engine` subpackage is a leaf holding the rules (permission matrix `preset × resource × action → ownership zone`, codecs) evaluated by **Casbin v2** (RBAC role inheritance + ACL user grants/revokes + ABAC owner-attribute matcher in `engine/model.go`); `service.PolicyStore` loads the Postgres policy tables (`rbac_presets`, `rbac_preset_rules`, `rbac_route_policies`, `user_permissions`, `users.preset`) on a TTL and publishes an immutable Casbin snapshot (`engine.Publish`) plus the prepared route checks (`RoutePublisher`) and the in-memory principals (`EffectiveUser`). Per-request decisions (middleware checks, `ViewScopeCode*`, `AuthorizeUser`) go through Casbin; the SQL list scoping (`view_scope`) is still the manual translation of the resolved zone into WHERE clauses. The admin API `/rbac/*` + `/permissions/me` lives in `internal/authz/{delivery,service}` (same contract, no swagger changes).

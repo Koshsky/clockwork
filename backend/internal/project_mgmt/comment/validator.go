@@ -1,4 +1,4 @@
-package service
+package comment
 
 import (
 	"github.com/Koshsky/erp-backend/pkg/errors"
@@ -9,11 +9,11 @@ import (
 // maxCommentContentLen is the maximum comment text length (in characters).
 const maxCommentContentLen = 4000
 
-type CommentValidator struct {
+type Validator struct {
 	validator.Validator
 }
 
-func (v *CommentValidator) ValidateComment(taskID, authorID int64, content string) error {
+func (v *Validator) ValidateComment(taskID, authorID int64, content string) error {
 	if err := v.ValidatePositiveID(taskID, "task_id"); err != nil {
 		return err
 	}

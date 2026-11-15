@@ -1,4 +1,4 @@
-package service
+package comment
 
 import (
 	"context"
@@ -11,32 +11,32 @@ import (
 	"github.com/Koshsky/erp-backend/pkg/errors"
 )
 
-type CommentService struct {
+type Service struct {
 	logger     *slog.Logger
 	tracer     *tracingpkg.Tracer
-	repository CommentRepository
-	mapper     *CommentMapper
-	validator  *CommentValidator
+	repository Repository
+	mapper     *Mapper
+	validator  *Validator
 }
 
-// NewCommentService builds the CommentService service.
-func NewCommentService(
+// NewService builds the comment service.
+func NewService(
 	logger *slog.Logger,
 	tracer *tracingpkg.Tracer,
-	r CommentRepository,
-) *CommentService {
-	return &CommentService{
+	r Repository,
+) *Service {
+	return &Service{
 		logger:     logger.With("component", "comment_service"),
 		tracer:     tracer,
 		repository: r,
-		mapper:     NewCommentMapper(),
-		validator:  &CommentValidator{},
+		mapper:     NewMapper(),
+		validator:  &Validator{},
 	}
 }
 
 // CreateComment creates a task comment: the author (authorID) comes from the
 // authorization context, and parent_id is a reply to a comment of the same task.
-func (s *CommentService) CreateComment(
+func (s *Service) CreateComment(
 	ctx context.Context,
 	taskID int64,
 	req dto.CreateCommentRequest,
@@ -65,7 +65,7 @@ func (s *CommentService) CreateComment(
 
 // findValidParent checks that the parent comment exists and belongs to the
 // same task (replies cannot reference comments of other tasks).
-func (s *CommentService) findValidParent(ctx context.Context, taskID int64, parentID int64) (*sqlc.TaskComment, error) {
+func (s *Service) findValidParent(ctx context.Context, taskID int64, parentID int64) (*sqlc.TaskComment, error) {
 	parent, err := s.repository.FindComment(ctx, parentID)
 	if err != nil {
 		if errors.IsNotFoundError(err) {
@@ -82,7 +82,7 @@ func (s *CommentService) findValidParent(ctx context.Context, taskID int64, pare
 	return parent, nil
 }
 
-func (s *CommentService) ListComments(ctx context.Context, taskID int64) ([]dto.CommentResponse, error) {
+func (s *Service) ListComments(ctx context.Context, taskID int64) ([]dto.CommentResponse, error) {
 	ctx, end := s.tracer.Start(ctx, "comment.ListComments")
 	defer end(nil)
 
@@ -93,7 +93,7 @@ func (s *CommentService) ListComments(ctx context.Context, taskID int64) ([]dto.
 	return s.mapper.ToDTOs(rows), nil
 }
 
-func (s *CommentService) DeleteComment(ctx context.Context, commentID int64) error {
+func (s *Service) DeleteComment(ctx context.Context, commentID int64) error {
 	ctx, end := s.tracer.Start(ctx, "comment.DeleteComment")
 	defer end(nil)
 

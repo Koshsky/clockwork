@@ -17,7 +17,7 @@ func TestNeutralCoresDoNotDependOnHTTPAdapters(t *testing.T) {
 	cmd := exec.CommandContext(t.Context(), "go", "list", "-deps", "-f", "{{.ImportPath}}",
 		"./internal/authz/domain", "./internal/authz/engine", "./internal/authz/service", "./internal/tracing",
 		"./internal/auth/service", "./internal/user/domain", "./internal/project_mgmt/milestone",
-		"./internal/timesheet/state")
+		"./internal/timesheet/state", "./internal/project_mgmt/comment")
 	cmd.Dir = "../.."
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -29,6 +29,7 @@ func TestNeutralCoresDoNotDependOnHTTPAdapters(t *testing.T) {
 			dependency == "github.com/Koshsky/erp-backend/internal/userctx" ||
 			dependency == "github.com/Koshsky/erp-backend/internal/project_mgmt/milestone/repository" ||
 			dependency == "github.com/Koshsky/erp-backend/internal/timesheet/state/repository" ||
+			dependency == "github.com/Koshsky/erp-backend/internal/project_mgmt/comment/repository" ||
 			(strings.HasPrefix(dependency, "github.com/Koshsky/erp-backend/internal/") &&
 				strings.Contains(dependency, "/delivery")) {
 			t.Errorf("neutral core depends on HTTP adapter %s", dependency)

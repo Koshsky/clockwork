@@ -578,3 +578,44 @@ policy and whitespace checks pass. The local Docker daemon remains unavailable;
 no real PostgreSQL/API acceptance or fresh frontend SDK generation is claimed.
 Evidence: `../local/backend-b09-20261115/`. No push, merge, CI, release, deployment
 or remote server changes were performed.
+
+## B10 implementation ledger — 2026-11-15
+
+Continued on `refactor/backend-access-tracing` after `116c713`. Task comment
+service implementation, repository port, mapper and validator now live in the
+feature root; `comment/service` is removed. Delivery, DTO and SQL adapter remain
+separate and parent `project_mgmt/module.go` owns composition. Root types and
+constructors follow the preceding pilots (`Service`, `Repository`, `Mapper`,
+`Validator`, `NewService`, `NewMapper`). Normalizing these names, the package
+declaration and one constructor comment reproduces all four original core files
+exactly. There is no new HTML transformation or cross-entity comment storage.
+
+The existing validator Test function and its six named cases were moved without
+removing assertions. Five additional core Test functions and one HTTP function
+were added and executed before the move: six new functions, 33 named subcases.
+All 46 original-layout test outcomes (including the existing validator) match
+the post-move run. The tests cover unchanged Unicode/Markdown/XSS text through
+creation and JSON, the 4,000-rune boundary, validation before parent lookup,
+same-task replies, missing/foreign parents, flat thread ordering, timestamps,
+repository failures and idempotent deletion. HTTP checks exercise real handlers,
+middleware and core over fake repositories/owner facts: hidden/deleted tasks,
+foreign comment IDs, deletion by author or permitted owner, author/task spoofing
+and same-task replies. Deletion remains authorized from the actual comment's
+owner facts; the visible URL task does not grant rights to another comment.
+
+All 396 existing Test functions are retained. Architecture guards include the
+comment core and reject concrete-repository coupling. Regenerated Wire preserves
+provider calls, arguments and order after normalizing imports and the moved
+constructor. Fresh Swagger JSON/YAML before/after are byte-identical (57 paths,
+93 operations, 92 definitions); all nine frozen contract groups still match B01.
+
+Validation: build/vet, full normal-tag suite (322 top-level pass, 16 skip; 2,695
+pass events and 20 skips including subtests), full race checks in 40 tested
+packages, lint 2.15.0 (0 issues), repository policy and whitespace checks pass.
+All 402 Test functions compile/list with the integration tag; 64 tagged functions
+were not executed. Additionally, 32 existing frontend Markdown/XSS and native
+discussion unit tests pass. The local Docker daemon is unavailable: no real
+PostgreSQL/API, cross-user browser/Electron/PDF XSS acceptance or fresh frontend
+SDK generation is claimed. The guarded XSS end-to-end harness is unchanged.
+Evidence: `../local/backend-b10-20261115/`. No push, merge, CI, release, deployment
+or remote server changes were performed.

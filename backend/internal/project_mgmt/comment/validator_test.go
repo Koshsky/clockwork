@@ -1,19 +1,19 @@
-package service_test
+package comment_test
 
 import (
 	"strings"
 	"testing"
 
-	"github.com/Koshsky/erp-backend/internal/project_mgmt/comment/service"
+	"github.com/Koshsky/erp-backend/internal/project_mgmt/comment"
 	"github.com/Koshsky/erp-backend/pkg/errors"
 )
 
-// maxCommentContentLen mirrors the service limit (see comment/service/validator.go).
+// maxCommentContentLen mirrors the core limit (see comment/validator.go).
 const maxCommentContentLen = 4000
 
 func TestCommentValidator(t *testing.T) {
 	t.Parallel()
-	v := &service.CommentValidator{}
+	v := &comment.Validator{}
 
 	type args struct {
 		taskID, authorID int64

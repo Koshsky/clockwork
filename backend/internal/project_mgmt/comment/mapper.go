@@ -1,4 +1,4 @@
-package service
+package comment
 
 import (
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/comment/dto"
@@ -6,13 +6,13 @@ import (
 	nullable "github.com/Koshsky/erp-backend/pkg/database"
 )
 
-type CommentMapper struct{}
+type Mapper struct{}
 
-func NewCommentMapper() *CommentMapper {
-	return &CommentMapper{}
+func NewMapper() *Mapper {
+	return &Mapper{}
 }
 
-func (m *CommentMapper) ToDTO(comment *sqlc.TaskComment) *dto.CommentResponse {
+func (m *Mapper) ToDTO(comment *sqlc.TaskComment) *dto.CommentResponse {
 	if comment == nil {
 		return nil
 	}
@@ -26,7 +26,7 @@ func (m *CommentMapper) ToDTO(comment *sqlc.TaskComment) *dto.CommentResponse {
 	}
 }
 
-func (m *CommentMapper) ToDTOs(comments []sqlc.TaskComment) []dto.CommentResponse {
+func (m *Mapper) ToDTOs(comments []sqlc.TaskComment) []dto.CommentResponse {
 	if comments == nil {
 		return []dto.CommentResponse{}
 	}

@@ -9,7 +9,7 @@ import (
 	autocreate "github.com/Koshsky/erp-backend/internal/auto_create/service"
 	planning "github.com/Koshsky/erp-backend/internal/planning/service"
 	assignment "github.com/Koshsky/erp-backend/internal/project_mgmt/assignment/service"
-	comment "github.com/Koshsky/erp-backend/internal/project_mgmt/comment/service"
+	comment "github.com/Koshsky/erp-backend/internal/project_mgmt/comment"
 	milestone "github.com/Koshsky/erp-backend/internal/project_mgmt/milestone"
 	process "github.com/Koshsky/erp-backend/internal/project_mgmt/process/service"
 	project "github.com/Koshsky/erp-backend/internal/project_mgmt/project/service"
@@ -34,7 +34,7 @@ func TestServiceConstructorsAcceptInterfacesAndReturnStructs(t *testing.T) {
 		{"auto create", autocreate.NewAutoCreateService, []int{2}},
 		{"planning", planning.NewPlanningService, []int{2}},
 		{"assignment", assignment.NewAssignmentService, []int{2}},
-		{"comment", comment.NewCommentService, []int{2}},
+		{"comment", comment.NewService, []int{2}},
 		{"milestone", milestone.NewService, []int{2}},
 		{"process", process.NewProcessService, []int{2}},
 		{"project", project.NewProjectService, []int{2}},

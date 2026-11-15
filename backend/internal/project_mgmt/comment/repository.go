@@ -1,4 +1,4 @@
-package service
+package comment
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/comment/repository/sqlc"
 )
 
-type CommentRepository interface {
+type Repository interface {
 	CreateComment(
 		ctx context.Context,
 		taskID, authorID int64,
