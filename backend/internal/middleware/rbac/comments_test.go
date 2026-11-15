@@ -1,4 +1,4 @@
-package engine_test
+package rbac_test
 
 import (
 	"context"
@@ -9,7 +9,6 @@ import (
 	"github.com/gin-gonic/gin"
 
 	access "github.com/Koshsky/erp-backend/internal/authz/domain"
-	"github.com/Koshsky/erp-backend/internal/authz/engine"
 	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
 	tracingpkg "github.com/Koshsky/erp-backend/internal/tracing"
 	userctx "github.com/Koshsky/erp-backend/internal/userctx"
@@ -37,7 +36,7 @@ func TestDeleteCommentPolicy(t *testing.T) {
 			return access.Owners{ProjectOwner: 1, ProcessOwner: 2}, nil
 		},
 		CommentOwners: commentOwners,
-	}, []rbac.Policy{{Name: "task.comment.delete", Check: engine.CommentDeleteCheck()}})
+	}, []rbac.Policy{{Name: "task.comment.delete", Check: rbac.CommentDeleteCheck()}})
 
 	cases := []struct {
 		name       string

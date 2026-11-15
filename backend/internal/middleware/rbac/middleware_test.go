@@ -67,8 +67,8 @@ func testData() rbac.Data {
 func TestCheckEntity(t *testing.T) {
 	t.Parallel()
 	mw := rbac.ProvideMiddleware(nil, tracingpkg.New(nil), testData(), []rbac.Policy{
-		{Name: "task.view", Check: engine.EntityCheck(access.ResourceTask, engine.ActionView)},
-		{Name: "task.update", Check: engine.EntityCheck(access.ResourceTask, engine.ActionUpdate)},
+		{Name: "task.view", Check: rbac.EntityCheck(access.ResourceTask, engine.ActionView)},
+		{Name: "task.update", Check: rbac.EntityCheck(access.ResourceTask, engine.ActionUpdate)},
 	})
 
 	cases := []struct {

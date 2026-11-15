@@ -1,7 +1,9 @@
-package engine_test
+package rbac_test
 
 import (
 	"testing"
+
+	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
 
 	"github.com/Koshsky/erp-backend/internal/authz/engine"
 )
@@ -12,8 +14,8 @@ import (
 // mutations via task.update.
 func TestTaskDependencyRouteSpecs(t *testing.T) {
 	t.Parallel()
-	byName := make(map[string]engine.RouteSpec, len(engine.DefaultRouteSpecs()))
-	for _, spec := range engine.DefaultRouteSpecs() {
+	byName := make(map[string]engine.RouteSpec, len(rbac.DefaultRouteSpecs()))
+	for _, spec := range rbac.DefaultRouteSpecs() {
 		byName[spec.Name] = spec
 	}
 	for _, name := range []string{
@@ -26,7 +28,7 @@ func TestTaskDependencyRouteSpecs(t *testing.T) {
 		if !ok {
 			t.Fatalf("DefaultRouteSpecs не содержит %s", name)
 		}
-		if err := engine.ValidateSpec(spec); err != nil {
+		if err := rbac.ValidateSpec(spec); err != nil {
 			t.Errorf("ValidateSpec(%s) неожиданная ошибка: %v", name, err)
 		}
 	}

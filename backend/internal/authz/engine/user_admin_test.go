@@ -30,22 +30,3 @@ func TestUserAdminRights(t *testing.T) {
 		}
 	}
 }
-
-// DefaultRouteSpecs carry the user_admin.* route policies (mirror V9)
-// and they are valid (nullable owner — the virtual resource has no owner).
-func TestUserAdminRouteSpecs(t *testing.T) {
-	t.Parallel()
-	byName := make(map[string]engine.RouteSpec, len(engine.DefaultRouteSpecs()))
-	for _, spec := range engine.DefaultRouteSpecs() {
-		byName[spec.Name] = spec
-	}
-	for _, name := range []string{"user_admin.create", "user_admin.update", "user_admin.delete"} {
-		spec, ok := byName[name]
-		if !ok {
-			t.Fatalf("DefaultRouteSpecs не содержит %s", name)
-		}
-		if err := engine.ValidateSpec(spec); err != nil {
-			t.Errorf("ValidateSpec(%s) неожиданная ошибка: %v", name, err)
-		}
-	}
-}

@@ -365,3 +365,50 @@ checks passed. Frozen API/SDK/DTO/SQL/sqlc/migration/error and version groups
 remain identical to B01. No live DB/API/Electron acceptance or
 fresh SDK generation is claimed. Local evidence is outside Git in
 `../local/backend-b06-20261115/`; no push, merge, release or deployment is performed.
+
+## B04 implementation ledger — 2026-11-15
+
+Continued on `refactor/backend-access-tracing` after `a36d490`. Request-side
+builders, parameter decoding, default route definitions, kind schemas and route
+check construction now belong to the existing `middleware/rbac` package.
+The engine has no direct or transitive dependency on Gin, HTTP middleware or
+`userctx`; the architecture guard now includes the engine itself.
+
+`engine.RouteSpec`, `engine.KindInfo` and `engine.ParamInfo` remain plain data
+types in their original package to preserve public Swagger definition identities.
+The middleware obtains resource/action codes from the existing engine codecs.
+Casbin, scope evaluation, inherited view, SQL scope compilation and resolved-fact
+assignment authorization remain in the core. Only narrow neutral queries were
+exposed to the adapter; no universal request/service-locator interface was added.
+
+Policy administration consumes a focused `RouteCatalog` interface for defaults,
+kind metadata and validation. The existing middleware implements it and Wire
+binds the same instance at application scope. PolicyStore compiles loaded route
+checks through the HTTP adapter before publishing, as before; its concrete
+publisher coupling still belongs to B05. Generated Wire was regenerated normally:
+only the default factory owner and the catalog argument/binding changed.
+
+Fourteen existing transport/catalog test functions were moved out of engine;
+pure matrix, codec, scope and Casbin tests stayed with the core. All 358 existing
+test functions were retained. Four new functions cover resolved assignment facts
+(9 named cases), project priority/metadata/body handling (15 named cases), all
+66 default route definitions, and catalog rejection before repository writes.
+
+Before editing, a disposable in-process HTTP harness recorded 27,720 cases on
+`a36d490`: 66 rules × seven principal modes × three ownership configurations ×
+20 request variants. It exercises preset/admin/grant/revoke behavior, inherited
+view, path/query IDs, owner/parent substitution, missing/null/zero/type/case
+variants, comments, priority changes and body restoration. The final adapter
+produced identical statuses, error codes/messages, handler execution and restored
+bodies for every case. Default definitions and kind schemas were also identical.
+This is a local httptest comparison with fake owner resolvers/probes, not a
+PostgreSQL or deployed-server test. Harness sources/results remain outside Git.
+
+Validation: build/vet, full normal-tag suite (282 top-level pass, 16 skip; 2,478
+pass events and 20 skips including subtests), full race checks in 35 tested
+packages, and lint 2.15.0 (0 issues) passed. All 362 Test functions compile/list
+with the integration tag; the 64 tagged functions were not executed. All nine
+frozen API/SDK/DTO/SQL/sqlc/migration/error/version groups still match B01.
+Repository policy and whitespace checks passed. No real DB/API/Electron fixtures
+or fresh SDK generation were started. Evidence: `../local/backend-b04-20261115/`.
+No push, merge, CI, release, deployment or remote server changes were performed.

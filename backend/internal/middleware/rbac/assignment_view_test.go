@@ -1,4 +1,4 @@
-package engine_test
+package rbac_test
 
 import (
 	"context"
@@ -56,7 +56,7 @@ func TestAssignmentViewOwnRequiresTaskAndResource(t *testing.T) {
 						}, nil
 					}},
 				}
-				err := engine.EntityCheck(access.ResourceAssignment, engine.ActionView)(check)
+				err := rbac.EntityCheck(access.ResourceAssignment, engine.ActionView)(check)
 				if err == nil {
 					c.Status(http.StatusOK)
 					return
@@ -116,7 +116,7 @@ func TestAssignmentMutationsOwnRequireTaskAndResource(t *testing.T) {
 							}, nil
 						}},
 					}
-					err := engine.EntityCheck(access.ResourceAssignment, action)(check)
+					err := rbac.EntityCheck(access.ResourceAssignment, action)(check)
 					if tc.allowed && err != nil {
 						t.Fatalf("own or administrator mutation denied: %v", err)
 					}

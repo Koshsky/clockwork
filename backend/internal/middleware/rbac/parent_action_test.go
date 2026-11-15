@@ -1,4 +1,4 @@
-package engine_test
+package rbac_test
 
 import (
 	"context"
@@ -21,7 +21,7 @@ import (
 // policy (parent_action kind) with the given owner resolvers injected; the
 // authenticated user is role/userID.
 func parentActionRouter(policyName string, data rbac.Data, role string, userID int64) *gin.Engine {
-	spec := engine.DefaultRouteSpecs()
+	spec := rbac.DefaultRouteSpecs()
 	var route engine.RouteSpec
 	for _, s := range spec {
 		if s.Name == policyName {
@@ -32,7 +32,7 @@ func parentActionRouter(policyName string, data rbac.Data, role string, userID i
 	if route.Name == "" {
 		panic("policies: default route spec not found: " + policyName)
 	}
-	built, err := engine.BuildPolicies([]engine.RouteSpec{route})
+	built, err := rbac.BuildPolicies([]engine.RouteSpec{route})
 	if err != nil || len(built) != 1 {
 		panic("policies: build parent_action spec: " + err.Error())
 	}
@@ -57,7 +57,7 @@ func TestParentActionTaskOrder(t *testing.T) {
 			if id == 0 {
 				return access.Owners{}, errors.ErrNotFound
 			}
-			return processOfVP1, nil
+			return access.Owners{ProjectOwner: uRP, ProcessOwner: uVP1}, nil
 		},
 	}
 	policyName := "task.order"
@@ -101,7 +101,7 @@ func TestParentActionProcessOrder(t *testing.T) {
 			if id == 0 {
 				return access.Owners{}, errors.ErrNotFound
 			}
-			return projectOfRP, nil
+			return access.Owners{ProjectOwner: uRP}, nil
 		},
 	}
 	policyName := "process.order"

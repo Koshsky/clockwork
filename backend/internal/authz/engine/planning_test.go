@@ -8,26 +8,6 @@ import (
 	userdomain "github.com/Koshsky/erp-backend/internal/user/domain"
 )
 
-// DefaultRouteSpecs carry the planning.* route policies (mirror V9):
-// /planning/* is gated by the view matrix of the underlying domain via the
-// list kind (row scoping stays in the SQL).
-func TestPlanningRouteSpecs(t *testing.T) {
-	t.Parallel()
-	byName := make(map[string]engine.RouteSpec, len(engine.DefaultRouteSpecs()))
-	for _, spec := range engine.DefaultRouteSpecs() {
-		byName[spec.Name] = spec
-	}
-	for _, name := range []string{"planning.projects", "planning.processes", "planning.tasks"} {
-		spec, ok := byName[name]
-		if !ok {
-			t.Fatalf("DefaultRouteSpecs не содержит %s", name)
-		}
-		if err := engine.ValidateSpec(spec); err != nil {
-			t.Errorf("ValidateSpec(%s) неожиданная ошибка: %v", name, err)
-		}
-	}
-}
-
 // TestViewScopeCodeUserNoReferenceRule pins the regression root: a caller
 // whose preset has NO matrix row for the reference resource resolves to the
 // empty zone code (none is never stored, and its scope name is empty). The

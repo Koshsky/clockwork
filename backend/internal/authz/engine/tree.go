@@ -71,3 +71,8 @@ var ownerDescendants = map[access.Resource][]access.Resource{
 	access.ResourceAudit:        nil,
 	access.ResourceAutoCreate:   nil,
 }
+
+// ResourceRequiresOwners distinguishes row-level resources from global capabilities.
+func ResourceRequiresOwners(res access.Resource) bool {
+	return nodeHasOwner[res] || nodeHasParent[res]
+}

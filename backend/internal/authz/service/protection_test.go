@@ -189,13 +189,13 @@ func (s *stubPolicyRepo) ListAllUserPermissions(_ context.Context) ([]repository
 func newAuthzTestService(repo *stubPolicyRepo) *Service {
 	logger := slog.New(slog.DiscardHandler)
 	store := NewPolicyStore(logger, repo, &rbac.Middleware{}, 0)
-	return NewRBACService(logger, repo, store)
+	return NewRBACService(logger, repo, store, &rbac.Middleware{})
 }
 
 // defaultRoutePolicies returns the default route policy set as repository
-// rows (a valid input for PolicyStore.Reload → engine.BuildPolicies).
+// rows (a valid input for PolicyStore.Reload → rbac.BuildPolicies).
 func defaultRoutePolicies() []domain.RoutePolicy {
-	specs := engine.DefaultRouteSpecs()
+	specs := rbac.DefaultRouteSpecs()
 	out := make([]domain.RoutePolicy, 0, len(specs))
 	for _, s := range specs {
 		out = append(out, domain.RoutePolicy{Name: s.Name, Kind: s.Kind, Params: s.Params, Active: true})
@@ -223,7 +223,7 @@ func defaultRuleParams(updatedBy int64) []sqlc.UpsertPresetRuleParams {
 // defaultPolicyParams replicates the service's Reset transformation of the
 // default route specs into sqlc.UpsertRoutePolicyParams.
 func defaultPolicyParams(updatedBy int64) []sqlc.UpsertRoutePolicyParams {
-	specs := engine.DefaultRouteSpecs()
+	specs := rbac.DefaultRouteSpecs()
 	out := make([]sqlc.UpsertRoutePolicyParams, 0, len(specs))
 	for _, spec := range specs {
 		params, err := json.Marshal(spec.Params)

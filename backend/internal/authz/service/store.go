@@ -120,7 +120,7 @@ func (s *PolicyStore) Reload(ctx context.Context) error {
 			"в БД нет ни одной активной маршрутной проверки — применение отменено (защита от полной блокировки)",
 		)
 	}
-	built, err := engine.BuildPolicies(routePoliciesToSpecs(routePolicies))
+	built, err := rbac.BuildPolicies(routePoliciesToSpecs(routePolicies))
 	if err != nil {
 		return fmt.Errorf("сборка маршрутных проверок: %w", err)
 	}

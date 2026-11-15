@@ -1,4 +1,4 @@
-package engine_test
+package rbac_test
 
 import (
 	"context"
@@ -79,11 +79,11 @@ func TestTaskCreateParentAccess(t *testing.T) {
 
 func taskCreatePolicies(t *testing.T) []rbac.Policy {
 	t.Helper()
-	for _, spec := range engine.DefaultRouteSpecs() {
+	for _, spec := range rbac.DefaultRouteSpecs() {
 		if spec.Name != "task.create" {
 			continue
 		}
-		policies, err := engine.BuildPolicies([]engine.RouteSpec{spec})
+		policies, err := rbac.BuildPolicies([]engine.RouteSpec{spec})
 		if err != nil {
 			t.Fatal(err)
 		}

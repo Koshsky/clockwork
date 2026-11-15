@@ -33,8 +33,8 @@ func resActKey(res access.Resource, act Action) string {
 	return ResourceName(res) + "/" + ActionName(act)
 }
 
-// splitKey parses a canonical "<resource>/<action>" object.
-func splitKey(key string) (access.Resource, Action, error) {
+// ParsePermissionKey parses a canonical "<resource>/<action>" object.
+func ParsePermissionKey(key string) (access.Resource, Action, error) {
 	resName, actName, found := strings.Cut(key, "/")
 	if !found {
 		return 0, 0, errInvalidKey(key)
@@ -99,12 +99,12 @@ func CurrentMatrix() Matrix {
 		if len(row) < 4 || row[3] != eftAllow || numericSub(row[0]) {
 			continue
 		}
-		res, act, keyErr := splitKey(row[1])
+		res, act, keyErr := ParsePermissionKey(row[1])
 		if keyErr != nil {
 			continue
 		}
 		scope, ok := ParseScope(row[2])
-		if !ok || scope == ScopeNone || scope == ownerModeNone {
+		if !ok || scope == ScopeNone || scope == ScopeNoneCode {
 			continue
 		}
 		rules = append(rules, MatrixRule{Res: res, Act: act, Role: row[0], Scope: scope})
@@ -366,8 +366,7 @@ func EnforceTarget(u access.UserContext, t Target) bool {
 
 func enforceDirectTarget(u access.UserContext, t Target) bool {
 	if t.Res == access.ResourceAssignment && t.Act == ActionView &&
-		scopeForUser(u, t.Res, t.Act) == ScopeParent &&
-		(t.Owners.Owner != u.ID || t.Owners.ResourceOwner != u.ID) {
+		!AssignmentOwnersAllowed(u, t.Act, t.Owners) {
 		return false
 	}
 	if t.Mode != ModeAuthorOr || t.AuthorID != u.ID {
@@ -476,7 +475,8 @@ func inheritedView(u access.UserContext, target Target) bool {
 	return false
 }
 
-func unrestrictedViewAncestor(u access.UserContext, res access.Resource) bool {
+// UnrestrictedViewAncestor reports whether a parent grants an unrestricted view.
+func UnrestrictedViewAncestor(u access.UserContext, res access.Resource) bool {
 	for _, parent := range viewAncestors(res) {
 		if scopeForUser(u, parent, ActionView) == ScopeAll {
 			return true

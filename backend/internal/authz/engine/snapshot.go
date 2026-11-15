@@ -170,7 +170,7 @@ func addGrantRules(e *casbin.Enforcer, grants []RuleGrant) error {
 // addDenyRules feeds the deny rows (user-level revokes).
 func addDenyRules(e *casbin.Enforcer, denies []RuleDeny) error {
 	for _, d := range denies {
-		if _, _, err := splitKey(d.Key); err != nil {
+		if _, _, err := ParsePermissionKey(d.Key); err != nil {
 			return err
 		}
 		if d.Sub == "" {
@@ -186,12 +186,12 @@ func addDenyRules(e *casbin.Enforcer, denies []RuleDeny) error {
 // validateGrant checks the canonical object and the ownership scope expression
 // of an allow rule (mirrors the matrix rule validation).
 func validateGrant(g RuleGrant) error {
-	res, act, err := splitKey(g.Key)
+	res, act, err := ParsePermissionKey(g.Key)
 	if err != nil {
 		return err
 	}
 	scope, ok := ParseScope(g.Scope)
-	if !ok || scope == ScopeNone || scope == ownerModeNone {
+	if !ok || scope == ScopeNone || scope == ScopeNoneCode {
 		return fmt.Errorf(
 			"недопустимая зона %q (preset=%s, resource=%s, action=%s)",
 			g.Scope,

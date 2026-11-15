@@ -20,7 +20,7 @@ import (
 )
 
 // Data holds the owner resolver functions (OwnerChain implementations in the
-// entity repositories). They are injected into the engine at startup.
+// entity repositories). They are injected into the HTTP adapter at startup.
 type Data struct {
 	ProjectOwners    access.ResolveByID
 	ProcessOwners    access.ResolveByID

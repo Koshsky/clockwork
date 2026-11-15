@@ -32,7 +32,7 @@ type moveToken struct {
 // parsedScope — the parsed form of a scope expression.
 type parsedScope struct {
 	all   bool // "all" — unconditional access
-	none  bool // ownerModeNone — explicit deny (""/absent rule is ScopeNone too)
+	none  bool // ScopeNoneCode — explicit deny (""/absent rule is ScopeNone too)
 	moves []moveToken
 	canon string // canonical expression string
 }
@@ -50,7 +50,7 @@ func parseScope(s string) (parsedScope, bool) {
 	case "":
 		return parsedScope{}, true // missing rule = no access
 	case "none":
-		return parsedScope{none: true, canon: ownerModeNone}, true
+		return parsedScope{none: true, canon: ScopeNoneCode}, true
 	case "all":
 		return parsedScope{all: true, canon: "all"}, true
 	}

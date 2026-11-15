@@ -15,7 +15,7 @@ func TestNeutralCoresDoNotDependOnHTTPAdapters(t *testing.T) {
 	t.Parallel()
 
 	cmd := exec.CommandContext(t.Context(), "go", "list", "-deps", "-f", "{{.ImportPath}}",
-		"./internal/authz/domain", "./internal/tracing")
+		"./internal/authz/domain", "./internal/authz/engine", "./internal/tracing")
 	cmd.Dir = "../.."
 	output, err := cmd.CombinedOutput()
 	if err != nil {

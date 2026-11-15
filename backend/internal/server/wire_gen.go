@@ -15,7 +15,6 @@ import (
 	service3 "github.com/Koshsky/erp-backend/internal/auth/service"
 	"github.com/Koshsky/erp-backend/internal/authz"
 	delivery15 "github.com/Koshsky/erp-backend/internal/authz/delivery"
-	"github.com/Koshsky/erp-backend/internal/authz/engine"
 	"github.com/Koshsky/erp-backend/internal/authz/repository"
 	"github.com/Koshsky/erp-backend/internal/authz/service"
 	"github.com/Koshsky/erp-backend/internal/auto_create"
@@ -110,7 +109,7 @@ func InitializeApp() (*App, error) {
 	userRepository := repository7.NewUserRepository(slogLogger, pool)
 	commentRepository := repository8.NewCommentRepository(slogLogger, pool)
 	data := ProvideRBACData(projectRepository, processRepository, taskRepository, milestoneRepository, assignmentRepository, resourceRepository, userRepository, commentRepository)
-	v := engine.ProvideAll()
+	v := rbac.ProvideAll()
 	middleware := rbac.ProvideMiddleware(slogLogger, tracer, data, v)
 	duration := config.ProvideRBACRefreshInterval(configConfig)
 	policyStore := service.NewPolicyStore(slogLogger, ruleRepository, middleware, duration)
@@ -171,7 +170,7 @@ func InitializeApp() (*App, error) {
 	autoCreateService := service15.NewAutoCreateService(slogLogger, tracer, autoCreateRepository)
 	autoCreateHandler := delivery14.NewAutoCreateHandler(slogLogger, autoCreateService, middleware)
 	autocreateModule := autocreate.ProvideModule(autoCreateHandler)
-	serviceService := service.NewRBACService(slogLogger, ruleRepository, policyStore)
+	serviceService := service.NewRBACService(slogLogger, ruleRepository, policyStore, middleware)
 	rbacHandler := delivery15.NewRBACHandler(slogLogger, serviceService, middleware)
 	ownerProbe := service.NewOwnerProbe(pool)
 	authzModule := authz.ProvideModule(rbacHandler, slogLogger, ownerProbe)

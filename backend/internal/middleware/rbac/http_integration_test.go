@@ -1,4 +1,4 @@
-package engine_test
+package rbac_test
 
 import (
 	"bytes"

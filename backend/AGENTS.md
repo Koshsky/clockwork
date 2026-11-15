@@ -39,8 +39,12 @@ session and replay contracts when implementing each new boundary.
 - Shared access facts (`Resource`, `Owners`, `ListScope`, owner resolver contracts,
   `UserContext`, `PermissionRule`) belong to `internal/authz/domain`. Services and
   repositories consume these neutral types; Gin accessors remain in `userctx`.
-  The engine's HTTP builders and PolicyStore's concrete middleware publisher are
-  explicit remaining B04/B05 boundaries, not examples for new dependencies.
+  HTTP route builders and kind catalogs belong to `middleware/rbac`.
+  PolicyStore's concrete middleware publisher remains the B05 boundary.
+- `authz/engine` evaluates neutral targets with `context.Context`; it must not
+  depend on Gin, HTTP middleware or `userctx`. HTTP path/query/body decoding and
+  route-check closures stay in `middleware/rbac`. Policy administration consumes
+  a focused `RouteCatalog` interface instead of importing the HTTP builders.
 - `internal/tracing` owns OpenTelemetry lifecycle and context-based tracing;
   it must not depend on Gin or HTTP middleware. The Gin adapter lives in
   `internal/middleware/tracing`; only HTTP composition/adapters use it.

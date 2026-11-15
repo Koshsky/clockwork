@@ -50,14 +50,15 @@ type PolicyRepository interface {
 // Service — RBAC policy administration (validation + DB writes +
 // immediate application through the PolicyStore).
 type Service struct {
-	logger *slog.Logger
-	repo   PolicyRepository
-	store  *PolicyStore
+	logger  *slog.Logger
+	repo    PolicyRepository
+	store   *PolicyStore
+	catalog RouteCatalog
 }
 
 // NewRBACService builds the RBAC administration service.
-func NewRBACService(logger *slog.Logger, repo PolicyRepository, store *PolicyStore) *Service {
-	return &Service{logger: logger.With("component", "rbacpolicy_service"), repo: repo, store: store}
+func NewRBACService(logger *slog.Logger, repo PolicyRepository, store *PolicyStore, catalog RouteCatalog) *Service {
+	return &Service{logger: logger.With("component", "rbacpolicy_service"), repo: repo, store: store, catalog: catalog}
 }
 
 // ListPresets returns the preset catalog.
@@ -136,7 +137,7 @@ func (s *Service) ListRoutePolicies(ctx context.Context) ([]domain.RoutePolicy, 
 // UpsertRoutePolicy validates (kind + parameters against the schema) and writes
 // the route policy.
 func (s *Service) UpsertRoutePolicy(ctx context.Context, in dto.RoutePolicyInput, updatedBy int64) error {
-	if err := engine.ValidateSpec(engine.RouteSpec{Name: in.Name, Kind: in.Kind, Params: in.Params}); err != nil {
+	if err := s.catalog.ValidateSpec(engine.RouteSpec{Name: in.Name, Kind: in.Kind, Params: in.Params}); err != nil {
 		return errors.BadRequest(err.Error())
 	}
 	active := true
@@ -178,7 +179,7 @@ func (s *Service) Reset(ctx context.Context, updatedBy int64) error {
 			UpdatedBy: pgtype.Int8{Int64: updatedBy, Valid: true},
 		})
 	}
-	specs := engine.DefaultRouteSpecs()
+	specs := s.catalog.DefaultRouteSpecs()
 	policies := make([]sqlc.UpsertRoutePolicyParams, 0, len(specs))
 	for _, spec := range specs {
 		params, err := json.Marshal(spec.Params)
@@ -267,7 +268,7 @@ func scopeCode(scope string) string {
 
 // Kinds returns the catalog of route policy kinds.
 func (s *Service) Kinds() []engine.KindInfo {
-	return engine.Kinds()
+	return s.catalog.Kinds()
 }
 
 // Explain answers "why allow/deny" for debugging DB-backed rules.

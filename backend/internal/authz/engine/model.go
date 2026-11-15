@@ -1,5 +1,5 @@
 // Package engine is the access-control core of the ERP. It merges the former
-// internal/policies rules (permission matrix, codecs, route-policy kinds) with
+// internal/policies rules (permission matrix and codecs) with
 // the Casbin policy engine: RBAC role inheritance (user -> preset), ACL
 // allow/deny policy rows (the matrix rules + per-user overrides) and an ABAC
 // matcher that compares the caller's attributes (Subject) with the target's
