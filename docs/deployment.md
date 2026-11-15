@@ -160,6 +160,28 @@ Runtime drift triggers reconciliation. The initial transition may recreate all
 services once because image references, mount paths and Compose ownership become
 explicit. Expect a short interruption; this is not a zero-downtime deployment.
 
+### Forced recreation check
+
+Enable `force_recreate` only for an intentional full recreation check. Its default
+is false. It uses the same published image digests, validation and verified backup
+steps; it neither builds images nor deletes volumes. Record data checksums and
+container IDs before the run and compare them afterward.
+All five selected image IDs must match the running containers, including
+infrastructure. A version/tag resolving to different bytes is rejected before
+backup or interruption; perform intentional image updates as a normal deploy.
+
+The backend and gateway are stopped after backup. Caddy is recreated alone first,
+then PostgreSQL/Loki, then (after Loki readiness) backend/frontend without their
+dependencies. The final whole-stack reconciliation never uses `--force-recreate`,
+so it cannot replace Caddy again while application IPs are allocated.
+The worker verifies that all five container IDs changed before recording success.
+
+The GitHub run ID identifies a force operation. Re-running the same successful
+workflow request does not force containers again when its verified runtime is
+unchanged. A new manual dispatch gets a new ID and forces a fresh recreation.
+Retrying an incomplete force operation may recreate its containers again; data
+volumes are retained and another verified backup is required first.
+
 ## Interrupted or failed deployment
 
 The server worker runs detached from SSH, with closed SSH descriptors. Losing a

@@ -11,6 +11,10 @@ on:
         description: Published frontend vX.Y.Z (empty uses frontend/package.json)
         type: string
         required: false
+      force_recreate:
+        description: Recreate all five containers with the same images (brief downtime)
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -34,6 +38,7 @@ jobs:
         env:
           BACKEND_VERSION: ${{ inputs.backend_version }}
           FRONTEND_VERSION: ${{ inputs.frontend_version }}
+          FORCE_RECREATE: ${{ inputs.force_recreate }}
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}

@@ -311,7 +311,8 @@ class ApplyTest(unittest.TestCase):
         self.new['frontend']['Id'] = 'new-frontend-id'
         self.current = self.old
         self.events = []
-        self.model = {'services': {n: {'image': n + '@sha256:' + 'c' * 64} for n in ('db', 'caddy', 'loki')}}
+        self.forced_recreations = 0
+        self.model = {'services': {n: {'image': n + '@sha256:' + 'c' * 64} for n in deploy.SERVICES}}
         self.fail = None
         self.inventory = patch.object(deploy, 'inspect_stack', side_effect=lambda env, **kwargs: (self.current, {})).start()
         self.pinned = patch.object(deploy, 'pinned_image', side_effect=lambda repo, version: repo + '@sha256:' + 'd' * 64).start()
@@ -323,7 +324,14 @@ class ApplyTest(unittest.TestCase):
         self.ready = patch.object(deploy, 'ready', side_effect=lambda *args: self.events.append('ready')).start()
         patch.object(deploy, 'command', side_effect=self.command_call).start()
         patch.object(deploy.shutil, 'disk_usage', return_value=Mock(free=10 * 1024 ** 3)).start()
-        patch.object(deploy, 'docker_json', side_effect=lambda *a: [{'Id': 'new-backend' if 'backend' in a[-1] else 'new-frontend', 'Config': {'Env': ['PG_MAJOR=16']}}]).start()
+        patch.object(deploy, 'docker_json', side_effect=self.image_info).start()
+
+    def image_info(self, *args):
+        identifier = 'new-backend' if 'backend' in args[-1] else 'new-frontend'
+        for service, config in self.model['services'].items():
+            if args[-1] == config['image']:
+                identifier = self.new[service]['Image']
+        return [{'Id': identifier, 'Config': {'Env': ['PG_MAJOR=16']}}]
 
     def validate_call(self, model):
         self.events.append('validate-model')
@@ -346,7 +354,14 @@ class ApplyTest(unittest.TestCase):
         self.events.append(args[0])
         if args[0] == self.fail:
             raise deploy.DeployError('simulated ' + self.fail + ' failure')
-        if args[0] == 'up' and args[-1] == '180':
+        if args[0] == 'up' and '--force-recreate' in args:
+            self.forced_recreations += 1
+            self.current = copy.deepcopy(self.current)
+            for service in deploy.SERVICES:
+                if service in args:
+                    self.current[service] = copy.deepcopy(self.new[service])
+                    self.current[service]['Id'] = f'forced-{self.forced_recreations}-{service}-id'
+        elif args[0] == 'up' and args[-1] == '180' and 'force_run_id' not in self.payload:
             self.current = self.new
         if args[0] == 'config' and '--hash' in args:
             return ('loki ' + 'c' * 64).encode()
@@ -385,6 +400,144 @@ class ApplyTest(unittest.TestCase):
         self.pinned.assert_not_called()
         self.assertEqual(self.active.stat().st_mtime_ns, before)
         self.assertEqual(self.status()['phase'], 'succeeded')
+
+    def enable_force(self, run_id='101'):
+        self.payload['force_run_id'] = run_id
+        for service in deploy.SERVICES:
+            self.old[service]['Image'] = self.new[service]['Image']
+        (self.request / 'payload.json').write_bytes(deploy.encoded(self.payload))
+
+    def test_force_recreates_same_images_in_safe_groups_after_backup(self):
+        deploy.apply(self.request)
+        self.enable_force()
+        self.compose.reset_mock()
+        self.events.clear()
+        deploy.apply(self.request)
+        ups = [c.args[1:] for c in self.compose.call_args_list if c.args[1] == 'up']
+        self.assertEqual(len(ups), 4)
+        self.assertEqual(ups[0][-1], 'caddy')
+        self.assertEqual(ups[1][-2:], ('db', 'loki'))
+        self.assertEqual(ups[2][-2:], ('erp', 'frontend'))
+        for args in ups[:3]:
+            self.assertIn('--force-recreate', args)
+            self.assertIn('--no-build', args)
+            self.assertEqual(args[args.index('--pull') + 1], 'never')
+        self.assertIn('--no-deps', ups[0])
+        self.assertIn('--no-deps', ups[2])
+        self.assertNotIn('--force-recreate', ups[3])
+        self.assertLess(self.events.index('backup'), self.events.index('stop'))
+        self.assertEqual(self.events[-6:], ['up', 'up', 'loki-ready', 'up', 'up', 'ready'])
+        stops = [c.args[-1] for c in self.compose.call_args_list if c.args[1] == 'stop']
+        self.assertEqual(stops, ['caddy', 'erp'])
+        receipt = json.loads((self.root / '.clockwork/applied.json').read_text())
+        self.assertEqual(receipt['force_request'], self.request.name)
+        self.assertEqual(self.status()['recreated_services'], list(deploy.SERVICES))
+
+    def test_force_cannot_claim_success_when_one_container_was_not_replaced(self):
+        self.enable_force()
+        def inventory(env, **kwargs):
+            if kwargs.get('recover_proxy_ip'):
+                return self.current, {}
+            current = copy.deepcopy(self.current)
+            current['db']['Id'] = self.old['db']['Id']
+            return current, {}
+        self.inventory.side_effect = inventory
+        with self.assertRaisesRegex(deploy.DeployError, 'did not replace db'):
+            deploy.apply(self.request)
+        self.ready.assert_not_called()
+        self.assertEqual(self.status()['phase'], 'failed')
+        self.assertFalse((self.root / '.clockwork/applied.json').exists())
+
+    def test_force_rejects_image_changes_for_every_service_before_backup_or_stop(self):
+        self.enable_force()
+        for service in deploy.SERVICES:
+            original = self.old[service]['Image']
+            self.old[service]['Image'] = 'different-running-image'
+            self.events.clear()
+            with self.subTest(service=service), self.assertRaisesRegex(deploy.DeployError, 'preserve the running image for ' + service):
+                deploy.apply(self.request)
+            self.backup.assert_not_called()
+            self.assertNotIn('stop', self.events)
+            self.assertNotIn('up', self.events)
+            self.assertEqual(self.active.read_text(), 'old compose')
+            self.old[service]['Image'] = original
+
+    def test_force_detects_a_noop_for_each_group_instead_of_synthesizing_final_ids(self):
+        self.enable_force()
+        for skipped in (('caddy',), ('db', 'loki'), ('erp', 'frontend')):
+            self.current = self.old
+            def compose(path, *args, **kwargs):
+                if '--force-recreate' in args and args[-len(skipped):] == skipped:
+                    self.events.append('up')
+                    return b''
+                return self.compose_call(path, *args, **kwargs)
+            self.compose.side_effect = compose
+            with self.subTest(skipped=skipped), self.assertRaisesRegex(deploy.DeployError, 'did not replace'):
+                deploy.apply(self.request)
+            self.assertEqual(self.status()['phase'], 'failed')
+            self.ready.assert_not_called()
+            self.assertFalse((self.root / '.clockwork/applied.json').exists())
+
+    def test_successful_force_retry_does_not_recreate_or_backup_again(self):
+        self.enable_force()
+        deploy.apply(self.request)
+        self.compose.reset_mock()
+        self.pinned.reset_mock()
+        self.backup.reset_mock()
+        deploy.apply(self.request)
+        self.assertFalse(any(c.args[1] == 'up' for c in self.compose.call_args_list))
+        self.pinned.assert_not_called()
+        self.backup.assert_not_called()
+        self.assertEqual(self.status()['phase'], 'succeeded')
+
+    def test_new_force_dispatch_recreates_even_when_previous_runtime_is_unchanged(self):
+        self.enable_force()
+        deploy.apply(self.request)
+        self.payload['force_run_id'] = '102'
+        request = deploy.directory(self.request.parent / ('c' * 64))
+        (request / 'payload.json').write_bytes(deploy.encoded(self.payload))
+        self.compose.reset_mock()
+        deploy.apply(request)
+        self.assertEqual(sum('--force-recreate' in c.args for c in self.compose.call_args_list), 3)
+        receipt = json.loads((self.root / '.clockwork/applied.json').read_text())
+        self.assertEqual(receipt['force_request'], request.name)
+
+    def test_force_keeps_application_stopped_until_unchanged_loki_is_ready(self):
+        self.enable_force()
+        self.fail = 'loki'
+        with self.assertRaises(deploy.DeployError):
+            deploy.apply(self.request)
+        ups = [c.args[1:] for c in self.compose.call_args_list if c.args[1] == 'up']
+        self.assertEqual(len(ups), 2)
+        self.assertEqual(ups[0][-1], 'caddy')
+        self.assertEqual(ups[1][-2:], ('db', 'loki'))
+        self.ready.assert_not_called()
+        self.assertFalse((self.root / '.clockwork/applied.json').exists())
+        self.pinned.reset_mock()
+        self.fail = None
+        deploy.apply(self.request)
+        self.pinned.assert_not_called()
+        self.assertEqual(self.status()['phase'], 'succeeded')
+        self.assertEqual(self.backup.call_count, 2)
+
+    def test_force_backup_failure_cannot_stop_or_recreate_containers(self):
+        self.enable_force()
+        self.fail = 'backup'
+        with self.assertRaises(deploy.DeployError):
+            deploy.apply(self.request)
+        self.assertNotIn('stop', self.events)
+        self.assertNotIn('up', self.events)
+        self.assertEqual(self.active.read_text(), 'old compose')
+
+    def test_invalid_force_run_id_fails_before_inventory_or_mutations(self):
+        for value in (False, True, '', 0, '0', '1;exit', '1' * 21):
+            self.enable_force(value)
+            self.inventory.reset_mock()
+            with self.subTest(value=value), self.assertRaises(deploy.DeployError):
+                deploy.apply(self.request)
+            self.inventory.assert_not_called()
+            self.backup.assert_not_called()
+            self.assertEqual(self.status()['phase'], 'failed')
 
     def test_proxy_reserves_its_ip_without_starting_dependencies_before_infrastructure(self):
         deploy.apply(self.request)
@@ -731,6 +884,7 @@ class ClientTest(unittest.TestCase):
             deploy.deploy()
         payload = json.loads(calls[0][1]['stdin'])
         payload.pop('driver')
+        self.assertNotIn('force_run_id', payload)
         identifier = deploy.digest(deploy.encoded(payload))
         self.assertIn(identifier, calls[1][0][-1])
         self.assertIn(identifier, calls[2][0][-1])
@@ -738,6 +892,44 @@ class ClientTest(unittest.TestCase):
         self.assertNotIn('test-key', output.getvalue())
         key_file = Path(calls[0][0][calls[0][0].index('-i') + 1])
         self.assertFalse(key_file.exists())
+
+    def test_force_payload_is_stable_across_attempts_but_distinct_for_new_dispatches(self):
+        payloads = []
+        for run, attempt in [('101', '1'), ('101', '2'), ('102', '1')]:
+            env = dict(DEPLOY_HOST='erp.koshsky.ru', DEPLOY_USER='root', DEPLOY_SSH_KEY='test-key',
+                       DEPLOY_KNOWN_HOSTS='test-host-key', DEPLOY_APP_ENV_JSON=json.dumps(ENV),
+                       GITHUB_SHA='a' * 40, BACKEND_VERSION='v1.5.0', FRONTEND_VERSION='v2.0.0',
+                       FORCE_RECREATE='true', GITHUB_RUN_ID=run, GITHUB_RUN_ATTEMPT=attempt)
+            def command(args, **kwargs):
+                if kwargs.get('stdin'):
+                    payload = json.loads(kwargs['stdin']); payload.pop('driver'); payloads.append(payload)
+                    raise deploy.DeployError('ack lost')
+                return deploy.encoded({'phase': 'succeeded', 'images': {}})
+            with patch.dict(os.environ, env, clear=True), patch.object(deploy, 'command', side_effect=command), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                deploy.deploy()
+        self.assertEqual(payloads[0], payloads[1])
+        self.assertEqual(payloads[0]['force_run_id'], '101')
+        self.assertEqual(payloads[2]['force_run_id'], '102')
+        self.assertNotEqual(deploy.digest(deploy.encoded(payloads[0])), deploy.digest(deploy.encoded(payloads[2])))
+
+    def test_invalid_force_inputs_fail_before_ssh(self):
+        base = dict(DEPLOY_APP_ENV_JSON=json.dumps(ENV), GITHUB_SHA='a' * 40,
+                    BACKEND_VERSION='v1.5.0', FRONTEND_VERSION='v2.0.0')
+        for extra in ({'FORCE_RECREATE': 'yes'}, {'FORCE_RECREATE': ''}, {'FORCE_RECREATE': 'true'},
+                      {'FORCE_RECREATE': 'true', 'GITHUB_RUN_ID': '0'},
+                      {'FORCE_RECREATE': 'true', 'GITHUB_RUN_ID': '1;exit'}):
+            with self.subTest(extra=extra), patch.dict(os.environ, dict(base, **extra), clear=True), \
+                    patch.object(deploy, 'command') as command, self.assertRaises(deploy.DeployError):
+                deploy.deploy()
+            command.assert_not_called()
+
+    def test_force_workflow_input_is_manual_false_by_default_and_wired_to_client(self):
+        text = (REPO / '.github/workflows/deploy.yml').read_text()
+        self.assertIn('workflow_dispatch:', text)
+        self.assertNotIn('\n  push:', text)
+        self.assertRegex(text, r'force_recreate:\n(?:[^\n]*\n)*?        type: boolean\n        default: false')
+        self.assertIn('FORCE_RECREATE: ${{ inputs.force_recreate }}', text)
 
     def test_receive_of_inflight_request_attaches_without_starting_a_second_worker(self):
         with tempfile.TemporaryDirectory() as tmp, patch.object(deploy, 'ROOT', Path(tmp).resolve()), \

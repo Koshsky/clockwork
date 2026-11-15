@@ -242,6 +242,22 @@ class DockerProxyOrderTest(unittest.TestCase):
                     run(*up)
                     self.assertEqual({s: c['Id'] for s, c in inspect().items()}, {s: c['Id'] for s, c in after.items()})
                     self.assertEqual(run('exec', '-T', 'db', 'cat', '/data/marker'), b'keep-data')
+                    stable = inspect()
+                    run('stop', '--timeout', '1', 'caddy', 'erp')
+                    run(*up, '--no-deps', '--force-recreate', 'caddy')
+                    proxy = inspect()['caddy']
+                    run(*up, '--force-recreate', 'db', 'loki')
+                    self.assertFalse(inspect()['erp']['State']['Running'])
+                    run(*up, '--no-deps', '--force-recreate', 'erp', 'frontend')
+                    run(*up)
+                    forced = inspect()
+                    self.assertEqual(forced['caddy']['Id'], proxy['Id'])
+                    self.assertEqual(forced['caddy']['NetworkSettings']['Networks'][name]['IPAddress'], proxy_ip)
+                    for service, container in forced.items():
+                        self.assertNotEqual(container['Id'], stable[service]['Id'])
+                        self.assertEqual(container['Image'], stable[service]['Image'])
+                        self.assertTrue(container['State']['Running'])
+                    self.assertEqual(run('exec', '-T', 'db', 'cat', '/data/marker'), b'keep-data')
                 finally:
                     run('down', '--volumes', '--timeout', '1')
         finally:

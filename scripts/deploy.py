@@ -407,6 +407,12 @@ def runtime_signature(containers):
             for name, c in containers.items()}
 
 
+def force_run_id(value):
+    if value is not None and (not isinstance(value, str) or not re.fullmatch(r'[1-9][0-9]{0,19}', value)):
+        raise DeployError('Forced recreation requires a valid GitHub workflow run ID')
+    return value
+
+
 def apply(request):
     request = safe_path(request)
     if request.parent != ROOT / '.clockwork/requests' or not re.fullmatch(r'[0-9a-f]{64}', request.name):
@@ -417,6 +423,9 @@ def apply(request):
         status['phase'] = name
         atomic_write(request / 'status.json', encoded(status))
     try:
+        force = force_run_id(payload.get('force_run_id')) is not None
+        if force:
+            status['force_recreate'] = True
         state = directory(ROOT / '.clockwork')
         with safe_path(state / 'deploy.lock').open('a') as lock:
             try:
@@ -450,6 +459,7 @@ def apply(request):
             applied_file = safe_path(state / 'applied.json')
             applied = json.loads(applied_file.read_text()) if applied_file.exists() else {}
             if (active.read_bytes() == candidate.read_bytes()
+                    and (not force or applied.get('force_request') == request.name)
                     and applied.get('containers') == runtime_signature(containers)
                     and not proxy_ip_applications(containers)
                     and containers['caddy']['NetworkSettings']['Networks']['erp_app-network'].get('IPAddress') == PROXY_IP
@@ -460,6 +470,11 @@ def apply(request):
                 return
             # Pull and validate before touching the running stack or its active files.
             compose(candidate, 'pull')
+            if force:
+                for service in SERVICES:
+                    image = docker_json('image', 'inspect', model['services'][service]['image'])[0]
+                    if containers[service]['Image'] != image['Id']:
+                        raise DeployError('Forced recreation must preserve the running image for ' + service)
             postgres_image = docker_json('image', 'inspect', model['services']['db']['image'])[0]
             if 'PG_MAJOR=16' not in postgres_image['Config']['Env']:
                 raise DeployError('PostgreSQL major upgrades require a separate procedure')
@@ -486,7 +501,7 @@ def apply(request):
             previous = safe_path(request / 'previous-compose.yml')
             if not previous.exists():
                 atomic_write(previous, active.read_bytes())
-            paused_services = ['caddy', 'erp'] if loki_changes(candidate, containers) else []
+            paused_services = ['caddy', 'erp'] if force or loki_changes(candidate, containers) else []
             for service in proxy_ip_applications(containers):
                 if service not in paused_services:
                     paused_services.append(service)
@@ -496,11 +511,14 @@ def apply(request):
                     compose(active, 'stop', '--timeout', '30', service)
             phase('apply')
             atomic_write(active, candidate.read_bytes())
+            force_args = ('--force-recreate',) if force else ()
             # Reserve the proxy IP before any dynamically addressed service is recreated.
-            compose(active, 'up', '-d', '--no-deps', '--no-build', '--pull', 'never', '--wait', '--wait-timeout', '180', 'caddy')
-            compose(active, 'up', '-d', '--no-build', '--pull', 'never', '--wait', '--wait-timeout', '180', 'db', 'loki')
+            compose(active, 'up', '-d', '--no-deps', '--no-build', '--pull', 'never', '--wait', '--wait-timeout', '180', *force_args, 'caddy')
+            compose(active, 'up', '-d', '--no-build', '--pull', 'never', '--wait', '--wait-timeout', '180', *force_args, 'db', 'loki')
             phase('wait-audit')
             wait_loki(model['services']['caddy']['image'])
+            if force:
+                compose(active, 'up', '-d', '--no-deps', '--no-build', '--pull', 'never', '--wait', '--wait-timeout', '180', '--force-recreate', 'erp', 'frontend')
             compose(active, 'up', '-d', '--no-build', '--pull', 'never', '--wait', '--wait-timeout', '180')
             phase('verify')
             current, _ = inspect_stack(env)
@@ -508,13 +526,20 @@ def apply(request):
                 raise DeployError('Running reverse proxy does not use its reserved IP')
             if not runtime_ready(current):
                 raise DeployError('A required service is not running or healthy')
+            if force:
+                for service in SERVICES:
+                    if current[service]['Id'] == containers[service]['Id']:
+                        raise DeployError('Forced recreation did not replace ' + service)
+                status['recreated_services'] = list(SERVICES)
             for service, key in [('erp', 'BACKEND_IMAGE'), ('frontend', 'FRONTEND_IMAGE')]:
                 expected = docker_json('image', 'inspect', images[key])[0]['Id']
                 if current[service]['Image'] != expected:
                     raise DeployError('Running application image does not match the deployment digest')
             ready(active, model)
-            atomic_write(applied_file, encoded({'containers': runtime_signature(current),
-                                               'source': payload['source'], 'images': images}))
+            applied = {'containers': runtime_signature(current), 'source': payload['source'], 'images': images}
+            if force:
+                applied['force_request'] = request.name
+            atomic_write(applied_file, encoded(applied))
             phase('succeeded')
     except Exception as error:
         status['error'] = str(error) if isinstance(error, DeployError) else 'Internal deployment error'
@@ -591,6 +616,12 @@ def deploy():
     payload = dict(versions, source=source, environment=env['DEPLOY_APP_ENV_JSON'],
                    script=base64.b64encode(Path(__file__).read_bytes()).decode(),
                    files={name: (repo / 'deploy/production' / name).read_text() for name in FILES})
+    force = env.get('FORCE_RECREATE', 'false')
+    if force not in ('true', 'false'):
+        raise DeployError('FORCE_RECREATE must be true or false')
+    if force == 'true':
+        # Retries share a request; a separate manual dispatch gets a fresh force operation.
+        payload['force_run_id'] = force_run_id(env.get('GITHUB_RUN_ID', ''))
     with tempfile.TemporaryDirectory(prefix='clockwork-ssh-') as tmp:
         key, hosts = Path(tmp).resolve() / 'key', Path(tmp).resolve() / 'known_hosts'
         for path, secret in [(key, 'DEPLOY_SSH_KEY'), (hosts, 'DEPLOY_KNOWN_HOSTS')]:
