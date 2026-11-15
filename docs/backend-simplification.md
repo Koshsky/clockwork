@@ -670,3 +670,59 @@ owner-change cleanup/rollback, was not executed. No browser/Electron acceptance
 or fresh frontend SDK generation is claimed. Evidence:
 `../local/backend-b11-20261115/`. No push, merge, CI, release, deployment or remote
 server changes were performed.
+
+## B12 implementation ledger — 2026-11-15
+
+Continued on `refactor/backend-access-tracing` after `f555c73`. Project service,
+repository port, mapper and validator now live in the feature root;
+`project/service` is removed. Delivery, DTO and SQL adapter remain separate;
+parent `project_mgmt/module.go` owns composition. Root types and constructors
+follow the preceding pilots (`Service`, `Repository`, `Mapper`, `Validator`,
+`NewService`, `NewMapper`). Normalizing these names, the package declaration and
+one constructor comment reproduces all four original core files exactly.
+
+Eleven Test functions were added, with 66 named subcases; all 411 existing Test
+functions are retained. All 88 pre-move outcomes from the project and planning
+packages match the final run after normalizing the moved core identifiers
+(including the new repository-failure test name). The new tests contribute 77
+passing outcomes. Core tests cover owner normalization, nullable ownership,
+responsible-person retention/replacement/clearing, color clearing, Unicode code,
+calendar dates across year boundaries, zero priority, invalid patches before
+writes, auto-created counts and noncritical feedback failures, list/count scope
+and pagination, error classification and idempotent deletion. Existing update
+lookup-error classification is preserved rather than changed in this move.
+
+HTTP checks exercise real middleware, handlers and core with fake repositories
+and ownership probes. They cover owned/foreign/unrelated projects; process and
+task descendant access; process-only related access; probe failures; list scope;
+read/update/delete by ID; creation and ownership transfer; and the director's
+priority-only grant, including denied metadata, mixed, empty and delete requests.
+The process/task descendant facts are supplied by the test probe, not queried
+from PostgreSQL. Planning tests verify forwarding self/down/process-project/all
+scopes and preserving project order, owner/responsible, code, color, dates and
+priority, plus empty/error results. They do not execute SQL visibility predicates.
+
+Repository checks use the actual SQL adapter over a request-scoped fake pgx.Tx
+without a fallback pool. Create/find/update/delete/count/auto-create feedback
+preserve the request context, query arguments and errors without finalizing the
+transaction. Duplicate project codes still produce conflict rather than silently
+returning an unrelated existing project. These checks do not prove real database
+constraint, cascade, trigger or rollback behavior.
+
+Architecture guards include the project core and reject concrete-repository
+coupling. Regenerated Wire preserves provider calls, arguments and order after
+normalizing imports and the moved constructor. Fresh Swagger JSON/YAML before
+and after are byte-identical (57 paths, 93 operations, 92 definitions); all nine
+frozen contract groups still match B01. SQL, generated sqlc, DTOs, migrations,
+versions, published changelogs, optimistic revision guards and replay middleware
+remain unchanged; no new schema or public API is introduced.
+
+Validation: build/vet, full normal-tag suite (342 top-level pass, 16 skip; 2,836
+pass events and 20 skips including subtests), full race suite, lint 2.15.0
+(0 issues), repository policy and whitespace checks pass. All 422 Test functions
+compile/list with the integration tag; 64 tagged functions were not executed.
+The local Docker daemon is unavailable, so real PostgreSQL/API acceptance,
+including project date-shift/cascade, auto-create and optimistic/idempotent
+integration scenarios, was not executed. No browser/Electron acceptance or fresh
+frontend SDK generation is claimed. Evidence: `../local/backend-b12-20261115/`.
+No push, merge, CI, release, deployment or remote server changes were performed.

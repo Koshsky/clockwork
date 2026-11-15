@@ -14,10 +14,25 @@ import (
 func TestNeutralCoresDoNotDependOnHTTPAdapters(t *testing.T) {
 	t.Parallel()
 
-	cmd := exec.CommandContext(t.Context(), "go", "list", "-deps", "-f", "{{.ImportPath}}",
-		"./internal/authz/domain", "./internal/authz/engine", "./internal/authz/service", "./internal/tracing",
-		"./internal/auth/service", "./internal/user/domain", "./internal/project_mgmt/milestone",
-		"./internal/timesheet/state", "./internal/project_mgmt/comment", "./internal/project_mgmt/assignment")
+	cmd := exec.CommandContext(
+		t.Context(),
+		"go",
+		"list",
+		"-deps",
+		"-f",
+		"{{.ImportPath}}",
+		"./internal/authz/domain",
+		"./internal/authz/engine",
+		"./internal/authz/service",
+		"./internal/tracing",
+		"./internal/auth/service",
+		"./internal/user/domain",
+		"./internal/project_mgmt/milestone",
+		"./internal/timesheet/state",
+		"./internal/project_mgmt/comment",
+		"./internal/project_mgmt/assignment",
+		"./internal/project_mgmt/project",
+	)
 	cmd.Dir = "../.."
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -31,6 +46,7 @@ func TestNeutralCoresDoNotDependOnHTTPAdapters(t *testing.T) {
 			dependency == "github.com/Koshsky/erp-backend/internal/timesheet/state/repository" ||
 			dependency == "github.com/Koshsky/erp-backend/internal/project_mgmt/comment/repository" ||
 			dependency == "github.com/Koshsky/erp-backend/internal/project_mgmt/assignment/repository" ||
+			dependency == "github.com/Koshsky/erp-backend/internal/project_mgmt/project/repository" ||
 			(strings.HasPrefix(dependency, "github.com/Koshsky/erp-backend/internal/") &&
 				strings.Contains(dependency, "/delivery")) {
 			t.Errorf("neutral core depends on HTTP adapter %s", dependency)

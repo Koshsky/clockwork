@@ -1,4 +1,4 @@
-package service
+package project
 
 import (
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/project/dto"
@@ -6,13 +6,13 @@ import (
 	nullable "github.com/Koshsky/erp-backend/pkg/database"
 )
 
-type ProjectMapper struct{}
+type Mapper struct{}
 
-func NewProjectMapper() *ProjectMapper {
-	return &ProjectMapper{}
+func NewMapper() *Mapper {
+	return &Mapper{}
 }
 
-func (m *ProjectMapper) ToDTO(project *sqlc.Project) *dto.ProjectResponse {
+func (m *Mapper) ToDTO(project *sqlc.Project) *dto.ProjectResponse {
 	if project == nil {
 		return nil
 	}
@@ -28,7 +28,7 @@ func (m *ProjectMapper) ToDTO(project *sqlc.Project) *dto.ProjectResponse {
 	}
 }
 
-func (m *ProjectMapper) ToDTOs(projects []sqlc.Project) []dto.ProjectResponse {
+func (m *Mapper) ToDTOs(projects []sqlc.Project) []dto.ProjectResponse {
 	if projects == nil {
 		return []dto.ProjectResponse{}
 	}
@@ -42,7 +42,7 @@ func (m *ProjectMapper) ToDTOs(projects []sqlc.Project) []dto.ProjectResponse {
 
 // ToCreateDTO builds the create response: the project plus what the
 // auto-create template added to it (counts fetched after the insert).
-func (m *ProjectMapper) ToCreateDTO(
+func (m *Mapper) ToCreateDTO(
 	project *sqlc.Project,
 	counts sqlc.CountAutoCreatedEntitiesRow,
 ) *dto.CreateProjectResponse {

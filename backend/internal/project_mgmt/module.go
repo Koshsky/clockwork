@@ -17,9 +17,9 @@ import (
 	processDelivery "github.com/Koshsky/erp-backend/internal/project_mgmt/process/delivery"
 	processRepo "github.com/Koshsky/erp-backend/internal/project_mgmt/process/repository"
 	processService "github.com/Koshsky/erp-backend/internal/project_mgmt/process/service"
+	projectService "github.com/Koshsky/erp-backend/internal/project_mgmt/project"
 	projectDelivery "github.com/Koshsky/erp-backend/internal/project_mgmt/project/delivery"
 	projectRepo "github.com/Koshsky/erp-backend/internal/project_mgmt/project/repository"
-	projectService "github.com/Koshsky/erp-backend/internal/project_mgmt/project/service"
 	taskDelivery "github.com/Koshsky/erp-backend/internal/project_mgmt/task/delivery"
 	taskRepo "github.com/Koshsky/erp-backend/internal/project_mgmt/task/repository"
 	taskService "github.com/Koshsky/erp-backend/internal/project_mgmt/task/service"
@@ -33,8 +33,8 @@ import (
 //nolint:gochecknoglobals // wire provider set (established module pattern)
 var ProviderSet = wire.NewSet(
 	projectRepo.NewProjectRepository,
-	wire.Bind(new(projectService.ProjectRepository), new(*projectRepo.ProjectRepository)),
-	projectService.NewProjectService,
+	wire.Bind(new(projectService.Repository), new(*projectRepo.ProjectRepository)),
+	projectService.NewService,
 	projectDelivery.NewProjectHandler,
 
 	processRepo.NewProcessRepository,

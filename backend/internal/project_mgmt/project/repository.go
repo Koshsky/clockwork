@@ -1,4 +1,4 @@
-package service
+package project
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"github.com/Koshsky/erp-backend/pkg/date"
 )
 
-type ProjectRepository interface {
+type Repository interface {
 	CreateProject(
 		ctx context.Context,
 		ownerID *int64,

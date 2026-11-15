@@ -1,4 +1,4 @@
-package service
+package project
 
 import (
 	"github.com/Koshsky/erp-backend/pkg/date"
@@ -6,11 +6,11 @@ import (
 	"github.com/Koshsky/erp-backend/pkg/validator"
 )
 
-type ProjectValidator struct {
+type Validator struct {
 	validator.Validator
 }
 
-func (v *ProjectValidator) ValidateProject(
+func (v *Validator) ValidateProject(
 	code string,
 	color *string,
 	priority int,

@@ -5,7 +5,7 @@ import (
 	"strconv"
 
 	access "github.com/Koshsky/erp-backend/internal/authz/domain"
-	"github.com/Koshsky/erp-backend/internal/project_mgmt/project/service"
+	"github.com/Koshsky/erp-backend/internal/project_mgmt/project"
 	"github.com/Koshsky/erp-backend/pkg/errors"
 
 	"github.com/gin-gonic/gin"
@@ -24,7 +24,7 @@ type ProjectHandler struct {
 }
 
 // NewProjectHandler builds the ProjectHandler handler.
-func NewProjectHandler(logger *slog.Logger, svc *service.ProjectService, mw *rbac.Middleware) *ProjectHandler {
+func NewProjectHandler(logger *slog.Logger, svc *project.Service, mw *rbac.Middleware) *ProjectHandler {
 	return &ProjectHandler{
 		logger:  logger.With("component", "project_handler"),
 		service: svc,

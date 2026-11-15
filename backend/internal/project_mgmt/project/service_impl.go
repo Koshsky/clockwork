@@ -1,4 +1,4 @@
-package service
+package project
 
 import (
 	"context"
@@ -15,22 +15,22 @@ import (
 	"github.com/Koshsky/erp-backend/pkg/errors"
 )
 
-type ProjectService struct {
+type Service struct {
 	logger     *slog.Logger
 	tracer     *tracingpkg.Tracer
-	repository ProjectRepository
-	mapper     *ProjectMapper
-	validator  *ProjectValidator
+	repository Repository
+	mapper     *Mapper
+	validator  *Validator
 }
 
-// NewProjectService builds the ProjectService service.
-func NewProjectService(logger *slog.Logger, tracer *tracingpkg.Tracer, r ProjectRepository) *ProjectService {
-	return &ProjectService{
+// NewService builds the project service.
+func NewService(logger *slog.Logger, tracer *tracingpkg.Tracer, r Repository) *Service {
+	return &Service{
 		logger:     logger.With("component", "project_service"),
 		tracer:     tracer,
 		repository: r,
-		mapper:     NewProjectMapper(),
-		validator:  &ProjectValidator{},
+		mapper:     NewMapper(),
+		validator:  &Validator{},
 	}
 }
 
@@ -38,7 +38,7 @@ func NewProjectService(logger *slog.Logger, tracer *tracingpkg.Tracer, r Project
 // only owner normalization: a caller creating into own ownership (own scope)
 // always becomes the owner (forceSelfOwner). The response also reports what
 // the auto-create template (DB trigger V8) added to the project.
-func (s *ProjectService) CreateProject(
+func (s *Service) CreateProject(
 	ctx context.Context,
 	req dto.CreateProjectRequest,
 	userID int64,
@@ -84,7 +84,7 @@ func (s *ProjectService) CreateProject(
 	return s.mapper.ToCreateDTO(created, counts), nil
 }
 
-func (s *ProjectService) FindProject(ctx context.Context, id int64) (*dto.ProjectResponse, error) {
+func (s *Service) FindProject(ctx context.Context, id int64) (*dto.ProjectResponse, error) {
 	ctx, end := s.tracer.Start(ctx, "project.FindProject")
 	defer end(nil)
 
@@ -101,7 +101,7 @@ func (s *ProjectService) FindProject(ctx context.Context, id int64) (*dto.Projec
 // UpdateProject changes code, dates, priority and owner. Permissions (priority
 // vs other fields, owner change admin-only) are checked by the middleware
 // against the request body.
-func (s *ProjectService) UpdateProject(
+func (s *Service) UpdateProject(
 	ctx context.Context,
 	id int64,
 	req dto.UpdateProjectRequest,
@@ -163,7 +163,7 @@ func (s *ProjectService) UpdateProject(
 	return s.mapper.ToDTO(updated), nil
 }
 
-func (s *ProjectService) DeleteProject(ctx context.Context, id int64) error {
+func (s *Service) DeleteProject(ctx context.Context, id int64) error {
 	ctx, end := s.tracer.Start(ctx, "project.DeleteProject")
 	defer end(nil)
 
@@ -181,7 +181,7 @@ func (s *ProjectService) DeleteProject(ctx context.Context, id int64) error {
 	return s.repository.DeleteProject(ctx, id)
 }
 
-func (s *ProjectService) ListProjects(
+func (s *Service) ListProjects(
 	ctx context.Context,
 	userID int64,
 	scope access.ListScope,

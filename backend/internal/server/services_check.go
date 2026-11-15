@@ -9,8 +9,8 @@ import (
 	milestoneDelivery "github.com/Koshsky/erp-backend/internal/project_mgmt/milestone/delivery"
 	processDelivery "github.com/Koshsky/erp-backend/internal/project_mgmt/process/delivery"
 	processService "github.com/Koshsky/erp-backend/internal/project_mgmt/process/service"
+	projectService "github.com/Koshsky/erp-backend/internal/project_mgmt/project"
 	projectDelivery "github.com/Koshsky/erp-backend/internal/project_mgmt/project/delivery"
-	projectService "github.com/Koshsky/erp-backend/internal/project_mgmt/project/service"
 	taskDelivery "github.com/Koshsky/erp-backend/internal/project_mgmt/task/delivery"
 	taskService "github.com/Koshsky/erp-backend/internal/project_mgmt/task/service"
 	calendarDelivery "github.com/Koshsky/erp-backend/internal/timesheet/calendar/delivery"
@@ -42,7 +42,7 @@ var (
 	_ UserService       = (*userService.UserService)(nil)
 	_ TaskService       = (*taskService.TaskService)(nil)
 	_ ResourceService   = (*resourceService.ResourceService)(nil)
-	_ ProjectService    = (*projectService.ProjectService)(nil)
+	_ ProjectService    = (*projectService.Service)(nil)
 	_ ProcessService    = (*processService.ProcessService)(nil)
 	_ MilestoneService  = (*milestoneService.Service)(nil)
 	_ AssignmentService = (*assignmentService.Service)(nil)
