@@ -16,7 +16,6 @@ import (
 
 	"github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/authz/engine"
-	"github.com/Koshsky/erp-backend/internal/authz/repository"
 	"github.com/Koshsky/erp-backend/internal/authz/repository/sqlc"
 	"github.com/Koshsky/erp-backend/internal/authz/service"
 	"github.com/Koshsky/erp-backend/internal/config"
@@ -28,8 +27,8 @@ import (
 type policyLoad struct {
 	rules       []sqlc.ListActivePresetRulesRow
 	routes      []domain.RoutePolicy
-	users       []repository.UserPreset
-	permissions []repository.UserPermissionRef
+	users       []sqlc.ListUserPrincipalsRow
+	permissions []sqlc.ListAllUserPermissionsRow
 	failCall    int
 	failure     error
 }
@@ -68,12 +67,12 @@ func (r *snapshotRepository) ListActiveRoutePolicies(context.Context) ([]domain.
 	return load.routes, err
 }
 
-func (r *snapshotRepository) ListUserPrincipals(context.Context) ([]repository.UserPreset, error) {
+func (r *snapshotRepository) ListUserPrincipals(context.Context) ([]sqlc.ListUserPrincipalsRow, error) {
 	load, err := r.next()
 	return load.users, err
 }
 
-func (r *snapshotRepository) ListAllUserPermissions(context.Context) ([]repository.UserPermissionRef, error) {
+func (r *snapshotRepository) ListAllUserPermissions(context.Context) ([]sqlc.ListAllUserPermissionsRow, error) {
 	load, err := r.next()
 	return load.permissions, err
 }
@@ -86,7 +85,7 @@ func policyFixture(name, resource, preset string) policyLoad {
 		routes: []domain.RoutePolicy{{Name: name, Kind: "entity", Params: map[string]any{
 			"resource": resource, "action": "update", "owner": "none",
 		}}},
-		users: []repository.UserPreset{{UserID: 7, Preset: sql.NullString{String: preset, Valid: true}}},
+		users: []sqlc.ListUserPrincipalsRow{{UserID: 7, Preset: sql.NullString{String: preset, Valid: true}}},
 	}
 }
 
@@ -183,7 +182,7 @@ func TestPolicyStoreReloadReplacesRulesAndPrincipals(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		preset     string
-		permission *repository.UserPermissionRef
+		permission *sqlc.ListAllUserPermissionsRow
 		removed    bool
 		want       domain.UserContext
 		wantScope  string
@@ -191,12 +190,12 @@ func TestPolicyStoreReloadReplacesRulesAndPrincipals(t *testing.T) {
 		{name: "preset", preset: "vp", want: domain.UserContext{ID: 7, Preset: "vp"}, wantScope: engine.ScopeNone},
 		{name: "admin", preset: "admin", want: domain.UserContext{ID: 7, Preset: "admin", Admin: true}, wantScope: engine.ScopeAll},
 		{name: "removed", removed: true, want: domain.UserContext{ID: 7}, wantScope: engine.ScopeNone},
-		{name: "grant", preset: "vp", permission: &repository.UserPermissionRef{
+		{name: "grant", preset: "vp", permission: &sqlc.ListAllUserPermissionsRow{
 			UserID: 7, Resource: "task", Action: "update", Scope: "all", Granted: true,
 		}, want: domain.UserContext{ID: 7, Preset: "vp", Rules: []domain.PermissionRule{{
 			Resource: "task", Action: "update", Scope: "all", Granted: true,
 		}}}, wantScope: engine.ScopeAll},
-		{name: "revoke", preset: "worker", permission: &repository.UserPermissionRef{
+		{name: "revoke", preset: "worker", permission: &sqlc.ListAllUserPermissionsRow{
 			UserID: 7, Resource: "task", Action: "update", Granted: false,
 		}, want: domain.UserContext{ID: 7, Preset: "worker", Rules: []domain.PermissionRule{{
 			Resource: "task", Action: "update", Granted: false,
@@ -213,7 +212,7 @@ func TestPolicyStoreReloadReplacesRulesAndPrincipals(t *testing.T) {
 				candidate.users = nil
 			}
 			if tc.permission != nil {
-				candidate.permissions = []repository.UserPermissionRef{*tc.permission}
+				candidate.permissions = []sqlc.ListAllUserPermissionsRow{*tc.permission}
 			}
 			repo.replace(candidate)
 			if err := store.Reload(t.Context()); err != nil {

@@ -1080,3 +1080,127 @@ so real PostgreSQL/API template creation, assignment-owner constraints, atomic
 rollback and revision/replay acceptance were not executed. No frontend/browser
 or Electron acceptance is claimed. Evidence: `../local/backend-b18-20261116/`.
 No push, merge, CI, release, deployment or remote server changes were performed.
+
+## B19 final boundaries and acceptance — 2026-11-16
+
+Continued on `refactor/backend-access-tracing` after `b752ba5`. The production
+graph checker is `scripts/check-backend-architecture.py`; it uses complete
+`go list -deps` metadata, canonical import paths and production GoFiles/Imports.
+Missing cores, missing dependency metadata, package/dependency errors and malformed
+input fail closed. Nineteen selected cores reject transitive Gin, delivery,
+middleware, userctx and concrete-repository imports. Own sqlc projections and
+existing service DTOs remain valid currency; direct foreign sqlc imports are
+rejected. SQL adapters reject transitive HTTP/DTO dependencies. Nested repository
+packages cannot disguise a concrete implementation with a sqlc suffix.
+
+Composition roots, audit/security HTTP clients and server adapters are outside
+the selected business-core scope. Go's TestImports/XTestImports are deliberately
+separate: HTTP integration tests can use real middleware/delivery/repositories
+without making those production dependencies. There is no per-import allowlist.
+The backend CI job runs the checker before build; `make check-backend` runs the
+same command. Existing service-change filters, reusable workflow graph and
+All checks gate are unchanged. Common tooling tests exercise the checker even
+when a tooling-only change does not select application jobs.
+
+The stricter rule found one remaining production edge:
+authz/service → authz/repository, used only to name two snapshot row types.
+PolicyRepository and its adapter now use existing sqlc.ListUserPrincipalsRow and
+sqlc.ListAllUserPermissionsRow. Two hand-written duplicate projections and their
+copying loops were removed; no new domain model or package was introduced.
+Nullable presets, grants/revokes, row order, empty slices, errors and request
+transaction ownership are preserved. All 54 pre-change RBAC snapshot/service
+test outcomes match the post-change run. Wire regeneration is byte-identical.
+
+Two new Go Test functions add ten named subcases and twelve passing outcomes.
+All 483 previous Test functions remain. Ten new Python test methods exercise
+direct/transitive violations, own/foreign sqlc, real adapter/composition scope,
+test-only imports, missing/error metadata and cyclic traversal; the core matrix
+alone includes 342 intentionally invalid paths. Existing architecture tests
+remain. Two frontend acceptance fixtures were corrected without relaxing their
+assertions: offline session tests now synchronize and observe the newly created
+process before disconnecting; resource pagination counts the initial server rows
+plus all 501 fixture resources instead of assuming an empty database.
+The new `frontend/tests/backend-refactor.mjs` exercises real SQL calendar ranges,
+absence removal, template round-trip, trigger-created project/process/task/
+operation/resource data and complete rollback on a resource/process-owner mismatch.
+Its loopback/isolation guards and cleanup retain the previous template config.
+
+### Actual package map after B02–B19
+
+The B01 snapshot above remains immutable. These counts exclude test-only packages
+and include generated sqlc files; measured on darwin/arm64 with normal tags.
+
+| Area | Production packages | Go files | Lines | sqlc packages |
+| --- | ---: | ---: | ---: | ---: |
+| audit | 3 | 11 | 1,422 | 0 |
+| auth | 6 | 14 | 1,095 | 1 |
+| authz | 8 | 27 | 4,775 | 1 |
+| auto_create | 6 | 11 | 695 | 1 |
+| idempotency | 3 | 14 | 1,951 | 1 |
+| planning | 6 | 14 | 2,056 | 1 |
+| project_mgmt | 37 | 98 | 8,389 | 7 |
+| timesheet | 16 | 37 | 3,170 | 3 |
+| user | 7 | 20 | 3,941 | 1 |
+| Other infrastructure | 22 | 57 | 5,657 | 0 |
+| **Total** | **114** | **303** | **33,151** | **16** |
+
+Internal import edges decreased from 372 to 364. Package count decreased from
+115 to 114; minimizing that number was not the objective. Ten service packages
+were replaced with their existing feature roots; task/domain and
+task_dependency/domain were folded into their cores. The HTTP tracing adapter
+is the additional middleware/tracing package. Auth/authz/user/planning retain
+their service, delivery and persistence boundaries; their roots compose HTTP
+adapters, and flattening those services would create dependency cycles.
+Auto-create retains the same justified service boundary. Domain packages keep
+neutral access/identity facts rather than mirroring database tables.
+
+### Validation and rollback
+
+Full normal Go suite: 405 top-level pass, 16 skip; 3,273 pass events and 20 skips
+including subtests. Full integration-tag suite against disposable PostgreSQL 16
+and the test API: 484 top-level pass, one optional restart test skipped; 3,504
+passing outcomes. That remaining function then passed both write/read phases
+around an actual API process restart (different listener PIDs, same database):
+receipt lookup and replay survived. Thus all 485 backend Test functions were
+executed successfully across these runs. Full race suite passes in 59 tested
+packages; build/vet and lint 2.15.0 (0 issues) pass. Architecture checks pass for
+darwin/arm64 and linux/amd64. All 184 tooling tests pass with three existing
+opt-in Docker reconciliation tests skipped; the final ten architecture tests
+were repeated after their last fixture update. Actionlint 1.7.7, repository
+policy and whitespace checks pass. Remote GitHub CI was not started.
+
+Frontend typecheck/lint and all 1,704 unit tests in 104 files pass. Real browser/API
+and isolated native Electron runs pass for platform sessions (two tabs/windows,
+refresh/lost refresh/logout), API reads (pagination, navigation, minute refresh),
+API commands (CRUD, timesheet, lost response/retry), administration permissions
+(159 checks), task workspace (13 checks), desktop delivery/synchronization,
+RBAC security API (77 checks) and shared services. Fourteen browser TypeScript/
+Electron-main calculation-parity cases pass; existing day/week resource unit
+scenarios retain weekly peak load/minimum availability. The added backend API
+regression script passes its four integrated scenarios. No release packaging or
+Windows/Linux GUI acceptance is claimed.
+
+Fresh Swagger generated from a clean archive of the preceding commit and from
+the final sources is byte-identical (57 paths, 93 operations, 92 definitions).
+Actual Gin registration from clean main and candidate source copies also matches:
+all 93 method/path pairs are identical, without starting either HTTP listener.
+All nine frozen B01 contract groups match. The pinned OpenAPI Generator 7.24.0
+reproduces all five existing TypeScript SDK files. SQL, all 15 tracked core
+migrations, DTOs, response/error catalogs, versions and published changelogs
+remain unchanged. A synthetic V1–V9 database with Flyway-compatible signed-CRC
+history and an unknown V1007 plugin exercises real native adoption and upgrade;
+fixture SQL/history were installed with psql, not a Flyway binary. Unknown plugin
+data and history are preserved. Native auth, operations and migration fixtures
+use separate disposable databases/schemas. No personal seed/plugin data was used.
+
+The candidate reverse patch and all 17 preceding topic commits were applied
+backward in a separate local clone; each restored its exact parent Git tree.
+Rollback after a future squash merge is a reviewed revert of that PR, followed
+by these checks and an explicitly authorized deployment of the previous image.
+Do not run database down migrations or alter published history: this branch
+changes no migration SQL. This verifies source rollback, not a production
+deployment/backup restore. Evidence: `../local/backend-b19-20261116/`.
+
+Local implementation and acceptance are ready for review. B19 and the epic stay
+open pending publication and successful remote CI; no push, merge, release,
+deployment or remote server change was performed.

@@ -64,6 +64,7 @@ async function storeState(page, domain) {
 }
 try {
   const login = await call('POST', 'auth/login', { username: 'admin', password: process.env.RBAC_TEST_ADMIN_PASSWORD }); token = login.access_token
+  const baselineResourceTotal = (await call('GET', 'resources?limit=1')).total
   subject = await call('POST', 'user', { username: prefix, first_name: 'Read', last_name: 'Fixture', preset: 'vp' }); users.push(subject.user.id)
   for (const owner of [subject.user.id, login.user.id]) {
     const project = await call('POST', 'project', { ...dates, code: prefix + '-p-' + owner, owner_id: owner }); projects.push(project.id)
@@ -103,8 +104,9 @@ try {
     await admin.page.locator('.rp-more-btn').click()
     await expect.poll(async () => (await storeState(admin.page, 'resources')).count).toBeGreaterThan(before)
   }
-  expect(await storeState(admin.page, 'resources')).toMatchObject({ count: 501, total: 501, more: false, error: null })
-  report.push('PASS resource table loads all 501 rows through exact paginated API requests')
+  const expectedResourceTotal = baselineResourceTotal + resources.length
+  expect(await storeState(admin.page, 'resources')).toMatchObject({ count: expectedResourceTotal, total: expectedResourceTotal, more: false, error: null })
+  report.push('PASS resource table loads all 501 fixture rows plus existing records through exact paginated API requests')
   await navigate(admin.page, '/timesheet')
   await expect.poll(async () => (await storeState(admin.page, 'timesheet')).periods[subject.user.id]?.length || 0).toBeGreaterThan(0)
   expect((await storeState(admin.page, 'timesheet')).error).toBeNull()

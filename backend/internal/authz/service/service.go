@@ -12,7 +12,6 @@ import (
 	"github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/authz/dto"
 	"github.com/Koshsky/erp-backend/internal/authz/engine"
-	"github.com/Koshsky/erp-backend/internal/authz/repository"
 	"github.com/Koshsky/erp-backend/internal/authz/repository/sqlc"
 	userdomain "github.com/Koshsky/erp-backend/internal/user/domain"
 	"github.com/Koshsky/erp-backend/pkg/errors"
@@ -43,8 +42,8 @@ type PolicyRepository interface {
 	ListUserPermissions(ctx context.Context, userID int64) ([]sqlc.ListUserPermissionsRow, error)
 	ReplaceUserPermissions(ctx context.Context, userID int64, perms []sqlc.InsertUserPermissionParams) error
 	FindUserPreset(ctx context.Context, userID int64) (string, bool, error)
-	ListUserPrincipals(ctx context.Context) ([]repository.UserPreset, error)
-	ListAllUserPermissions(ctx context.Context) ([]repository.UserPermissionRef, error)
+	ListUserPrincipals(ctx context.Context) ([]sqlc.ListUserPrincipalsRow, error)
+	ListAllUserPermissions(ctx context.Context) ([]sqlc.ListAllUserPermissionsRow, error)
 }
 
 // Service — RBAC policy administration (validation + DB writes +

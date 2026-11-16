@@ -15,7 +15,6 @@ import (
 	"github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/authz/dto"
 	"github.com/Koshsky/erp-backend/internal/authz/engine"
-	"github.com/Koshsky/erp-backend/internal/authz/repository"
 	"github.com/Koshsky/erp-backend/internal/authz/repository/sqlc"
 	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
 	userdomain "github.com/Koshsky/erp-backend/internal/user/domain"
@@ -30,8 +29,8 @@ import (
 type stubPolicyRepo struct {
 	activeRules   []sqlc.ListActivePresetRulesRow
 	routePolicies []domain.RoutePolicy
-	principals    []repository.UserPreset
-	permissions   []repository.UserPermissionRef
+	principals    []sqlc.ListUserPrincipalsRow
+	permissions   []sqlc.ListAllUserPermissionsRow
 
 	persistedRules    []sqlc.UpsertPresetRuleParams
 	persistedPolicies []sqlc.UpsertRoutePolicyParams
@@ -173,12 +172,12 @@ func (s *stubPolicyRepo) FindUserPreset(_ context.Context, _ int64) (string, boo
 	return "", false, nil
 }
 
-func (s *stubPolicyRepo) ListUserPrincipals(_ context.Context) ([]repository.UserPreset, error) {
+func (s *stubPolicyRepo) ListUserPrincipals(_ context.Context) ([]sqlc.ListUserPrincipalsRow, error) {
 	s.logCall("ListUserPrincipals")
 	return s.principals, nil
 }
 
-func (s *stubPolicyRepo) ListAllUserPermissions(_ context.Context) ([]repository.UserPermissionRef, error) {
+func (s *stubPolicyRepo) ListAllUserPermissions(_ context.Context) ([]sqlc.ListAllUserPermissionsRow, error) {
 	s.logCall("ListAllUserPermissions")
 	return s.permissions, nil
 }
