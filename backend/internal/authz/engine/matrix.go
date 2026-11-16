@@ -8,9 +8,8 @@ package engine
 // compiled view of the Casbin allow policies.
 
 import (
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	userdomain "github.com/Koshsky/erp-backend/internal/user/domain"
-	userctx "github.com/Koshsky/erp-backend/internal/userctx"
 )
 
 // Action — an operation on an entity.
@@ -81,7 +80,7 @@ type Rule struct {
 
 // MatrixRule — a matrix row (for building from the DB and defaults).
 type MatrixRule struct {
-	Res   rbac.Resource
+	Res   access.Resource
 	Act   Action
 	Role  string
 	Scope string
@@ -102,13 +101,13 @@ func DefaultMatrixRules() []MatrixRule {
 
 // Matrix — a snapshot of the permission matrix (preset × resource × action → rules).
 type Matrix struct {
-	rules map[rbac.Resource]map[Action][]Rule
+	rules map[access.Resource]map[Action][]Rule
 }
 
 // NewMatrix assembles a matrix from rules. (role, resource, action) pairs
 // are unique: the last rule wins.
 func NewMatrix(rules []MatrixRule) Matrix {
-	m := Matrix{rules: make(map[rbac.Resource]map[Action][]Rule)}
+	m := Matrix{rules: make(map[access.Resource]map[Action][]Rule)}
 	for _, r := range rules {
 		byAction, ok := m.rules[r.Res]
 		if !ok {
@@ -148,60 +147,60 @@ var defaultMatrix = newDefaultMatrix()
 
 func newDefaultMatrix() Matrix {
 	var rules []MatrixRule
-	grant := func(role string, res rbac.Resource, scope string, actions ...Action) {
+	grant := func(role string, res access.Resource, scope string, actions ...Action) {
 		for _, action := range actions {
 			rules = append(rules, MatrixRule{Role: role, Res: res, Act: action, Scope: scope})
 		}
 	}
-	for _, res := range []rbac.Resource{
-		rbac.ResourceProject, rbac.ResourceProcess, rbac.ResourceTask,
-		rbac.ResourceMilestone, rbac.ResourceAssignment,
+	for _, res := range []access.Resource{
+		access.ResourceProject, access.ResourceProcess, access.ResourceTask,
+		access.ResourceMilestone, access.ResourceAssignment,
 	} {
 		grant(userdomain.PresetProjectDirector, res, ScopeAll, ActionView)
 		scope := ScopeProjectOwner
-		if res == rbac.ResourceProject {
+		if res == access.ResourceProject {
 			scope = ScopeOwn
 		}
 		grant(userdomain.PresetProjectManager, res, scope, ActionView, ActionCreate, ActionUpdate, ActionDelete)
-		if res != rbac.ResourceProject {
+		if res != access.ResourceProject {
 			grant(userdomain.PresetProcessOwner, res, ScopeProcessOwner,
 				ActionView, ActionCreate, ActionUpdate, ActionDelete)
 		}
 	}
-	grant(userdomain.PresetProjectDirector, rbac.ResourceProject, ScopeAll, ActionPrioritize)
-	grant(userdomain.PresetProjectManager, rbac.ResourceProject, ScopeOwn, ActionPrioritize)
-	grant(userdomain.PresetProcessOwner, rbac.ResourceProject, ScopeProcessProjects, ActionView)
-	grant(userdomain.PresetProjectDirector, rbac.ResourceResource, ScopeAll, ActionView)
-	grant(userdomain.PresetProjectManager, rbac.ResourceResource, "self project_resources", ActionView)
-	grant(userdomain.PresetProcessOwner, rbac.ResourceResource, ScopeOwn,
+	grant(userdomain.PresetProjectDirector, access.ResourceProject, ScopeAll, ActionPrioritize)
+	grant(userdomain.PresetProjectManager, access.ResourceProject, ScopeOwn, ActionPrioritize)
+	grant(userdomain.PresetProcessOwner, access.ResourceProject, ScopeProcessProjects, ActionView)
+	grant(userdomain.PresetProjectDirector, access.ResourceResource, ScopeAll, ActionView)
+	grant(userdomain.PresetProjectManager, access.ResourceResource, "self project_resources", ActionView)
+	grant(userdomain.PresetProcessOwner, access.ResourceResource, ScopeOwn,
 		ActionView, ActionCreate, ActionUpdate, ActionDelete)
-	grant(userdomain.PresetProcessOwner, rbac.ResourceState, ScopeAll, ActionView)
-	grant(userdomain.PresetProcessOwner, rbac.ResourceWorker, ScopeOwn, ActionView, ActionUpdate, ActionDelete)
+	grant(userdomain.PresetProcessOwner, access.ResourceState, ScopeAll, ActionView)
+	grant(userdomain.PresetProcessOwner, access.ResourceWorker, ScopeOwn, ActionView, ActionUpdate, ActionDelete)
 	for _, role := range []string{
 		userdomain.PresetProjectDirector, userdomain.PresetProjectManager, userdomain.PresetProcessOwner,
 	} {
-		grant(role, rbac.ResourceUserCatalog, ScopeAll, ActionView)
+		grant(role, access.ResourceUserCatalog, ScopeAll, ActionView)
 	}
 	return NewMatrix(rules)
 }
 
 // ActionApplicable keeps the priority-only capability on projects.
-func ActionApplicable(res rbac.Resource, action Action) bool {
+func ActionApplicable(res access.Resource, action Action) bool {
 	if action == ActionPrioritize {
-		return res == rbac.ResourceProject
+		return res == access.ResourceProject
 	}
 	switch res {
-	case rbac.ResourceStateAdmin:
+	case access.ResourceStateAdmin:
 		return false
-	case rbac.ResourceRBACConfig:
+	case access.ResourceRBACConfig:
 		return action == ActionUpdate
-	case rbac.ResourceAutoCreate:
+	case access.ResourceAutoCreate:
 		return action == ActionView || action == ActionUpdate
-	case rbac.ResourceUserCatalog, rbac.ResourceOrgStructure, rbac.ResourceAudit:
+	case access.ResourceUserCatalog, access.ResourceOrgStructure, access.ResourceAudit:
 		return action == ActionView
-	case rbac.ResourceProject, rbac.ResourceProcess, rbac.ResourceTask, rbac.ResourceMilestone,
-		rbac.ResourceAssignment, rbac.ResourceState, rbac.ResourceResource, rbac.ResourceWorker,
-		rbac.ResourceComment, rbac.ResourceUserAdmin:
+	case access.ResourceProject, access.ResourceProcess, access.ResourceTask, access.ResourceMilestone,
+		access.ResourceAssignment, access.ResourceState, access.ResourceResource, access.ResourceWorker,
+		access.ResourceComment, access.ResourceUserAdmin:
 		return true
 	default:
 		return false
@@ -215,7 +214,7 @@ func DefaultMatrix() Matrix {
 
 // ScopeFor returns the required access scope expression for (preset, resource, action).
 // admin gets ScopeAll (a protective invariant, not stored in the DB).
-func (m Matrix) ScopeFor(role string, res rbac.Resource, act Action) string {
+func (m Matrix) ScopeFor(role string, res access.Resource, act Action) string {
 	if role == userdomain.PresetAdmin {
 		return ScopeAll
 	}
@@ -234,7 +233,7 @@ func (m Matrix) ScopeFor(role string, res rbac.Resource, act Action) string {
 // overrideScope returns the caller's individual override for (resource, action):
 // (scope, true) — an explicit grant/revoke rule matched; (ScopeNone, false) —
 // no override (fall back to the preset).
-func overrideScope(u userctx.UserContext, res rbac.Resource, act Action) (string, bool) {
+func overrideScope(u access.UserContext, res access.Resource, act Action) (string, bool) {
 	for _, r := range u.Rules {
 		if r.Resource != ResourceName(res) || r.Action != ActionName(act) {
 			continue
@@ -256,7 +255,7 @@ func overrideScope(u userctx.UserContext, res rbac.Resource, act Action) (string
 // its expression (a revoked rule — ScopeNone); otherwise the preset matrix rule.
 // This is the data-level view (used by the admin editor views); the runtime
 // decisions go through the Casbin snapshot (ScopeForUser in decision.go).
-func (m Matrix) ScopeForUser(u userctx.UserContext, res rbac.Resource, act Action) string {
+func (m Matrix) ScopeForUser(u access.UserContext, res access.Resource, act Action) string {
 	if u.Admin {
 		return ScopeAll
 	}
@@ -267,23 +266,23 @@ func (m Matrix) ScopeForUser(u userctx.UserContext, res rbac.Resource, act Actio
 }
 
 //nolint:gochecknoglobals // resource codex (stable dictionary, mirrors V9)
-var resourceNames = map[rbac.Resource]string{
-	rbac.ResourceProject:      resProject,
-	rbac.ResourceProcess:      resProcess,
-	rbac.ResourceTask:         resTask,
-	rbac.ResourceMilestone:    resMilestone,
-	rbac.ResourceAssignment:   resAssignment,
-	rbac.ResourceState:        resState,
-	rbac.ResourceResource:     resResource,
-	rbac.ResourceWorker:       resWorker,
-	rbac.ResourceComment:      resComment,
-	rbac.ResourceUserCatalog:  resUserCatalog,
-	rbac.ResourceRBACConfig:   resRBACConfig,
-	rbac.ResourceUserAdmin:    resUserAdmin,
-	rbac.ResourceStateAdmin:   resStateAdmin,
-	rbac.ResourceOrgStructure: resOrgStructure,
-	rbac.ResourceAudit:        resAudit,
-	rbac.ResourceAutoCreate:   resAutoCreate,
+var resourceNames = map[access.Resource]string{
+	access.ResourceProject:      resProject,
+	access.ResourceProcess:      resProcess,
+	access.ResourceTask:         resTask,
+	access.ResourceMilestone:    resMilestone,
+	access.ResourceAssignment:   resAssignment,
+	access.ResourceState:        resState,
+	access.ResourceResource:     resResource,
+	access.ResourceWorker:       resWorker,
+	access.ResourceComment:      resComment,
+	access.ResourceUserCatalog:  resUserCatalog,
+	access.ResourceRBACConfig:   resRBACConfig,
+	access.ResourceUserAdmin:    resUserAdmin,
+	access.ResourceStateAdmin:   resStateAdmin,
+	access.ResourceOrgStructure: resOrgStructure,
+	access.ResourceAudit:        resAudit,
+	access.ResourceAutoCreate:   resAutoCreate,
 }
 
 //nolint:gochecknoglobals // action codex
@@ -296,10 +295,10 @@ var actionNames = map[Action]string{
 }
 
 // ResourceName returns the string resource code ("" — unknown).
-func ResourceName(res rbac.Resource) string { return resourceNames[res] }
+func ResourceName(res access.Resource) string { return resourceNames[res] }
 
 // ParseResource parses a string resource code.
-func ParseResource(s string) (rbac.Resource, bool) {
+func ParseResource(s string) (access.Resource, bool) {
 	for res, name := range resourceNames {
 		if name == s {
 			return res, true

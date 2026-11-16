@@ -9,12 +9,11 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/tracing"
 	userdomain "github.com/Koshsky/erp-backend/internal/user/domain"
 	"github.com/Koshsky/erp-backend/internal/user/dto"
 	"github.com/Koshsky/erp-backend/internal/user/repository/sqlc"
-	userctx "github.com/Koshsky/erp-backend/internal/userctx"
 	"github.com/Koshsky/erp-backend/pkg/date"
 	"github.com/Koshsky/erp-backend/pkg/errors"
 )
@@ -120,7 +119,7 @@ func (r *stubRepo) UserReferences(context.Context, int64) (sqlc.ListUserReferenc
 
 func (r *stubRepo) ListUsers(
 	_ context.Context,
-	_ int64, _ rbac.ListScope, _ string, _ int64, _ string, _ int, _ int,
+	_ int64, _ access.ListScope, _ string, _ int64, _ string, _ int, _ int,
 ) ([]sqlc.User, error) {
 	return nil, nil
 }
@@ -128,7 +127,7 @@ func (r *stubRepo) ListUsers(
 func (r *stubRepo) CountUsers(
 	_ context.Context,
 	_ int64,
-	_ rbac.ListScope,
+	_ access.ListScope,
 	presetFilter string,
 	_ int64,
 	_ string,
@@ -160,13 +159,7 @@ func (r *stubRepo) DeleteStateRange(_ context.Context, _ int64, _, _ date.Date, 
 
 // newStubService builds a UserService over the stub repo.
 func newStubService(repo *stubRepo) *UserService {
-	return &UserService{
-		logger:     slog.New(slog.DiscardHandler),
-		repository: repo,
-		mapper:     &UserMapper{},
-		validator:  &UserValidator{},
-		tracer:     tracing.New(nil),
-	}
+	return NewUserService(slog.New(slog.DiscardHandler), tracing.New(nil), repo, nil, nil, nil)
 }
 
 // userRow builds a user row (preset as [sql.NullString]; "" = no preset).
@@ -197,13 +190,13 @@ func presetCode(p sql.NullString) string {
 }
 
 // vp is a non-admin caller principal (the vp preset).
-func vp(userID int64) userctx.UserContext {
-	return userctx.UserContext{ID: userID, Preset: "vp", Admin: false}
+func vp(userID int64) access.UserContext {
+	return access.UserContext{ID: userID, Preset: "vp", Admin: false}
 }
 
 // admin is an admin caller principal.
-func admin(userID int64) userctx.UserContext {
-	return userctx.UserContext{ID: userID, Preset: "admin", Admin: true}
+func admin(userID int64) access.UserContext {
+	return access.UserContext{ID: userID, Preset: "admin", Admin: true}
 }
 
 // Creating a user is covered by the grantable user_admin.create right, but

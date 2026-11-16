@@ -7,11 +7,11 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/pkg/date"
 	errapi "github.com/Koshsky/erp-backend/pkg/errors"
 
 	"github.com/Koshsky/erp-backend/internal/database"
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/process/repository/sqlc"
 	nullable "github.com/Koshsky/erp-backend/pkg/database"
 )
@@ -115,7 +115,7 @@ func (r *ProcessRepository) DeleteProcess(ctx context.Context, id int64) error {
 func (r *ProcessRepository) ListProcesss(
 	ctx context.Context,
 	userID int64,
-	scope rbac.ListScope,
+	scope access.ListScope,
 	ownerID int64,
 	limit, offset int,
 ) ([]sqlc.Process, error) {
@@ -140,7 +140,7 @@ func (r *ProcessRepository) ListProcesss(
 func (r *ProcessRepository) CountProcesses(
 	ctx context.Context,
 	userID int64,
-	scope rbac.ListScope,
+	scope access.ListScope,
 	ownerID int64,
 ) (int64, error) {
 	return r.q(ctx).CountProcesses(
@@ -199,10 +199,10 @@ func (r *ProcessRepository) ReorderProcesses(ctx context.Context, ids []int64) e
 }
 
 // OwnerChain returns the owner chain (for RBAC checks in the middleware).
-func (r *ProcessRepository) OwnerChain(ctx context.Context, id int64) (rbac.Owners, error) {
+func (r *ProcessRepository) OwnerChain(ctx context.Context, id int64) (access.Owners, error) {
 	row, err := r.q(ctx).OwnerChain(ctx, id)
 	if err != nil {
-		return rbac.Owners{}, err
+		return access.Owners{}, err
 	}
-	return rbac.Owners{ProjectOwner: row.ProjectOwner, ProcessOwner: row.ProcessOwner}, nil
+	return access.Owners{ProjectOwner: row.ProjectOwner, ProcessOwner: row.ProcessOwner}, nil
 }

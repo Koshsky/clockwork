@@ -9,8 +9,8 @@ import (
 	"github.com/Koshsky/erp-backend/internal/audit"
 	"github.com/Koshsky/erp-backend/internal/auth"
 	authRepo "github.com/Koshsky/erp-backend/internal/auth/repository"
+	authService "github.com/Koshsky/erp-backend/internal/auth/service"
 	"github.com/Koshsky/erp-backend/internal/authz"
-	"github.com/Koshsky/erp-backend/internal/authz/engine"
 	authzService "github.com/Koshsky/erp-backend/internal/authz/service"
 	autocreate "github.com/Koshsky/erp-backend/internal/auto_create"
 	"github.com/Koshsky/erp-backend/internal/cache"
@@ -59,15 +59,19 @@ func InitializeApp() (*App, error) {
 		jwt.ProvideJWTService,
 		authMw.ProvideAuthMiddleware,
 		rbacMW.ProvideMiddleware,
-		engine.ProvideAll,
+		rbacMW.ProvideAll,
 		profiler.ProvideProfiler,
 		ProvideRBACData,
 		// The audit client consumes the user service to resolve the `user`
 		// filter (login/full name) and to enrich actor display names.
 		wire.Bind(new(audit.UserLookup), new(*userservice.UserService)),
+		// Auth consumes the user service provided by a sibling module.
+		wire.Bind(new(authService.UserService), new(*userservice.UserService)),
 		// The auth middleware resolves the caller's current rights from the
 		// in-memory RBAC snapshot (PolicyStore) — no per-request DB call.
 		wire.Bind(new(authMw.PrincipalResolver), new(*authzService.PolicyStore)),
+		wire.Bind(new(authzService.RouteCatalog), new(*rbacMW.Middleware)),
+		wire.Bind(new(authzService.RoutePublisher), new(*rbacMW.Middleware)),
 		// User mutations (preset/account changes) refresh the same snapshot
 		// immediately (TTL heals multi-instance).
 		wire.Bind(new(userservice.RBACReloader), new(*authzService.PolicyStore)),

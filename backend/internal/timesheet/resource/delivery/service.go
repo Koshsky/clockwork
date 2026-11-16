@@ -3,7 +3,7 @@ package delivery
 import (
 	"context"
 
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/timesheet/resource/dto"
 	"github.com/Koshsky/erp-backend/pkg/date"
 )
@@ -12,7 +12,7 @@ type ResourceService interface {
 	ListResources(
 		ctx context.Context,
 		userID int64,
-		scope rbac.ListScope,
+		scope access.ListScope,
 		ownerID int64,
 		limit, offset int,
 	) ([]dto.ResourceResponse, int64, error)

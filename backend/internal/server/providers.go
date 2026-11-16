@@ -21,7 +21,7 @@ import (
 )
 
 // ProvideRBACData assembles the owner resolvers for the policy engine. The
-// repositories satisfy rbac.OwnerResolver (asserted in each repository).
+// repositories satisfy domain.OwnerResolver (asserted in each repository).
 func ProvideRBACData(
 	project *projectRepo.ProjectRepository,
 	process *processRepo.ProcessRepository,

@@ -4,7 +4,8 @@ import (
 	"log/slog"
 	"strconv"
 
-	"github.com/Koshsky/erp-backend/internal/project_mgmt/task/service"
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
+	"github.com/Koshsky/erp-backend/internal/project_mgmt/task"
 	"github.com/Koshsky/erp-backend/pkg/errors"
 
 	"github.com/gin-gonic/gin"
@@ -23,7 +24,7 @@ type TaskHandler struct {
 }
 
 // NewTaskHandler builds the TaskHandler handler.
-func NewTaskHandler(logger *slog.Logger, svc *service.TaskService, mw *rbac.Middleware) *TaskHandler {
+func NewTaskHandler(logger *slog.Logger, svc *task.Service, mw *rbac.Middleware) *TaskHandler {
 	return &TaskHandler{
 		logger:  logger.With("component", "task_handler"),
 		service: svc,
@@ -58,7 +59,7 @@ func (h *TaskHandler) ListTasks(c *gin.Context) {
 	items, total, err := h.service.ListTasks(
 		c.Request.Context(),
 		user.ID,
-		engine.CompileViewScopeUser(user, rbac.ResourceTask),
+		engine.CompileViewScopeUser(user, access.ResourceTask),
 		response.QueryID(c, "owner_id"),
 		limit,
 		offset,
@@ -119,7 +120,7 @@ func (h *TaskHandler) CreateTask(c *gin.Context) {
 
 	if task.OwnerID == nil {
 		if user, err := userctx.GetUser(c); err == nil &&
-			engine.ScopeForUser(user, rbac.ResourceTask, engine.ActionCreate) != engine.ScopeAll {
+			engine.ScopeForUser(user, access.ResourceTask, engine.ActionCreate) != engine.ScopeAll {
 			task.OwnerID = &user.ID
 		}
 	}

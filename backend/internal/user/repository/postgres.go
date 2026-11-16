@@ -12,8 +12,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/database"
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
 	"github.com/Koshsky/erp-backend/internal/user/domain"
 	"github.com/Koshsky/erp-backend/internal/user/repository/sqlc"
 	"github.com/Koshsky/erp-backend/pkg/date"
@@ -195,7 +195,7 @@ func (r *UserRepository) UpdateUser(ctx context.Context, user sqlc.User) (*sqlc.
 func (r *UserRepository) ListUsers(
 	ctx context.Context,
 	userID int64,
-	scope rbac.ListScope,
+	scope access.ListScope,
 	presetFilter string,
 	managerID int64,
 	search string,
@@ -217,7 +217,7 @@ func (r *UserRepository) ListUsers(
 func (r *UserRepository) CountUsers(
 	ctx context.Context,
 	userID int64,
-	scope rbac.ListScope,
+	scope access.ListScope,
 	presetFilter string,
 	managerID int64,
 	search string,
@@ -501,12 +501,12 @@ func pgtypeInt8(v int64) pgtype.Int8 {
 }
 
 // OwnerChain returns the owner chain (manager_id → the vp) for RBAC checks.
-func (r *UserRepository) OwnerChain(ctx context.Context, id int64) (rbac.Owners, error) {
+func (r *UserRepository) OwnerChain(ctx context.Context, id int64) (access.Owners, error) {
 	owner, err := r.q(ctx).OwnerChain(ctx, id)
 	if err != nil {
-		return rbac.Owners{}, err
+		return access.Owners{}, err
 	}
-	return rbac.Owners{Owner: owner}, nil
+	return access.Owners{Owner: owner}, nil
 }
 
 // mapUserErr — a wrapper over errapi.MapPgConstraint: clear 4xx for

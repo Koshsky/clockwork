@@ -3,7 +3,7 @@ package service
 import (
 	"context"
 
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/user/domain"
 	"github.com/Koshsky/erp-backend/internal/user/repository/sqlc"
 	"github.com/Koshsky/erp-backend/pkg/date"
@@ -34,7 +34,7 @@ type UserRepository interface {
 	ListUsers(
 		ctx context.Context,
 		userID int64,
-		scope rbac.ListScope,
+		scope access.ListScope,
 		presetFilter string,
 		managerID int64,
 		search string,
@@ -43,7 +43,7 @@ type UserRepository interface {
 	CountUsers(
 		ctx context.Context,
 		userID int64,
-		scope rbac.ListScope,
+		scope access.ListScope,
 		presetFilter string,
 		managerID int64,
 		search string,

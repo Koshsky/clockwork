@@ -13,15 +13,12 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 
-	userservice "github.com/Koshsky/erp-backend/internal/user/service"
-
 	"github.com/Koshsky/erp-backend/internal/auth/dto"
-	repo "github.com/Koshsky/erp-backend/internal/auth/repository"
 	"github.com/Koshsky/erp-backend/internal/auth/repository/sqlc"
 	"github.com/Koshsky/erp-backend/internal/security/hasher"
 	"github.com/Koshsky/erp-backend/internal/security/jwt"
 	tracingpkg "github.com/Koshsky/erp-backend/internal/tracing"
-	userDTO "github.com/Koshsky/erp-backend/internal/user/dto"
+	userdomain "github.com/Koshsky/erp-backend/internal/user/domain"
 )
 
 // activeSessionSweepWindow — how long expired sessions are kept before background cleanup.
@@ -57,9 +54,9 @@ type AuthService struct {
 // NewAuthService builds the auth service.
 func NewAuthService(
 	logger *slog.Logger,
-	users *userservice.UserService,
+	users UserService,
 	jwtService *jwt.Service,
-	sessions *repo.AuthRepository,
+	sessions SessionRepository,
 	tracer *tracingpkg.Tracer,
 ) *AuthService {
 	return &AuthService{
@@ -100,7 +97,7 @@ func (s *AuthService) Login(ctx context.Context, username, password string) (*dt
 	}
 
 	return &dto.SessionResult{
-		Auth:         s.newAuthResponse(user, access),
+		Auth:         s.newAuthResponse(&user.Account, access),
 		RefreshToken: refresh,
 	}, nil
 }
@@ -141,7 +138,7 @@ func (s *AuthService) RefreshToken(ctx context.Context, refreshToken string) (*d
 		return nil, fmt.Errorf("invalid refresh token")
 	}
 
-	user, err := s.users.FindUserByID(ctx, session.UserID)
+	user, err := s.users.FindAccountByID(ctx, session.UserID)
 	if err != nil {
 		return nil, fmt.Errorf("user not found")
 	}
@@ -253,7 +250,7 @@ func (s *AuthService) issueSession(ctx context.Context, userID int64, replacedBy
 // (the new refresh token is created and chained to predecessorID).
 func (s *AuthService) issuePair(
 	ctx context.Context,
-	user *userDTO.UserResponse,
+	user *userdomain.Account,
 	predecessorID int64,
 ) (*dto.SessionResult, error) {
 	refresh, err := s.issueSession(ctx, user.ID, predecessorID)
@@ -305,7 +302,7 @@ func hashToken(token string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func (s *AuthService) newAuthResponse(user *userDTO.UserResponse, access string) *dto.AuthResponse {
+func (s *AuthService) newAuthResponse(user *userdomain.Account, access string) *dto.AuthResponse {
 	return &dto.AuthResponse{
 		AccessToken: access,
 		TokenType:   "Bearer",

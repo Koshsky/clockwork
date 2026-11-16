@@ -4,7 +4,8 @@ import (
 	"log/slog"
 	"strconv"
 
-	"github.com/Koshsky/erp-backend/internal/project_mgmt/project/service"
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
+	"github.com/Koshsky/erp-backend/internal/project_mgmt/project"
 	"github.com/Koshsky/erp-backend/pkg/errors"
 
 	"github.com/gin-gonic/gin"
@@ -23,7 +24,7 @@ type ProjectHandler struct {
 }
 
 // NewProjectHandler builds the ProjectHandler handler.
-func NewProjectHandler(logger *slog.Logger, svc *service.ProjectService, mw *rbac.Middleware) *ProjectHandler {
+func NewProjectHandler(logger *slog.Logger, svc *project.Service, mw *rbac.Middleware) *ProjectHandler {
 	return &ProjectHandler{
 		logger:  logger.With("component", "project_handler"),
 		service: svc,
@@ -58,7 +59,7 @@ func (h *ProjectHandler) ListProjects(c *gin.Context) {
 	items, total, err := h.service.ListProjects(
 		c.Request.Context(),
 		user.ID,
-		engine.CompileViewScopeUser(user, rbac.ResourceProject),
+		engine.CompileViewScopeUser(user, access.ResourceProject),
 		response.QueryID(c, "owner_id"),
 		limit,
 		offset,
@@ -127,7 +128,7 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 		c.Request.Context(),
 		project,
 		user.ID,
-		engine.ScopeForUser(user, rbac.ResourceProject, engine.ActionCreate) == engine.ScopeOwn,
+		engine.ScopeForUser(user, access.ResourceProject, engine.ActionCreate) == engine.ScopeOwn,
 	)
 	if err != nil {
 		response.Error(c, h.logger, err)

@@ -1,0 +1,1219 @@
+# Backend simplification: B01 baseline
+
+Recorded on 2026-11-15 against `origin/main` at
+`e46ea45af7c2465901ee4c22bd9d83d9cfe84908` (backend 1.5.0, frontend 2.1.0).
+Tracker: [epic](http://localhost:3456/tasks/66),
+[B01](http://localhost:3456/tasks/67).
+The B01 sections below are an immutable architecture and compatibility snapshot;
+the implementation ledger at the end records later steps. No application files,
+SQL, generated code or versions move in B01 itself.
+
+## What changed since the original plan
+
+The original baseline was `4c3b9c5` on 2026-11-11. There are still 115 production
+packages under `backend/internal`, but package count alone hides important
+changes: 46 backend files changed, including the browser session transport,
+durable operation receipts, revision guards, request-scoped transactions for
+ordering, and V15. The plan's feature boundaries remain applicable; its
+compatibility requirements must include these newer protocols.
+
+Older task text also overstates the contributor rules: current backend guidance
+describes the layered layout but does not explicitly require concrete repository
+constructor parameters. Those concrete parameters are a code finding. Future
+steps should update the layout/constructor guidance when changing that boundary,
+not silently treat the planned layout as already implemented.
+
+`internal/idempotency` is an intentional Gin adapter with transaction ownership,
+not a new target for flattening. Its use of Gin is not an architecture violation.
+The same distinction applies to `audit` middleware/client composition and
+`server`: do not apply a blanket ban on HTTP imports to all of `internal`.
+
+## Measured dependency graph
+
+The machine-readable companion, [backend-baseline.json](backend-baseline.json),
+contains every production package, direct internal imports, file/line counts,
+contract fingerprints, OpenAPI operations and definition names. Counts use
+`go list -json ./internal/...`, Go 1.27.2, darwin/arm64, normal build tags.
+Lines include comments and blanks; test files are excluded. Generated sqlc
+packages are counted separately, not treated as redundant hand-written layers.
+
+| Area below `internal/` | Packages | Go files | Lines | sqlc packages |
+| --- | ---: | ---: | ---: | ---: |
+| audit | 3 | 11 | 1,422 | 0 |
+| auth | 6 | 14 | 1,097 | 1 |
+| authz | 8 | 26 | 6,005 | 1 |
+| auto_create | 6 | 11 | 690 | 1 |
+| idempotency | 3 | 14 | 1,951 | 1 |
+| middleware | 5 | 11 | 1,047 | 0 |
+| planning | 6 | 14 | 2,055 | 1 |
+| project_mgmt | 39 | 98 | 8,392 | 7 |
+| timesheet | 16 | 37 | 3,169 | 3 |
+| user | 7 | 18 | 3,854 | 1 |
+| Other infrastructure | 16 | 41 | 3,102 | 0 |
+| **Total** | **115** | **295** | **32,784** | **16** |
+
+There are 372 direct edges between internal production packages. The 16 sqlc
+packages contain 50 files / 7,177 lines; the other 99 packages contain 245 files /
+25,607 lines. No target package count is imposed.
+
+### Confirmed dependencies to repair
+
+| Current dependency | Evidence / consequence | Planned step |
+| --- | --- | --- |
+| Services and repositories → `middleware/rbac` | List scopes, resource kinds and owner chains are HTTP-owned types. Seen in user, planning, assignment, comment repository, milestone, process, project, task, calendar and resource. | B02 |
+| `userctx` → Gin | Moving only `rbac.Resource` would leave the authenticated principal coupled to HTTP. `UserContext` and `PermissionRule` need neutral ownership too. | B02 |
+| `tracing` → Gin | `tracer.go` mixes tracing primitives with HTTP span accessors. | B03 |
+| `authz/engine` → `middleware/rbac` and `userctx` | `CheckCtx` carries HTTP path/query/body parsing into the decision engine. Gin is a transitive dependency even though engine does not import it directly. | B04 |
+| `authz/service.PolicyStore` → `*rbac.Middleware` | Publishing policies requires the concrete HTTP adapter. | B05 |
+| 15 service packages → concrete repository packages | Fields already use consumer interfaces; constructors still require concrete implementations. Auth also requires `*user/service.UserService`. | B06 |
+| `auth/service.UserService`, `audit.UserLookup` → `user/dto.UserResponse` | Internal authentication and audit contracts depend on the API response model. | B07 |
+| `auto_create/repository` → `auto_create/dto` | SQL access performs HTTP configuration mapping. | B18 |
+
+Examples are dependency findings, not claims that these paths currently violate
+access control. B01 changes no authorization decisions.
+
+## Target boundaries and permitted dependencies
+
+```text
+server / module.go (composition)
+  -> HTTP delivery + concrete repositories + business services
+HTTP delivery / middleware
+  -> business services + neutral authorization contracts + HTTP DTOs
+business services
+  -> consumer-owned interfaces + neutral types + own sqlc projections
+concrete repositories
+  -> database transaction context + own queries/sqlc + neutral scope types
+```
+
+- Business/core must not depend on Gin, HTTP middleware/delivery or concrete
+  repositories. A consumer-owned interface does not hide a Gin request object.
+- `authz/domain` is the existing home for shared authorization facts and
+  principal types. Keep it independent of Gin and authorization evaluation.
+  Gin context accessors stay in the HTTP adapter; preserve context-key identity
+  while changing the type owner.
+- Pure authorization decisions and SQL scope compilation stay in
+  `authz/engine`. HTTP decoding and route-check closures move to
+  `middleware/rbac`; avoid duplicating the decision logic there.
+- Constructors accept the existing consumer interfaces and return concrete
+  structs. Wire bindings and concrete assembly stay in module/server composition.
+  Regenerate Wire; do not edit generated Go.
+- Retain existing service ↔ HTTP DTO mapping for the small feature moves.
+  Removing all DTO use from services is not part of this plan. Preserve public
+  DTO package identities because they participate in Swagger definition names.
+- Keep sqlc rows/projections as internal data. Do not mirror complete tables
+  into hand-written domain models or introduce a generic repository/event bus.
+
+### Where flattening is safe
+
+Move business implementation, validation, mapping and repository interfaces from
+`service/` into the feature root for
+`project_mgmt/{milestone,comment,assignment,project,process,task_dependency,task}`
+and `timesheet/{state,resource,calendar}`. Keep `delivery/`, `dto/` and the SQL
+adapter/query/sqlc boundary. Start with milestone. Fold the small task status and
+dependency-type catalogs into their corresponding feature roots.
+
+The composition modules are `project_mgmt/module.go` and `timesheet/module.go`,
+above these feature roots. In contrast, `auth`, `authz`, `user`, `planning` and
+`auto_create` have their own `module.go` importing delivery. Moving their service
+into that same root would create root → delivery → root cycles; retain the
+service boundary. Keep audit's existing client/middleware composition explicit.
+
+## Compatibility contract
+
+| Surface | Required invariant and source of truth |
+| --- | --- |
+| HTTP routing | `/api/v1`; methods, singular/plural paths, parameters, route-policy names and public/protected placement. Review `server/routes.go`, module files, delivery route files and `idempotency/receipts.go`; schema alone is not a runtime route dump. |
+| OpenAPI / frontend SDK | 57 documented paths, 93 operations, 92 definitions. Preserve schemas, required/nullable properties, JSON names, enums, security annotations and generated TypeScript. These counts cover documented endpoints only. |
+| Responses / errors | Success `{data: payload, error: {}}`; failures `{data: {}, error: {code, message, timestamp}}`; 204 has no body. Pagination is `items,total,limit,offset` with default limit 50 and maximum 500. Preserve HTTP status/domain error classification, RU/EN locale behavior and private-error redaction in `internal/response`, `pkg/errors`, `pkg/messages`. |
+| Dates and updates | Calendar strings use `pkg/date.Date` (`YYYY-MM-DD`), not the stale `internal/common/date` path in older guidance. Preserve absent/null/zero/empty distinctions, parent/owner checks, ordering, status/dependency codes and constraint behavior. |
+| Authentication | `auth` uses the user service, not direct users-table access. Preserve cookie transport selected by `X-Erp-Session: cookie`, browser-origin checks, legacy desktop body credentials, refresh rotation/reuse handling, revocation and multi-tab behavior. Cookie and body modes must not accidentally merge. |
+| RBAC | Preserve preset codes, per-user rules, route kinds/params, list scopes and inherited view. Compare list, planning and direct ID decisions separately from create/update/delete. Preserve parent-view inheritance without granting mutation rights, director priority-only writes, principal refresh and default-deny behavior. |
+| Assignments | `process.owner_id = resource.owner_id` for every actor, including admin. Preserve task visibility checks and assignment cleanup when process/resource ownership changes. |
+| Transactions / legacy replay | Every request-scoped write uses `q(ctx)` or `BeginOrJoin`; joined callers do not commit the owner's transaction. Preserve legacy `Idempotency-Key` scope, TTL and reply behavior. |
+| Durable operations | Preserve capability handshake and supported route list; actor-scoped `Operation-Id`, exact method/URI/body/content-type fingerprint, matching optional legacy key, no receipt TTL, receipt lookup isolation, confirmed/in-progress/mismatch/unknown/unrecorded outcomes and atomic mutation + receipt commit. Never silently downgrade to legacy delivery. |
+| Revision protocol | Preserve opt-in `Revision-Protocol: 1`, immutable `_preconditions`, `data.snapshot` + `data._revisions`, guarded 204 → 200, legacy unwrapped replies, strict aggregate invalidation, conflict rollback and authorization before exposing revision outcomes. Durable replay runs before revision checking. |
+| Database / migration | Preserve all 15 tracked core SQL migrations V1–V15, queries, triggers, archives and sqlc configuration. V15 adds durable receipts/revisions. Unknown Flyway plugin history survives explicit adoption. No seed/plugin files or live data belong in the baseline. |
+| UI integration | Preserve planning payloads/resource ownership, calendars/absences, comments, administration, two-tab sessions and Electron replay. ISO-week peak demand/minimum availability remains a frontend calculation. |
+
+Fingerprints in `backend-baseline.json` are review evidence, not a new CI gate.
+OpenAPI/SDK/DTO/SQL/migration drift is outside this structural refactoring's
+scope. Route/composition and protocol-source fingerprints are reference-only:
+implementation identifiers/imports can change, but their behavior must not.
+Recheck protocol consumers and response/error semantics rather than requiring
+byte-identical implementation source.
+
+## Work sequence and test ownership
+
+Each row is a reviewable topic branch/PR after its prerequisites. Finish and push
+one independent change before starting the next branch. Owner approval is still
+required before merging; B01 does not authorize executing the remaining steps.
+
+| Step | Prerequisites | Change boundary | Existing regression ownership / required additions |
+| --- | --- | --- | --- |
+| B02 | B01 | `middleware/rbac`, `userctx`, `authz/domain`, scope consumers | `authz/engine/*_test.go`, middleware auth/RBAC, planning/calendar service tests; preserve all allow/deny combinations and context identity. |
+| B03 | B01 | tracing + HTTP span adapter + server wiring | tracing tests, logger correlation, server middleware tests; verify success/error/cancel/shutdown. |
+| B04 | B02 | engine HTTP builders → RBAC middleware | Keep pure engine tests with engine; move HTTP tests with the adapter. Exercise body aliases, owner/parent substitution, list/ID/mutations and inherited view. |
+| B05 | B04, B06 | PolicyStore publication interface | Existing authz service/engine tests; add publication failure, last-good snapshot, TTL/reload and concurrent readers where coverage is missing. |
+| B06 | B01 | existing constructor interfaces + Wire bindings | Per-module service stubs and normal application build; regenerate Wire once per coherent module change. |
+| B07 | B06 | neutral user lookup contracts + auth/audit adapters | `auth/service/service_test.go`, browser-session, auth middleware, audit user/masking tests; preserve credential-field handling. |
+| B08 | B02, B06 | milestone pilot | Engine milestone/parent-scope tests and HTTP RBAC suite; add focused service/validator/mapper tests before moving uncovered logic. |
+| B09 | B08 | timesheet state | Administration/role engine tests, migration administration tests and UI day-type permissions. |
+| B10 | B08 | comment | Comment validator and engine comment tests; HTTP task-discussion and XSS regression. |
+| B11 | B08 | assignment | Engine assignment/create/update tests, migration owner-invariant integration, HTTP resource-RBAC tests; cleanup/transaction behavior must stay covered. |
+| B12 | B08 | project | Engine related visibility, inherited view and priority tests; HTTP project-subtree and ownership mutation/create suites. |
+| B13 | B08 | process | Engine parent/update tests, owner-cleanup integration, HTTP ownership and planning tests. |
+| B14 | B08 | task_dependency service + tiny domain | Existing dependency validator/constraint and engine policy tests; preserve `task.ConstraintSource` consumer interface. |
+| B15 | B14 | task service + tiny status domain | Existing parent/date-update tests, engine CRUD scopes and durable/revision HTTP tests. |
+| B16 | B08 | resource | Engine resource scopes, owner-invariant integration and HTTP resource-RBAC/UI tests. |
+| B17 | B16 | calendar | Nine existing calendar service tests, owner scopes, periods and frontend day/week resource scenarios. |
+| B18 | B06 | auto_create repository DTO boundary | Auto-create mapping/default/empty/round-trip and atomic template creation; add missing focused checks before the move. |
+| B19 | B02–B18 | final dependency guards + regression | `go list`/AST boundary rules with negative fixtures, full Go checks/race, API generation and local web/Electron acceptance. |
+
+This ownership table identifies required validation, not an assertion that every
+named behavior already has an executed integration test. In particular, several
+small feature services have no dedicated tests today; the pilot and each later
+move must close relevant gaps before changing behavior-bearing code. Do not
+delete tests or substitute source-text assertions for behavioral coverage.
+
+## Reproduce the baseline
+
+Use a separate temporary checkout of the immutable source, without `.env`,
+personal seed SQL, plugins, node_modules or any running-service credentials:
+
+```sh
+baseline=e46ea45af7c2465901ee4c22bd9d83d9cfe84908
+snapshot=$(mktemp -d)
+git archive "$baseline" | tar -x -C "$snapshot"
+cd "$snapshot/backend"
+go list -json ./internal/... > "$snapshot/packages.json"
+go list -f '{{.ImportPath}}{{range .Imports}}{{printf "\n  -> %s" .}}{{end}}' ./internal/...
+go list -f '{{.ImportPath}} {{len .GoFiles}} {{len .TestGoFiles}} {{len .XTestGoFiles}}' ./internal/...
+```
+
+Count only production `GoFiles`, not `TestGoFiles`, `XTestGoFiles` or test-package
+variants. For each package retain only imports prefixed with
+`github.com/Koshsky/erp-backend/internal/`; keep `repository/sqlc` nodes flagged
+separately. Reject `Error`, `Incomplete` or `DepsErrors` instead of accepting an
+incomplete graph. The snapshot is host-specific; use darwin/arm64 for exact graph
+comparison, and also check Linux when implementing platform-sensitive changes.
+
+The companion fingerprints cover tracked paths only. Each group is SHA-256 of
+sorted lines `path + NUL + sha256(file bytes) + LF`, encoded as UTF-8. Selection
+uses Python `fnmatch.fnmatchcase` against repository-relative tracked paths and
+the pattern list stored with each group. This command checks current bytes and
+path additions/deletions against the recorded group digests, from the repo root:
+
+```sh
+python3 - <<'PY'
+import fnmatch, hashlib, json, subprocess
+from pathlib import Path
+
+baseline = json.loads(Path('docs/backend-baseline.json').read_text())
+tracked = subprocess.check_output(['git', 'ls-files', '-z']).decode().split('\0')
+for name, group in baseline['contracts'].items():
+    paths = sorted(p for p in tracked if p and any(
+        fnmatch.fnmatchcase(p, pattern) for pattern in group['patterns']))
+    records = ''.join(p + '\0' + hashlib.sha256(Path(p).read_bytes()).hexdigest()
+                      + '\n' for p in paths)
+    digest = hashlib.sha256(records.encode()).hexdigest()
+    assert len(paths) == group['files'] and digest == group['sha256'], name
+    print(name, len(paths), 'unchanged')
+PY
+```
+
+This detects drift; it does not prove behavioral equivalence. After a structural
+move, inspect reference-only groups and compare actual runtime routes/policies
+and protocol behavior. Do not simply refresh fingerprints to hide a change.
+
+## Validation and limits
+
+| B01 check | Observed result |
+| --- | --- |
+| `go list -p=1 -json ./internal/...` | 115 packages, no package/dependency errors; complete internal graph recorded. |
+| `go build -p=2 ./...` / `go vet -p=2 ./...` | Passed. |
+| `go test -p=2 -json ./...` | 258 top-level tests passed, 16 top-level tests skipped; including subtests, 2,385 pass events and 20 skip events. 30 packages passed; 94 packages have no normal-tag tests. Test event window was 16.8 seconds, not a cold-build benchmark. |
+| `go test -p=2 -tags=integration -list '^Test' ./...` | All 338 declared test functions compiled/listed, including 64 functions in seven integration-tagged files. Listing does not execute their assertions. |
+| `go test -p=2 -race` for auth service, authz engine/service, idempotency and auth middleware | All five selected packages passed; environment-dependent tests still skipped. |
+| golangci-lint 2.15.0, concurrency 2 | Passed, 0 issues. |
+| Frontend unit resource scenarios + web reads | 75 tests in two files passed; Vitest duration 611 ms. This is not browser or Electron acceptance. |
+| Contract fingerprints / repository policy / whitespace | All 12 groups unchanged; repository policy and `git diff --check` passed. |
+| `scripts/generate-api.sh --check` | Not run: the configured local Docker endpoint has no running daemon. Existing schema/SDK bytes were fingerprinted; fresh generation parity is not claimed. |
+| PostgreSQL / HTTP / Electron acceptance | Not run: no disposable DB/API/profile was started for this documentation-only step. |
+
+The ordinary run used no DATABASE_URL, MIGRATION_TEST_DATABASE_URL,
+OPERATION_TEST_DATABASE_URL, OPERATION_TEST_API_URL or RBAC_TEST_API_URL. Migration
+tests and the RBAC HTTP suite accounted for the reported skips. Tests with the
+integration build tag were separately compiled/listed, not counted as executed.
+
+The default Go cache initially reproduced a stale standard-library read error
+(`too many open files in system`), while system file counts were well below the
+limit. An independent temporary GOCACHE produced a clean graph, build, vet,
+tests, race and lint run with GOMAXPROCS=2. No global cache was cleared and no
+system limit was changed. Raw graph and validation logs are retained locally
+outside Git in `../local/backend-b01-20261115/` relative to the repository root.
+
+Future implementation uses `go build ./...`, `go vet ./...`, `go test ./...`,
+pinned golangci-lint 2.15.0, and targeted `go test -race` for
+publication/session/replay paths. Wire changes require normal regeneration;
+API changes require
+`scripts/generate-api.sh --check`, never manual generated-code edits.
+
+DB/HTTP suites need explicitly isolated local fixtures. Build-tagged tests under
+auth repository and idempotency do not run in ordinary `go test ./...`; migration
+and RBAC HTTP tests also skip without their test environment variables. Preserve
+these distinctions in reports. Neither skipped tests nor successful compilation
+prove PostgreSQL atomicity or browser/Electron compatibility.
+
+B01 does not start databases, Docker services, Electron, CI, image builds,
+releases or deployments. Local compilation/testing does not publish an artifact.
+
+## B02/B03 implementation ledger — 2026-11-15
+
+Implemented together on `refactor/backend-access-tracing`, based on B01 commit
+`36c4dcf`, with two agents owning disjoint files and a coordinating integration.
+The original `backend-baseline.json` remains unchanged for future comparisons.
+
+### B02: neutral access contracts
+
+`authz/domain/{access,list_scope,principal}.go` now owns `Resource`, `Owners`,
+`ListScope`, `ResolveByID`, `OwnerResolver`, `UserContext` and `PermissionRule`.
+Enum values, owner comparison, SQL flags, principal JSON and the existing Gin
+`"user"` context key are preserved. No legacy type aliases remain. Services,
+repositories, pure engine functions and HTTP consumers use the neutral types.
+Gin principal accessors remain in `userctx`; body parsing remains in CheckCtx.
+
+The original B02 acceptance wording was broader than its actual prerequisites:
+removing every middleware import would also implement B04/B05. Six production
+files intentionally retain a concrete HTTP dependency: five engine HTTP builders
+(`capability.go`, `entity_create.go`, `entity_update.go`, `kinds.go`, `provide.go`)
+for B04, and `authz/service/store.go` for the B05 publisher boundary. No other
+service/repository source imports `middleware/rbac` or `userctx` for access data.
+This is explicit deferred work, not a claim that the engine is already HTTP-free.
+
+### B03: HTTP tracing adapter
+
+`middleware/tracing` owns `HTTPRootSpan`, `GinSpan`, `FromGin` and
+`SetUserOnSpan`; server composition and auth middleware call that adapter.
+The shared `tracing` core retains provider lifecycle, context/request identifiers,
+span creation and pgx integration without a direct or transitive Gin/middleware
+dependency. Span hierarchy/names, status, actor enrichment and log correlation
+retain their prior behavior; no new trace-header extraction was introduced.
+
+There are now 116 production internal packages: the one new production package
+is the meaningful Gin adapter. The architecture tests are a separate test-only
+package. This step fixes dependency ownership; later feature flattening reduces
+unnecessary layers. Package count is still not a success criterion.
+
+### Combined validation
+
+- Added 17 test functions, plus six scope compiler cases in an existing test.
+  Existing test functions were preserved. Coverage includes neutral principal
+  JSON/ACL and Gin accessors, resolver context/cancellation, enum/owner semantics,
+  tracing outcomes/lifecycle/log correlation, real auth-to-root enrichment and
+  transitive/direct import guards.
+- Full normal-tag backend run: 275 top-level tests passed, 16 skipped; including
+  subtests, 2,426 pass events and 20 skips. All 355 test functions compile/list
+  with the integration tag; the 64 integration-tagged functions were not run.
+- Build, vet, pinned lint 2.15.0 (0 issues), race checks across 16 tested packages,
+  graph loading, repository policy and whitespace checks passed.
+- Wire 0.7.0 was regenerated normally; `wire_gen.go` is byte-identical.
+  OpenAPI, frontend SDK, DTOs, SQL queries/configuration/generated sqlc, V1–V15,
+  response/error sources and version files remain byte-identical to B01.
+  Changed routing/protocol reference files were reviewed for mechanical type
+  substitutions and the adapter call migration; route bindings and policies did
+  not change.
+- Fresh Docker-based SDK generation and DB/HTTP/Electron acceptance were not run.
+  No database or runtime stack was started. No push, merge, CI, image build,
+  release or deployment was performed. Local logs are outside Git in
+  `../local/backend-b02-b03-20261115/` relative to the repository root.
+
+## B06 implementation ledger — 2026-11-15
+
+Continued on `refactor/backend-access-tracing` after `ac33371`, without starting
+another implementation branch. All 16 affected constructors now accept their
+existing consumer interfaces instead of concrete repositories; auth also accepts
+its existing `UserService` interface. Constructors still return concrete service
+pointers and retain their original bodies, logger/mapper/validator initialization,
+optional hooks and nil handling. Tokenized AST comparison confirmed unchanged
+bodies for 176 functions across the 16 production service files.
+
+The existing `policyRepository` was exported as `PolicyRepository` so module
+composition can name it in `wire.Bind`; no new interface, wrapper or method was
+introduced. Its existing repository-owned principal projections remain unchanged;
+removing that data-shape dependency is outside B06. PolicyStore's concrete HTTP
+publisher is still deferred to B05.
+
+Fifteen repository-interface bindings live with their module providers. Auth's
+user-service binding lives in server composition because the concrete user
+provider belongs to a sibling module. Wire 0.7.0 regenerated the same
+`wire_gen.go` bytes, preserving the runtime object graph.
+
+Existing session rotation/reuse, RBAC protection/reset, user session revocation,
+planning, calendar and task date-constraint tests now construct services through
+the real public constructors and existing fakes rather than private struct
+literals. Added three test functions with 21 named scenarios: the interface and
+concrete-return contracts of all 16 constructors, PolicyStore load failure and
+cancellation/default deny, and configuration reads/error/cancellation through an
+injected repository. No existing test functions were removed.
+
+Validation: build, vet and the full normal-tag suite passed (278 top-level tests,
+16 skipped; 2,450 pass events including subtests, 20 skips). All 358 Test functions
+compile/list with the integration tag; 64 integration-tagged functions are not
+executed by the normal suite. Full lint 2.15.0 passed with 0 issues; full race
+checks passed in all 35 packages with tests. Repository policy and whitespace
+checks passed. Frozen API/SDK/DTO/SQL/sqlc/migration/error and version groups
+remain identical to B01. No live DB/API/Electron acceptance or
+fresh SDK generation is claimed. Local evidence is outside Git in
+`../local/backend-b06-20261115/`; no push, merge, release or deployment is performed.
+
+## B04 implementation ledger — 2026-11-15
+
+Continued on `refactor/backend-access-tracing` after `a36d490`. Request-side
+builders, parameter decoding, default route definitions, kind schemas and route
+check construction now belong to the existing `middleware/rbac` package.
+The engine has no direct or transitive dependency on Gin, HTTP middleware or
+`userctx`; the architecture guard now includes the engine itself.
+
+`engine.RouteSpec`, `engine.KindInfo` and `engine.ParamInfo` remain plain data
+types in their original package to preserve public Swagger definition identities.
+The middleware obtains resource/action codes from the existing engine codecs.
+Casbin, scope evaluation, inherited view, SQL scope compilation and resolved-fact
+assignment authorization remain in the core. Only narrow neutral queries were
+exposed to the adapter; no universal request/service-locator interface was added.
+
+Policy administration consumes a focused `RouteCatalog` interface for defaults,
+kind metadata and validation. The existing middleware implements it and Wire
+binds the same instance at application scope. PolicyStore compiles loaded route
+checks through the HTTP adapter before publishing, as before; its concrete
+publisher coupling still belongs to B05. Generated Wire was regenerated normally:
+only the default factory owner and the catalog argument/binding changed.
+
+Fourteen existing transport/catalog test functions were moved out of engine;
+pure matrix, codec, scope and Casbin tests stayed with the core. All 358 existing
+test functions were retained. Four new functions cover resolved assignment facts
+(9 named cases), project priority/metadata/body handling (15 named cases), all
+66 default route definitions, and catalog rejection before repository writes.
+
+Before editing, a disposable in-process HTTP harness recorded 27,720 cases on
+`a36d490`: 66 rules × seven principal modes × three ownership configurations ×
+20 request variants. It exercises preset/admin/grant/revoke behavior, inherited
+view, path/query IDs, owner/parent substitution, missing/null/zero/type/case
+variants, comments, priority changes and body restoration. The final adapter
+produced identical statuses, error codes/messages, handler execution and restored
+bodies for every case. Default definitions and kind schemas were also identical.
+This is a local httptest comparison with fake owner resolvers/probes, not a
+PostgreSQL or deployed-server test. Harness sources/results remain outside Git.
+
+Validation: build/vet, full normal-tag suite (282 top-level pass, 16 skip; 2,478
+pass events and 20 skips including subtests), full race checks in 35 tested
+packages, and lint 2.15.0 (0 issues) passed. All 362 Test functions compile/list
+with the integration tag; the 64 tagged functions were not executed. All nine
+frozen API/SDK/DTO/SQL/sqlc/migration/error/version groups still match B01.
+Repository policy and whitespace checks passed. No real DB/API/Electron fixtures
+or fresh SDK generation were started. Evidence: `../local/backend-b04-20261115/`.
+No push, merge, CI, release, deployment or remote server changes were performed.
+
+## B05 implementation ledger — 2026-11-15
+
+Continued on `refactor/backend-access-tracing` after `d514f1d`. PolicyStore now
+accepts the consumer-owned `RoutePublisher` interface. The existing HTTP
+middleware prepares and validates checks, returning an infallible publication
+action. Wire binds that same middleware instance; regenerating Wire produces no
+generated graph changes. No service imports the HTTP middleware, and the
+transitive dependency guard now includes `authz/service`.
+
+Reload preserves the existing load order and publication sequence: validate
+routes, load principals and ACL rows, validate/publish Casbin, apply prepared
+routes, then replace principals. Every fallible step precedes publication.
+This remains ordered publication of three snapshots, not a new cross-snapshot
+transaction. Startup fallback, TTL recovery, immediate reload and stop semantics
+are unchanged; no event bus or additional runtime wrapper was introduced.
+
+The new tests exposed an existing empty-preset bug: Casbin treats an empty filter
+field as a wildcard, allowing list-scope and permission-catalog queries to find
+unrelated preset rows. With explicit owner approval, empty-preset fallbacks now
+deny access. Direct user grants, revokes, database role assignments and admin
+bypass remain valid. A regression test failed on the original implementation
+before the fix; both backend changelogs record this user-visible correction.
+
+Seven new Test functions add 22 named subcases: six repository-read failure
+points, empty/invalid routes, invalid matrix, runtime role/admin/grant/revoke/user
+replacement, publication order, startup failure and TTL recovery, stopping the
+idle refresh loop, concurrent reads/reloads, and seven empty/known/unknown role
+and ACL combinations. All 362 existing Test functions are retained.
+
+Validation: build/vet, full normal-tag suite (289 top-level pass, 16 skip; 2,507
+pass events and 20 skips including subtests), full race checks in 35 tested
+packages, and lint 2.15.0 (0 issues) passed. All 369 Test functions compile/list
+with the integration tag; 64 integration-tagged functions were not executed.
+All nine frozen API/SDK/DTO/SQL/sqlc/migration/error/version groups still match
+B01. Repository policy and whitespace checks passed. Local HTTP middleware tests
+use httptest and fake repositories; no real DB/API/Electron acceptance or fresh
+SDK generation is claimed. Evidence: `../local/backend-b05-20261115/`.
+No push, merge, CI, release, deployment or remote server changes were performed.
+
+## B07 implementation ledger — 2026-11-15
+
+Continued on `refactor/backend-access-tracing` after `1705689`. Auth and audit
+lookup contracts no longer import `user/dto`. Three small neutral views in
+`user/domain` separate display/search Identity fields, a passwordless Account
+with its assigned preset, and Credentials used only for password verification.
+Credentials exclude the hash from JSON; audit's lookup type has neither a hash
+nor account permissions. Separate name parts remain available to preserve the
+existing audit search behavior.
+
+The existing user service implements these views directly over its current sqlc
+repository currency. Auth still has no access to the user repository or SQL.
+Login uses credential lookup; refresh uses passwordless account lookup. Public
+user DTO mapping and the HTTP auth response stay unchanged. The shared user-row
+lookup retains not-found behavior, trace operation names and repository context;
+a defensive nil username result is rejected as not found rather than reaching
+password verification. The production repository already returns an error for
+a missing username.
+
+The existing Wire bindings consume the same user-service instance. Regenerating
+Wire produces no graph changes; no adapter object or new provider package was
+necessary. Architecture checks protect the cross-module DTO boundary and add
+auth service/user domain to the transitive HTTP-dependency guard.
+
+Ten new Test functions add 22 named subcases covering optional/empty name and
+preset fields, missing users and lookup failures, empty lists and ordering,
+credential serialization, login normalization/password checks/JWT identity,
+refresh lookup and rotation ordering, audit search/enrichment, and safe filter
+behavior during lookup failure. All 369 existing Test functions are retained;
+existing refresh/reuse, cookie-session, password change/reset, account deletion,
+session revocation, administrator bootstrap and audit-masking suites still pass.
+
+Validation: build/vet, full normal-tag suite (299 top-level pass, 16 skip; 2,539
+pass events and 20 skips including subtests), full race checks in 35 tested
+packages, and lint 2.15.0 (0 issues) passed. All 379 Test functions compile/list
+with the integration tag; 64 integration-tagged functions were not executed.
+All nine frozen API/SDK/DTO/SQL/sqlc/migration/error/version groups still match
+B01. Repository policy and whitespace checks passed. HTTP tests use local
+httptest Loki endpoints and fake repositories; no real DB/API/Electron acceptance
+or fresh Swagger/SDK generation is claimed. Evidence:
+`../local/backend-b07-20261115/`. No push, merge, CI, release, deployment or remote
+server changes were performed.
+
+## B08 implementation ledger — 2026-11-15
+
+Continued on `refactor/backend-access-tracing` after `6e95371`. Milestone is the
+first flattened feature: service implementation, mapping, validation and the
+consumer-owned repository interface now live in its feature root. The old
+`milestone/service` package is removed and `valitdator.go` becomes `validator.go`.
+Root types/constructors use `Service`, `Repository`, `Mapper`, `Validator`,
+`NewService` and `NewMapper` to avoid package-name stutter. Normalizing these
+identifiers, the package declaration and one constructor comment reproduces all
+four original implementation files exactly; business statements are unchanged.
+
+Delivery imports milestone core. DTO, concrete repository, query and sqlc
+packages remain separate. Composition stays in parent `project_mgmt/module.go`;
+there is no new feature module or compatibility wrapper. Architecture checks
+include milestone's transitive dependencies and reject concrete-repository
+coupling. Existing constructor/interface guards use the new package identity.
+Wire was regenerated normally; normalized provider calls, arguments and order
+are identical, with only the moved constructor and import aliases differing.
+
+Seven core Test functions were added and executed at the original service path
+before moving them. Two additional HTTP Test functions exercise real handlers,
+the core and RBAC middleware over fake repository/owner facts. All nine functions
+and 46 named subcases pass before and after the move (55 identical test outcomes).
+They cover CRUD, structured validation, malformed/missing dates, absent/null/empty
+patch fields, nullable colors, mapper ordering, list/count scope and pagination,
+repository error classification, process/project ownership, inherited view,
+hidden direct IDs and rejected reparenting. All 379 existing Test functions are
+retained. The list tests verify compiled scope forwarding, not PostgreSQL's
+execution of the WHERE clauses.
+
+Validation: build/vet, full normal-tag suite (308 top-level pass, 16 skip; 2,594
+pass events and 20 skips including subtests), full race checks in 37 tested
+packages, and lint 2.15.0 (0 issues) passed. All 388 Test functions compile/list
+with the integration tag; 64 integration-tagged functions were not executed.
+Fresh Swagger JSON and YAML generated with swag 1.16.6 before/after the move are
+byte-identical: 57 paths, 93 operations and 92 definitions. All nine frozen
+API/SDK/DTO/SQL/sqlc/migration/error/version groups still match B01. Repository
+policy and whitespace checks passed. The local Docker daemon is unavailable;
+no real PostgreSQL/API/Electron acceptance or fresh frontend SDK generation is
+claimed. Evidence: `../local/backend-b08-20261115/`. No push, merge, CI, release,
+deployment or remote server changes were performed.
+
+## B09 implementation ledger — 2026-11-15
+
+Continued on `refactor/backend-access-tracing` after `9420f3a`. The day-type
+catalog's service implementation, repository port, mapper and validator now live
+in `timesheet/state`, following the milestone pilot. The old `state/service`
+package is removed; root names are `Service`, `Repository`, `Mapper`, `Validator`,
+`NewService` and `NewMapper`. Normalizing those identifiers, the package name
+and one constructor comment reproduces all four original implementation files
+exactly. No business statements, default values or error branches changed.
+
+Delivery depends on state core; DTO and repository/query/sqlc remain separate.
+Composition stays in parent `timesheet/module.go`. Calendar/absence/resource
+packages and state SQL are unchanged. The architecture guard includes state's
+transitive dependencies and rejects concrete-repository coupling. Regenerated
+Wire has identical provider calls, arguments and order after normalizing the
+moved constructor and import aliases.
+
+Six core Test functions were added at the original path before moving them;
+two HTTP Test functions exercise real routes, middleware and service over fake
+repositories. All eight functions and 54 named subcases pass before and after
+the move (62 identical test outcomes). Coverage includes CRUD and conflicts,
+idempotent deletion, structured validation, missing rows/database failures,
+absent/null/false/true patches, color clearing, empty/ordered catalog results,
+and explicit serialization of `is_available: false`. HTTP checks preserve
+catalog-only access, denial without capabilities, isolation from unrelated
+administration rights, delegated state management and administrator bypass.
+All 388 existing Test functions are retained.
+
+Validation: build/vet, full normal-tag suite (316 top-level pass, 16 skip; 2,656
+pass events and 20 skips including subtests), full race checks in 39 tested
+packages, and lint 2.15.0 (0 issues) passed. All 396 Test functions compile/list
+with the integration tag; 64 integration-tagged functions were not executed.
+Additionally, 64 existing frontend unit tests pass: 47 shared timesheet/resource
+scenarios, including day/week availability, and 17 day-type access checks.
+These are focused logic checks, not a browser or Electron acceptance run.
+Fresh Swagger JSON/YAML are byte-identical before/after (57 paths, 93 operations,
+92 definitions); all nine frozen contract groups still match B01. Repository
+policy and whitespace checks pass. The local Docker daemon remains unavailable;
+no real PostgreSQL/API acceptance or fresh frontend SDK generation is claimed.
+Evidence: `../local/backend-b09-20261115/`. No push, merge, CI, release, deployment
+or remote server changes were performed.
+
+## B10 implementation ledger — 2026-11-15
+
+Continued on `refactor/backend-access-tracing` after `116c713`. Task comment
+service implementation, repository port, mapper and validator now live in the
+feature root; `comment/service` is removed. Delivery, DTO and SQL adapter remain
+separate and parent `project_mgmt/module.go` owns composition. Root types and
+constructors follow the preceding pilots (`Service`, `Repository`, `Mapper`,
+`Validator`, `NewService`, `NewMapper`). Normalizing these names, the package
+declaration and one constructor comment reproduces all four original core files
+exactly. There is no new HTML transformation or cross-entity comment storage.
+
+The existing validator Test function and its six named cases were moved without
+removing assertions. Five additional core Test functions and one HTTP function
+were added and executed before the move: six new functions, 33 named subcases.
+All 46 original-layout test outcomes (including the existing validator) match
+the post-move run. The tests cover unchanged Unicode/Markdown/XSS text through
+creation and JSON, the 4,000-rune boundary, validation before parent lookup,
+same-task replies, missing/foreign parents, flat thread ordering, timestamps,
+repository failures and idempotent deletion. HTTP checks exercise real handlers,
+middleware and core over fake repositories/owner facts: hidden/deleted tasks,
+foreign comment IDs, deletion by author or permitted owner, author/task spoofing
+and same-task replies. Deletion remains authorized from the actual comment's
+owner facts; the visible URL task does not grant rights to another comment.
+
+All 396 existing Test functions are retained. Architecture guards include the
+comment core and reject concrete-repository coupling. Regenerated Wire preserves
+provider calls, arguments and order after normalizing imports and the moved
+constructor. Fresh Swagger JSON/YAML before/after are byte-identical (57 paths,
+93 operations, 92 definitions); all nine frozen contract groups still match B01.
+
+Validation: build/vet, full normal-tag suite (322 top-level pass, 16 skip; 2,695
+pass events and 20 skips including subtests), full race checks in 40 tested
+packages, lint 2.15.0 (0 issues), repository policy and whitespace checks pass.
+All 402 Test functions compile/list with the integration tag; 64 tagged functions
+were not executed. Additionally, 32 existing frontend Markdown/XSS and native
+discussion unit tests pass. The local Docker daemon is unavailable: no real
+PostgreSQL/API, cross-user browser/Electron/PDF XSS acceptance or fresh frontend
+SDK generation is claimed. The guarded XSS end-to-end harness is unchanged.
+Evidence: `../local/backend-b10-20261115/`. No push, merge, CI, release, deployment
+or remote server changes were performed.
+
+## B11 implementation ledger — 2026-11-15
+
+Continued on `refactor/backend-access-tracing` after `52516ce`. Assignment service,
+repository port, mapper and validator now live in the feature root;
+`assignment/service` is removed. Delivery, DTO and SQL adapter remain separate;
+parent `project_mgmt/module.go` owns composition. Root types and constructors
+follow the preceding pilots (`Service`, `Repository`, `Mapper`, `Validator`,
+`NewService`, `NewMapper`). Normalizing these names, the package declaration and
+one constructor comment reproduces all four original core files exactly.
+
+Nine Test functions were added, with 55 named subcases; all 402 existing Test
+functions are retained. The first 56 assignment test outcomes passed against the
+original service layout and match the final run; additional HTTP list/deny cases
+bring the final assignment run to 64 passing outcomes. Core tests cover CRUD,
+positive IDs/quantity, absent/null/zero patches, mapping/order, identical
+list/count scope filters and pagination, repository failures and idempotent
+deletion. Existing lookup-error classification is preserved, including update's
+conversion to assignment-not-found; this structural step does not change errors.
+
+HTTP tests exercise real middleware, handlers and core with fake repositories
+and owner resolvers: own/all/no-access rules, foreign IDs for read/update/delete,
+foreign tasks within an owned process, create-time task visibility, task/resource
+replacement, common-owner checks including administrator, and list scope,
+owner-filter and pagination forwarding. They do not execute SQL list predicates.
+Repository tests use the actual SQL adapter over a request-scoped fake pgx.Tx
+with no fallback pool: create/find/find-by-key/update/delete preserve the context,
+arguments and errors without committing or rolling back the request. Duplicate
+create reads the existing pair in that same transaction, preserving its stored
+quantity, and propagates lookup errors. These tests do not simulate database
+constraints or prove real transaction rollback.
+
+Architecture guards include the assignment core and reject concrete-repository
+coupling. Regenerated Wire preserves provider calls, arguments and order after
+normalizing imports and the moved constructor. Fresh Swagger JSON/YAML before
+and after are byte-identical (57 paths, 93 operations, 92 definitions); all nine
+frozen contract groups still match B01. SQL, generated sqlc, migrations, DTOs,
+versions and published changelogs remain unchanged. In particular, the database
+owner-equality guard and assignment cleanup triggers are untouched; update-time
+owner equality continues to rely on that database guard where applicable.
+
+Validation: build/vet, full normal-tag suite (331 top-level pass, 16 skip; 2,759
+pass events and 20 skips including subtests), full race suite and final focused
+assignment race checks, lint 2.15.0 (0 issues), repository policy and whitespace
+checks pass. All 411 Test functions compile/list with the integration tag; 64
+tagged functions were not executed. The local Docker daemon is unavailable, so
+real PostgreSQL/API acceptance, including TestAssignmentOwnerInvariant and
+owner-change cleanup/rollback, was not executed. No browser/Electron acceptance
+or fresh frontend SDK generation is claimed. Evidence:
+`../local/backend-b11-20261115/`. No push, merge, CI, release, deployment or remote
+server changes were performed.
+
+## B12 implementation ledger — 2026-11-15
+
+Continued on `refactor/backend-access-tracing` after `f555c73`. Project service,
+repository port, mapper and validator now live in the feature root;
+`project/service` is removed. Delivery, DTO and SQL adapter remain separate;
+parent `project_mgmt/module.go` owns composition. Root types and constructors
+follow the preceding pilots (`Service`, `Repository`, `Mapper`, `Validator`,
+`NewService`, `NewMapper`). Normalizing these names, the package declaration and
+one constructor comment reproduces all four original core files exactly.
+
+Eleven Test functions were added, with 66 named subcases; all 411 existing Test
+functions are retained. All 88 pre-move outcomes from the project and planning
+packages match the final run after normalizing the moved core identifiers
+(including the new repository-failure test name). The new tests contribute 77
+passing outcomes. Core tests cover owner normalization, nullable ownership,
+responsible-person retention/replacement/clearing, color clearing, Unicode code,
+calendar dates across year boundaries, zero priority, invalid patches before
+writes, auto-created counts and noncritical feedback failures, list/count scope
+and pagination, error classification and idempotent deletion. Existing update
+lookup-error classification is preserved rather than changed in this move.
+
+HTTP checks exercise real middleware, handlers and core with fake repositories
+and ownership probes. They cover owned/foreign/unrelated projects; process and
+task descendant access; process-only related access; probe failures; list scope;
+read/update/delete by ID; creation and ownership transfer; and the director's
+priority-only grant, including denied metadata, mixed, empty and delete requests.
+The process/task descendant facts are supplied by the test probe, not queried
+from PostgreSQL. Planning tests verify forwarding self/down/process-project/all
+scopes and preserving project order, owner/responsible, code, color, dates and
+priority, plus empty/error results. They do not execute SQL visibility predicates.
+
+Repository checks use the actual SQL adapter over a request-scoped fake pgx.Tx
+without a fallback pool. Create/find/update/delete/count/auto-create feedback
+preserve the request context, query arguments and errors without finalizing the
+transaction. Duplicate project codes still produce conflict rather than silently
+returning an unrelated existing project. These checks do not prove real database
+constraint, cascade, trigger or rollback behavior.
+
+Architecture guards include the project core and reject concrete-repository
+coupling. Regenerated Wire preserves provider calls, arguments and order after
+normalizing imports and the moved constructor. Fresh Swagger JSON/YAML before
+and after are byte-identical (57 paths, 93 operations, 92 definitions); all nine
+frozen contract groups still match B01. SQL, generated sqlc, DTOs, migrations,
+versions, published changelogs, optimistic revision guards and replay middleware
+remain unchanged; no new schema or public API is introduced.
+
+Validation: build/vet, full normal-tag suite (342 top-level pass, 16 skip; 2,836
+pass events and 20 skips including subtests), full race suite, lint 2.15.0
+(0 issues), repository policy and whitespace checks pass. All 422 Test functions
+compile/list with the integration tag; 64 tagged functions were not executed.
+The local Docker daemon is unavailable, so real PostgreSQL/API acceptance,
+including project date-shift/cascade, auto-create and optimistic/idempotent
+integration scenarios, was not executed. No browser/Electron acceptance or fresh
+frontend SDK generation is claimed. Evidence: `../local/backend-b12-20261115/`.
+No push, merge, CI, release, deployment or remote server changes were performed.
+
+## B13 implementation ledger — 2026-11-16
+
+Continued on `refactor/backend-access-tracing` after `da80cdc`. Process service,
+repository port, mapper and validator now live in the feature root;
+`process/service` is removed. Delivery, DTO and SQL adapter remain separate;
+parent `project_mgmt/module.go` owns composition. Root types and constructors
+follow the preceding pilots (`Service`, `Repository`, `Mapper`, `Validator`,
+`NewService`, `NewMapper`). Normalizing these names, the package declaration and
+one constructor comment reproduces all four original core files exactly.
+The existing append-order integration fixture imports the relocated constructor;
+its scenarios and assertions are unchanged.
+
+Twelve Test functions were added, with 70 named subcases; all 422 existing Test
+functions are retained. All 99 pre-move outcomes from process and planning tests
+match the final run. The new tests contribute 82 passing outcomes. Core checks
+cover creation/read/deletion, Unicode titles, nullable mapping, dates across year
+boundaries, owner/responsible changes and responsible=0 clearing, color clearing,
+project reassignment and retention of sort_order during ordinary patches,
+validation before writes, list/count scope and pagination, failure propagation
+and idempotent deletion. Reorder checks reject empty, duplicate, incomplete and
+foreign ID sets, require the complete project group, retain requested order and
+propagate both lookup and write failures.
+
+HTTP checks exercise real middleware, handlers and core with fake repositories
+and parent/related ownership probes. They cover project-owner management of a
+foreign-owned process, process-owner management, inherited project viewing
+without mutation rights, direct access by ID, moves into owned/foreign/missing
+projects, ownership transfer restrictions, responsible/date updates, creation,
+list scope and whole-project reorder authorization. Fixture parent/probe facts
+model the visible project; they do not execute database ownership queries.
+Planning smoke verifies owner/responsible, title/color/dates, process order and
+project grouping, plus forwarding all/project-owner/process-owner/inherited
+view scopes. It consumes prefiltered fake rows, not SQL visibility predicates.
+
+Repository checks use the actual SQL adapter over a request-scoped fake pgx.Tx
+with no fallback pool. Find/update/delete preserve context, query arguments and
+errors; update forwards the changed owner, responsible, project and dates to the
+unchanged SQL. Create joins that transaction, locks before the append query and
+stops on lock/insert errors. Reorder joins the same transaction, executes mark
+then apply with the requested IDs and stops on either failure. None of these
+methods finalizes a transaction owned by the request. These tests do not prove
+real database cleanup, rollback, concurrent locking or unique-index behavior.
+
+Architecture guards explicitly include the process core and reject concrete
+repository coupling. Regenerated Wire preserves provider calls, arguments and
+order after normalizing imports and the moved constructor. Fresh Swagger
+JSON/YAML before and after are byte-identical (57 paths, 93 operations, 92
+definitions); all nine frozen contract groups still match B01. SQL, generated
+sqlc, DTOs, migrations, versions, published changelogs and revision/replay
+middleware remain unchanged. Owner-change assignment cleanup and descendant
+date shifts remain the responsibility of their existing database triggers.
+
+Validation: build/vet, full normal-tag suite (354 top-level pass, 16 skip; 2,918
+pass events and 20 skips including subtests), full race suite and final focused
+architecture race check, lint 2.15.0 (0 issues), repository policy and whitespace
+checks pass. All 434 Test functions compile/list with the integration tag; 64
+tagged functions were not executed. The local Docker daemon is unavailable:
+real PostgreSQL/API acceptance, including TestAssignmentOwnerInvariant cleanup,
+date/cascade shifts, concurrent append/reorder and revision/replay integration,
+was not executed. No browser/Electron acceptance or fresh frontend SDK generation
+is claimed. Evidence (started before midnight): `../local/backend-b13-20261115/`.
+No push, merge, CI, release, deployment or remote server changes were performed.
+
+## B14 implementation ledger — 2026-11-16
+
+Continued on `refactor/backend-access-tracing` after `5fd3978`. Task dependency
+service, repository port, mapper, validator and pure constraint helpers now live
+in the feature root, together with the four dependency types and catalog helpers
+from `domain/models.go`. Both `task_dependency/service` and its small `domain`
+package are removed. The root package is named `taskdependency`; DTO and SQL
+adapter boundaries remain unchanged. Composition stays in the parent module.
+Normalizing internal names, package declarations, the removed domain qualifier,
+formatting and the constructor comment reproduces all six original core files.
+
+Task's consumer-owned `ConstraintSource` file is byte-identical. Wire binds the
+relocated `*taskdependency.Service` to that existing port. Neither production
+core imports the sibling feature or its concrete SQL adapter; a new architecture
+guard rejects either direction. Regenerated Wire preserves provider calls,
+arguments and order after normalizing imports, the constructor and its generated
+local variable name. No task scheduling API or parallel service interface was
+introduced.
+
+All five existing constraint/validator Test functions were moved with their
+assertions retained; all 434 pre-existing Test functions remain. Eleven new Test
+functions add 67 named subcases and 78 passing outcomes. All 104 pre-move outcomes
+from dependency and task suites match the final run. New core checks cover
+self-links, invalid IDs/types, missing endpoints, different processes, subtasks,
+duplicate edges, cycle rejection and incompatible current dates before writes.
+Each fs/ss/ff/sf create boundary accepts equality. Type changes substitute only
+the target edge, retain the other incoming constraints, preserve endpoints and
+propagate lookup/constraint/date/write failures. List order, empty mapping,
+foreign-edge rejection and idempotent/error deletion behavior are preserved.
+
+The real task and dependency services are tested together through ConstraintSource:
+for all four types, equal boundaries persist and an earlier constrained date
+rejects the update without changing the stored task. A constraint read failure
+also blocks persistence. Existing task date/title-only guard tests remain intact.
+HTTP checks use real middleware, handlers and core with fake repositories/owner
+facts: view versus update permissions, hidden tasks, foreign nested edge IDs,
+URL task binding against a spoofed body task_id, self-link rejection, missing
+edges and idempotent deletion. Repository checks use the actual SQL adapter over
+a fake request-scoped pgx.Tx without a fallback pool, covering create/find/type
+update/delete, endpoint/duplicate/cycle probes and task dates, including argument
+order, errors and leaving commit/rollback to the request owner. They do not
+execute SQL graph traversal or prove real transactional rollback.
+
+Fresh Swagger JSON/YAML before and after are byte-identical (57 paths, 93
+operations, 92 definitions); all nine frozen contract groups still match B01.
+SQL, generated sqlc, DTOs, migrations, versions, published changelogs and
+revision/replay middleware are unchanged. Inclusive date comparisons and the
+existing database graph constraints/triggers retain their previous behavior.
+
+Validation: build/vet, full normal-tag suite (365 top-level pass, 16 skip; 2,996
+pass events and 20 skips including subtests), full race suite in 51 tested
+packages, lint 2.15.0 (0 issues), repository policy and whitespace checks pass.
+All 445 Test functions compile/list with the integration tag; 64 tagged
+functions were not executed. The local Docker daemon is unavailable, so real
+PostgreSQL/API graph, trigger, constraint and revision/replay acceptance was not
+executed. Graph/probe fixtures are not a substitute for SQL integration tests.
+No browser/Electron acceptance or fresh frontend SDK generation is claimed.
+Evidence: `../local/backend-b14-20261116/`. No push, merge, CI, release, deployment
+or remote server changes were performed.
+
+## B15 implementation ledger — 2026-11-16
+
+Continued on `refactor/backend-access-tracing` after `108f26b`. Task service,
+repository port, mapper, validator and consumer-owned ConstraintSource now live
+in the feature root with the three execution status constants from domain.
+Both `task/service` and its small `domain` package are removed. DTO and SQL
+adapter remain separate, and composition stays in the parent module. Task
+statuses remain distinct from timesheet day types. Normalizing internal names,
+package declarations, the removed domain qualifier, formatting and one
+constructor comment reproduces all six original core files exactly.
+
+ConstraintSource retains its existing method and semantics; only its package
+moves. Wire binds the existing dependency implementation to that port, preserving
+provider calls, arguments and order after import/constructor normalization. The
+architecture guards include the task core and keep both task and task_dependency
+free of sibling implementation and concrete-repository imports. The existing
+append-order integration fixture changes only its import and constructor call.
+
+All four existing task Test functions moved with assertions retained: parent
+normalization, the nine UpdateTaskDateConstraints scenarios (including nil checker
+and rejection before persistence), and the real dependency-port bridge tests.
+All 445 pre-existing Test functions remain. Twelve new functions add 73 named
+subcases and 85 passing outcomes; all 130 pre-move outcomes from task/planning
+suites match the final run. Core checks cover default/empty and all three statuses,
+parent date inheritance even when explicit child dates were supplied, missing or
+nested parents, process mismatch, zero parent, owner/responsible preservation,
+responsible=0 and color clearing, validation before writes, nullable mapping,
+list/count scope/pagination and read/write/delete failures. Ordinary patches keep
+ProcessID, ParentID and sort_order, including unknown JSON fields attempting to
+replace those relations. Reorder requires the complete process group, rejects
+empty/duplicate/incomplete/foreign IDs and preserves the submitted order.
+
+HTTP tests exercise real middleware, handlers and core with fake repositories
+and parent/descendant probes: process/project management, foreign task IDs,
+inherited process/parent-task view without mutation rights, owner/responsible and
+status updates, top-level/subtask creation, authenticated creator ownership,
+immutable relations, list scope and whole-process reorder. Planning smoke uses
+the existing repository fixture to verify grouping children that precede their
+parent in the input, independent child display order, owner/responsible, dates,
+all statuses, Unicode titles and comment counts. It does not execute SQL scoping.
+Repository checks use the actual adapter over a fake request-scoped pgx.Tx with
+no fallback pool: find/update/delete preserve context, arguments and errors;
+create takes the append lock before INSERT and retains parent/null-parent
+encoding; reorder runs mark then apply and stops on either failure. None of these
+methods finalizes a transaction owned by the request. These checks do not prove
+real SQL constraints, triggers, rollback or concurrent append/reorder behavior.
+
+Fresh Swagger JSON/YAML before and after are byte-identical (57 paths, 93
+operations, 92 definitions); all nine frozen contract groups still match B01.
+SQL, generated sqlc, DTOs, migrations, versions, published changelogs and
+revision/replay middleware remain unchanged. Date-shift/cascade triggers and existing
+stored subtask-date handling are untouched.
+
+Validation: build/vet, full normal-tag suite (377 top-level pass, 16 skip; 3,081
+pass events and 20 skips including subtests), full race suite in 53 tested
+packages, lint 2.15.0 (0 issues), repository policy and whitespace checks pass.
+All 457 Test functions compile/list with the integration tag; 64 tagged
+functions were not executed. The local Docker daemon is unavailable, so real
+PostgreSQL/API trigger/cascade, append/reorder concurrency and revision/replay
+acceptance was not executed. No browser/Electron acceptance or fresh frontend
+SDK generation is claimed. Evidence: `../local/backend-b15-20261116/`.
+No push, merge, CI, release, deployment or remote server changes were performed.
+
+## B16 implementation ledger — 2026-11-16
+
+Continued on `refactor/backend-access-tracing` after `c93bc3a`. Resource service,
+repository port, mapper and validator now live in the timesheet/resource feature
+root; `resource/service` is removed. DTO and SQL adapter remain separate and
+parent `timesheet/module.go` owns composition. Resources remain separate from
+users/employees; member lookup rows still cross the existing repository port.
+Normalizing internal names, the package declaration, formatting and one
+constructor comment reproduces all four original core files exactly.
+Regenerated Wire preserves provider calls, arguments and order. Architecture
+guards include the resource core and reject concrete-repository/HTTP coupling.
+
+Thirteen Test functions were added with 85 named subcases and 98 passing
+outcomes; all 457 existing Test functions remain. All 98 original-layout
+resource outcomes match the post-move suite. Core checks cover default/explicit
+owner, employees_count, nullable/color patch semantics, Unicode title, validation
+before writes, list/count scopes and pagination, mapping and repository failure
+classification, including idempotent deletion of a missing resource. Member
+checks preserve self-membership, direct subordinate access, rejection of indirect
+or absent managers, administrator bypass, valid IDs and lookup/write failures.
+Member DTO checks cover name/position/preset, nullable manager/hire/termination
+dates and order. Repeated remove calls retain target IDs and propagate errors;
+the fake repository does not prove actual duplicate-membership database effects.
+Absence checks cover same-day and year-boundary windows, the exact 3,660-day
+maximum, rejection of wider/reversed/missing windows and invalid resource IDs
+before querying, response fields and lookup failures.
+
+HTTP tests exercise real middleware, handlers and core with fake repositories
+and ownership facts: own/all/no-access list and direct ID operations, owner
+filter restriction, authenticated creator ownership, forged owner rejection,
+owner transfer by all/admin, member lists/add/remove, direct hierarchy versus
+admin, absence access/date parsing and missing resource 403/404 behavior.
+List tests check scope forwarding rather than SQL visibility predicates.
+The actual SQL adapter is tested over a fake request-scoped pgx.Tx without a
+fallback pool. Create/update and their subsequent member-count queries use the
+same request transaction; mutation failure skips the count, and count failure
+propagates without returning a successful resource. Read/list/count, owner chain,
+member mutation/lookup and absence paths retain context, arguments and errors.
+Duplicate resource code still returns conflict without an extra count query.
+The repository never finalizes a transaction owned by the request. These checks
+do not prove real PostgreSQL rollback or assignment-cleanup trigger execution.
+
+Fresh Swagger JSON/YAML before and after are byte-identical (57 paths, 93
+operations, 92 definitions); all nine frozen contract groups still match B01.
+SQL, generated sqlc, DTOs, migrations, versions, published changelogs and
+revision/replay middleware are unchanged. Owner-change assignment cleanup,
+member uniqueness and absence overlap queries retain their database definitions.
+
+Validation: build/vet, full normal-tag suite (390 top-level pass, 16 skip; 3,179
+pass events and 20 skips including subtests), full race suite in 56 tested
+packages, lint 2.15.0 (0 issues), repository policy and whitespace checks pass.
+All 470 Test functions compile/list with the integration tag; 64 tagged
+functions were not executed. The local Docker daemon is unavailable, so real
+PostgreSQL/API assignment cleanup, uniqueness/idempotent membership, absence
+query and revision/replay acceptance was not executed. No browser/Electron
+acceptance or fresh frontend SDK generation is claimed.
+Evidence: `../local/backend-b16-20261116/`. No push, merge, CI, release, deployment
+or remote server changes were performed.
+
+## B17 implementation ledger — 2026-11-16
+
+Continued on `refactor/backend-access-tracing` after `4930b92`. Calendar service,
+repository port and pure interval helpers now live in the timesheet/calendar
+feature root; `calendar/service` is removed. HTTP DTOs and SQL adapter/sqlc remain
+separate, with composition in parent `timesheet/module.go`. Normalizing internal
+names, the package declaration, formatting and one constructor comment reproduces
+both original core files exactly. The event sweep, date limits, empty responses,
+interval coalescing and SQL resource-owner filtering are unchanged. Regenerated
+Wire preserves provider calls, arguments and order. Architecture guards now
+include the calendar core and reject concrete-repository/HTTP coupling.
+
+All 470 existing Test functions remain. The nine original calendar functions
+moved without assertion changes; six new functions add 27 named subcases and 33
+passing outcomes. All 42 original-layout calendar outcomes match the final run.
+Checks cover overlapping and adjacent absences, clipping at the requested start,
+inclusive hire/termination/absence boundaries, simultaneous employee replacement
+without a capacity seam, exhausted availability, multiple resources and nullable
+employment dates. They preserve resource isolation in the service output, the
+exact 730-included-day maximum across a leap-year start, non-nil empty responses,
+the existing three-read sequence and short-circuiting on repository failures.
+
+HTTP tests exercise real middleware, handler and core with fake repositories:
+own/all/admin scopes, denied and anonymous access, date parsing, missing/reversed
+or excessive windows and exact daily availability periods. These scope checks
+verify authorization and scope forwarding, not execution of SQL visibility
+predicates. The actual SQL adapter is exercised over a fake request-scoped
+pgx.Tx without a fallback pool. Resource scope flags, user ID, date argument order,
+context and row errors are preserved; repository reads do not finalize a
+transaction owned by the request. These tests do not prove real SQL filtering,
+absence joins or transaction isolation.
+
+Fresh Swagger JSON/YAML before and after are byte-identical (57 paths, 93
+operations, 92 definitions); all nine frozen contract groups still match B01.
+SQL, generated sqlc, DTOs, migrations, versions, published changelogs and
+revision/replay middleware remain unchanged.
+
+Validation: build/vet, full normal-tag suite (396 top-level pass, 16 skip; 3,212
+pass events and 20 skips including subtests), full race suite in 58 tested
+packages, lint 2.15.0 (0 issues), repository policy and whitespace checks pass.
+All 476 Test functions compile/list with the integration tag; 64 tagged functions
+were not executed. The 49 existing frontend resource scenario/usage unit tests
+pass, including day/week behavior, weekly peak load/minimum availability and
+native command-transform parity. No frontend source changed; no browser,
+Electron packaging or end-to-end acceptance is claimed.
+
+The local Docker daemon is unavailable, so real PostgreSQL/API owner filtering,
+employment/absence queries and revision/replay acceptance were not executed.
+Evidence: `../local/backend-b17-20261116/`. No push, merge, CI, release, deployment
+or remote server changes were performed.
+
+## B18 implementation ledger — 2026-11-16
+
+Continued on `refactor/backend-access-tracing` after `d4d706e`. Auto-create's SQL
+adapter no longer imports HTTP DTOs or encodes/decodes template JSON. Its existing
+repository port now returns `*sqlc.GetAutoCreateConfigRow` and accepts
+`sqlc.UpsertAutoCreateConfigParams`; no table-shaped domain model or new package
+was introduced. The service owns the existing missing-row default, decoding,
+top-level null-to-empty read normalization and encoding after reference checks.
+The service package stays separate because the feature root composes delivery.
+Wire was regenerated and is byte-identical. Architecture tests reject DTO
+imports in the SQL adapter and HTTP/concrete-repository coupling in the service.
+
+The original GetConfig mapping/default code matches the moved service code after
+normalizing the repository call and errors import alias. The encoding block,
+validation, reference-ID collectors and resource/user repository lookups remain
+unchanged. Request-scoped query selection still uses `q(ctx)`; this step does not
+change transaction ownership or the SQL project-creation trigger.
+
+All 476 existing Test functions remain. Existing constructor/happy-path tests
+adapt their fake repository to sqlc and compare configuration values instead of
+requiring one DTO pointer to cross the SQL boundary. Seven new functions add 42
+named subcases and 49 passing outcomes. All 66 original-layout auto-create test
+outcomes match the post-change run. Contract tests use the real service and SQL
+adapter over a fake pgx.Tx without a fallback pool. They cover absent/wrapped
+missing rows, disabled config, null/empty and nested collections, unknown fields,
+malformed/wrong-shaped stored JSON, complete process/task/operation/resource
+round-trips, Unicode titles, colors, enabled flags and input immutability.
+Unspecified owners stay null; explicit zero/negative owners still go through the
+existing existence check. Repeated resource/owner references retain deduplication
+and encounter order. Lookup/write errors stop subsequent queries; disabling a
+template does not bypass validation. Tracing may derive a child context, while
+the same request transaction and correlation ID remain available to SQL calls.
+Direct adapter tests preserve raw JSON/row fields and sqlc parameters without
+normalizing, decoding or finalizing the caller's transaction.
+
+HTTP tests exercise real middleware, handler, service and SQL adapter: view-only
+versus management capability, administrator bypass, denied/anonymous access,
+malformed/invalid input and private-error redaction. PUT retains a null processes
+response when omitted, while a subsequent GET retains the empty-array response;
+explicit empty arrays remain arrays. These tests do not execute PostgreSQL
+JSONB normalization, trigger creation or rollback.
+
+Fresh Swagger JSON/YAML before and after are byte-identical (57 paths, 93
+operations, 92 definitions); all nine frozen contract groups still match B01.
+SQL, generated sqlc, DTO identities, migrations, versions, published changelogs,
+frontend SDK and revision/replay middleware are unchanged.
+
+Validation: build/vet, full normal-tag suite (403 top-level pass, 16 skip; 3,261
+pass events and 20 skips including subtests), full race suite in 58 tested
+packages, lint 2.15.0 (0 issues), repository policy and whitespace checks pass.
+After test-helper-only lint fixes, focused auto-create/architecture race checks
+also pass (107 outcomes). All 483 Test functions compile/list with the integration
+tag; 64 tagged functions were not executed. The local Docker daemon is unavailable,
+so real PostgreSQL/API template creation, assignment-owner constraints, atomic
+rollback and revision/replay acceptance were not executed. No frontend/browser
+or Electron acceptance is claimed. Evidence: `../local/backend-b18-20261116/`.
+No push, merge, CI, release, deployment or remote server changes were performed.
+
+## B19 final boundaries and acceptance — 2026-11-16
+
+Continued on `refactor/backend-access-tracing` after `b752ba5`. The production
+graph checker is `scripts/check-backend-architecture.py`; it uses complete
+`go list -deps` metadata, canonical import paths and production GoFiles/Imports.
+Missing cores, missing dependency metadata, package/dependency errors and malformed
+input fail closed. Nineteen selected cores reject transitive Gin, delivery,
+middleware, userctx and concrete-repository imports. Own sqlc projections and
+existing service DTOs remain valid currency; direct foreign sqlc imports are
+rejected. SQL adapters reject transitive HTTP/DTO dependencies. Nested repository
+packages cannot disguise a concrete implementation with a sqlc suffix.
+
+Composition roots, audit/security HTTP clients and server adapters are outside
+the selected business-core scope. Go's TestImports/XTestImports are deliberately
+separate: HTTP integration tests can use real middleware/delivery/repositories
+without making those production dependencies. There is no per-import allowlist.
+The backend CI job runs the checker before build; `make check-backend` runs the
+same command. Existing service-change filters, reusable workflow graph and
+All checks gate are unchanged. Common tooling tests exercise the checker even
+when a tooling-only change does not select application jobs.
+
+The stricter rule found one remaining production edge:
+authz/service → authz/repository, used only to name two snapshot row types.
+PolicyRepository and its adapter now use existing sqlc.ListUserPrincipalsRow and
+sqlc.ListAllUserPermissionsRow. Two hand-written duplicate projections and their
+copying loops were removed; no new domain model or package was introduced.
+Nullable presets, grants/revokes, row order, empty slices, errors and request
+transaction ownership are preserved. All 54 pre-change RBAC snapshot/service
+test outcomes match the post-change run. Wire regeneration is byte-identical.
+
+Two new Go Test functions add ten named subcases and twelve passing outcomes.
+All 483 previous Test functions remain. Ten new Python test methods exercise
+direct/transitive violations, own/foreign sqlc, real adapter/composition scope,
+test-only imports, missing/error metadata and cyclic traversal; the core matrix
+alone includes 342 intentionally invalid paths. Existing architecture tests
+remain. Two frontend acceptance fixtures were corrected without relaxing their
+assertions: offline session tests now synchronize and observe the newly created
+process before disconnecting; resource pagination counts the initial server rows
+plus all 501 fixture resources instead of assuming an empty database.
+The new `frontend/tests/backend-refactor.mjs` exercises real SQL calendar ranges,
+absence removal, template round-trip, trigger-created project/process/task/
+operation/resource data and complete rollback on a resource/process-owner mismatch.
+Its loopback/isolation guards and cleanup retain the previous template config.
+
+### Actual package map after B02–B19
+
+The B01 snapshot above remains immutable. These counts exclude test-only packages
+and include generated sqlc files; measured on darwin/arm64 with normal tags.
+
+| Area | Production packages | Go files | Lines | sqlc packages |
+| --- | ---: | ---: | ---: | ---: |
+| audit | 3 | 11 | 1,422 | 0 |
+| auth | 6 | 14 | 1,095 | 1 |
+| authz | 8 | 27 | 4,775 | 1 |
+| auto_create | 6 | 11 | 695 | 1 |
+| idempotency | 3 | 14 | 1,951 | 1 |
+| planning | 6 | 14 | 2,056 | 1 |
+| project_mgmt | 37 | 98 | 8,389 | 7 |
+| timesheet | 16 | 37 | 3,170 | 3 |
+| user | 7 | 20 | 3,941 | 1 |
+| Other infrastructure | 22 | 57 | 5,657 | 0 |
+| **Total** | **114** | **303** | **33,151** | **16** |
+
+Internal import edges decreased from 372 to 364. Package count decreased from
+115 to 114; minimizing that number was not the objective. Ten service packages
+were replaced with their existing feature roots; task/domain and
+task_dependency/domain were folded into their cores. The HTTP tracing adapter
+is the additional middleware/tracing package. Auth/authz/user/planning retain
+their service, delivery and persistence boundaries; their roots compose HTTP
+adapters, and flattening those services would create dependency cycles.
+Auto-create retains the same justified service boundary. Domain packages keep
+neutral access/identity facts rather than mirroring database tables.
+
+### Validation and rollback
+
+Full normal Go suite: 405 top-level pass, 16 skip; 3,273 pass events and 20 skips
+including subtests. Full integration-tag suite against disposable PostgreSQL 16
+and the test API: 484 top-level pass, one optional restart test skipped; 3,504
+passing outcomes. That remaining function then passed both write/read phases
+around an actual API process restart (different listener PIDs, same database):
+receipt lookup and replay survived. Thus all 485 backend Test functions were
+executed successfully across these runs. Full race suite passes in 59 tested
+packages; build/vet and lint 2.15.0 (0 issues) pass. Architecture checks pass for
+darwin/arm64 and linux/amd64. All 184 tooling tests pass with three existing
+opt-in Docker reconciliation tests skipped; the final ten architecture tests
+were repeated after their last fixture update. Actionlint 1.7.7, repository
+policy and whitespace checks pass. Remote GitHub CI was not started.
+
+Frontend typecheck/lint and all 1,704 unit tests in 104 files pass. Real browser/API
+and isolated native Electron runs pass for platform sessions (two tabs/windows,
+refresh/lost refresh/logout), API reads (pagination, navigation, minute refresh),
+API commands (CRUD, timesheet, lost response/retry), administration permissions
+(159 checks), task workspace (13 checks), desktop delivery/synchronization,
+RBAC security API (77 checks) and shared services. Fourteen browser TypeScript/
+Electron-main calculation-parity cases pass; existing day/week resource unit
+scenarios retain weekly peak load/minimum availability. The added backend API
+regression script passes its four integrated scenarios. No release packaging or
+Windows/Linux GUI acceptance is claimed.
+
+Fresh Swagger generated from a clean archive of the preceding commit and from
+the final sources is byte-identical (57 paths, 93 operations, 92 definitions).
+Actual Gin registration from clean main and candidate source copies also matches:
+all 93 method/path pairs are identical, without starting either HTTP listener.
+All nine frozen B01 contract groups match. The pinned OpenAPI Generator 7.24.0
+reproduces all five existing TypeScript SDK files. SQL, all 15 tracked core
+migrations, DTOs, response/error catalogs, versions and published changelogs
+remain unchanged. A synthetic V1–V9 database with Flyway-compatible signed-CRC
+history and an unknown V1007 plugin exercises real native adoption and upgrade;
+fixture SQL/history were installed with psql, not a Flyway binary. Unknown plugin
+data and history are preserved. Native auth, operations and migration fixtures
+use separate disposable databases/schemas. No personal seed/plugin data was used.
+
+The candidate reverse patch and all 17 preceding topic commits were applied
+backward in a separate local clone; each restored its exact parent Git tree.
+Rollback after a future squash merge is a reviewed revert of that PR, followed
+by these checks and an explicitly authorized deployment of the previous image.
+Do not run database down migrations or alter published history: this branch
+changes no migration SQL. This verifies source rollback, not a production
+deployment/backup restore. Evidence: `../local/backend-b19-20261116/`.
+
+Local implementation and acceptance are ready for review. B19 and the epic stay
+open pending publication and successful remote CI; no push, merge, release,
+deployment or remote server change was performed.
+
+### PR #9 CI follow-up — 2026-11-16
+
+Publishing the branch exposed a checker bug on the CGO-enabled Linux runner:
+the compiler's pseudo-import C has no ordinary go-list package record. The
+checker now skips that compiler edge and includes CgoFiles when selecting
+production packages and rejecting test sources. This does not allow ordinary
+missing dependencies or hide CGO-only SQL adapters from HTTP/DTO rules.
+Two regression methods cover those cases; all 186 tooling tests pass (three
+existing opt-in Docker tests skipped), and real graph checks pass with
+CGO_ENABLED=0 and CGO_ENABLED=1. Application code and contracts are unchanged.
+Sourcery initially skipped the PR as too large and supplied no code findings;
+that skip is not a completed review. No release, deployment or merge was started.

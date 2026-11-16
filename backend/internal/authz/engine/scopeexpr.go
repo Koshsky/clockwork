@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 )
 
 // Tree-move codes of a scope expression.
@@ -32,7 +32,7 @@ type moveToken struct {
 // parsedScope — the parsed form of a scope expression.
 type parsedScope struct {
 	all   bool // "all" — unconditional access
-	none  bool // ownerModeNone — explicit deny (""/absent rule is ScopeNone too)
+	none  bool // ScopeNoneCode — explicit deny (""/absent rule is ScopeNone too)
 	moves []moveToken
 	canon string // canonical expression string
 }
@@ -50,7 +50,7 @@ func parseScope(s string) (parsedScope, bool) {
 	case "":
 		return parsedScope{}, true // missing rule = no access
 	case "none":
-		return parsedScope{none: true, canon: ownerModeNone}, true
+		return parsedScope{none: true, canon: ScopeNoneCode}, true
 	case "all":
 		return parsedScope{all: true, canon: "all"}, true
 	}
@@ -127,7 +127,7 @@ func ParseScope(s string) (string, bool) {
 }
 
 // ValidateScopeExpr validates a scope expression string against a resource.
-func ValidateScopeExpr(expr string, res rbac.Resource) error {
+func ValidateScopeExpr(expr string, res access.Resource) error {
 	p, ok := parseScope(expr)
 	if !ok {
 		return fmt.Errorf("недопустимое выражение области %q", expr)
@@ -162,23 +162,23 @@ func moveName(m moveToken) string {
 // parent; sib — has a parent AND its own nodes bear owners (a sibling is a
 // node of the same type — ownerless siblings could never be "owned");
 // down/downN — owner-bearing descendants exist.
-func moveApplicable(m moveToken, res rbac.Resource) bool {
+func moveApplicable(m moveToken, res access.Resource) bool {
 	switch m.kind {
 	case moveSelf:
-		return nodeHasOwner[res] && res != rbac.ResourceProcess && res != rbac.ResourceTask
+		return nodeHasOwner[res] && res != access.ResourceProcess && res != access.ResourceTask
 	case moveUp:
 		return nodeHasParent[res]
 	case moveSib:
 		return nodeHasParent[res] && nodeHasOwner[res]
 	case moveProjectSib:
-		return res == rbac.ResourceTask
+		return res == access.ResourceTask
 	case ScopeProjectOwner, ScopeProcessOwner:
-		return res == rbac.ResourceProcess || res == rbac.ResourceTask ||
-			res == rbac.ResourceMilestone || res == rbac.ResourceAssignment
+		return res == access.ResourceProcess || res == access.ResourceTask ||
+			res == access.ResourceMilestone || res == access.ResourceAssignment
 	case ScopeProcessProjects:
-		return res == rbac.ResourceProject
+		return res == access.ResourceProject
 	case ScopeProjectResources:
-		return res == rbac.ResourceResource
+		return res == access.ResourceResource
 	case moveDown:
 		return len(ownerDescendants[res]) > 0
 	}
@@ -187,6 +187,6 @@ func moveApplicable(m moveToken, res rbac.Resource) bool {
 
 // ScopeApplicable reports whether a scope expression is applicable to a
 // resource (rule validation on write and on load).
-func ScopeApplicable(res rbac.Resource, scope string) bool {
+func ScopeApplicable(res access.Resource, scope string) bool {
 	return ValidateScopeExpr(scope, res) == nil
 }

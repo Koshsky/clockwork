@@ -92,7 +92,12 @@ try{
   const project=await external('POST','/project',{title:stamp,code:'S'+Date.now(),owner_id:state.user.id,...dates})
   const processRow=await external('POST','/process',{title:stamp,project_id:project.id,owner_id:state.user.id,...dates})
   await page.goto(web+'/planner')
-  await page.evaluate(async()=>{const store=await import('/src/store/index.ts');await store.usePlanningStore().refreshTaskPlanning(true)})
+  await page.evaluate(async()=>{
+    const session=await window.erpDesktop.session.status()
+    await window.erpDesktop.queue.request({action:'sync',force:true,contextId:session.contextId})
+    const store=await import('/src/store/index.ts');await store.usePlanningStore().refreshTaskPlanning(true,true)
+  })
+  await expect.poll(()=>page.evaluate(async id=>(await import('/src/store/index.ts')).usePlanningStore().taskPlanning?.processes.some(row=>row.id===id),processRow.id)).toBe(true)
   await electron.evaluate(()=>{globalThis.sessionFault='offline'})
   expect(await page.evaluate(async processId=>{
     localStorage.setItem('mvs_erp_user', JSON.stringify({ id: 999999, username: 'forged-cached-user', preset: 'admin' }));

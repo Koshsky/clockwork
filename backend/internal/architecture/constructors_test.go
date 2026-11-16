@@ -1,0 +1,62 @@
+package architecture_test
+
+import (
+	"reflect"
+	"testing"
+
+	auth "github.com/Koshsky/erp-backend/internal/auth/service"
+	authz "github.com/Koshsky/erp-backend/internal/authz/service"
+	autocreate "github.com/Koshsky/erp-backend/internal/auto_create/service"
+	planning "github.com/Koshsky/erp-backend/internal/planning/service"
+	assignment "github.com/Koshsky/erp-backend/internal/project_mgmt/assignment"
+	comment "github.com/Koshsky/erp-backend/internal/project_mgmt/comment"
+	milestone "github.com/Koshsky/erp-backend/internal/project_mgmt/milestone"
+	process "github.com/Koshsky/erp-backend/internal/project_mgmt/process"
+	project "github.com/Koshsky/erp-backend/internal/project_mgmt/project"
+	task "github.com/Koshsky/erp-backend/internal/project_mgmt/task"
+	dependency "github.com/Koshsky/erp-backend/internal/project_mgmt/task_dependency"
+	calendar "github.com/Koshsky/erp-backend/internal/timesheet/calendar"
+	resource "github.com/Koshsky/erp-backend/internal/timesheet/resource"
+	state "github.com/Koshsky/erp-backend/internal/timesheet/state"
+	user "github.com/Koshsky/erp-backend/internal/user/service"
+)
+
+func TestServiceConstructorsAcceptInterfacesAndReturnStructs(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name        string
+		constructor any
+		ports       []int
+	}{
+		{"auth", auth.NewAuthService, []int{1, 3}},
+		{"policy store", authz.NewPolicyStore, []int{1, 2}},
+		{"policy administration", authz.NewRBACService, []int{1, 3}},
+		{"auto create", autocreate.NewAutoCreateService, []int{2}},
+		{"planning", planning.NewPlanningService, []int{2}},
+		{"assignment", assignment.NewService, []int{2}},
+		{"comment", comment.NewService, []int{2}},
+		{"milestone", milestone.NewService, []int{2}},
+		{"process", process.NewService, []int{2}},
+		{"project", project.NewService, []int{2}},
+		{"task", task.NewService, []int{2, 3}},
+		{"dependency", dependency.NewService, []int{2}},
+		{"calendar", calendar.NewService, []int{2}},
+		{"resource", resource.NewService, []int{2}},
+		{"state", state.NewService, []int{2}},
+		{"user", user.NewUserService, []int{2, 3, 4}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			constructor := reflect.TypeOf(tc.constructor)
+			for _, index := range tc.ports {
+				if parameter := constructor.In(index); parameter.Kind() != reflect.Interface {
+					t.Errorf("dependency %d requires a concrete implementation: %v", index, parameter)
+				}
+			}
+			if constructor.NumOut() != 1 || constructor.Out(0).Kind() != reflect.Pointer ||
+				constructor.Out(0).Elem().Kind() != reflect.Struct {
+				t.Fatal("constructor no longer returns its concrete service")
+			}
+		})
+	}
+}

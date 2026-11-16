@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/config"
 	authmw "github.com/Koshsky/erp-backend/internal/middleware/auth"
 	erpjwt "github.com/Koshsky/erp-backend/internal/security/jwt"
@@ -27,15 +28,15 @@ const (
 // returns a fixed principal or an error and records the user id it was asked
 // to resolve.
 type stubResolver struct {
-	user   userctx.UserContext
+	user   domain.UserContext
 	err    error
 	lastID int64
 }
 
-func (s *stubResolver) EffectiveUser(_ context.Context, userID int64) (userctx.UserContext, error) {
+func (s *stubResolver) EffectiveUser(_ context.Context, userID int64) (domain.UserContext, error) {
 	s.lastID = userID
 	if s.err != nil {
-		return userctx.UserContext{}, s.err
+		return domain.UserContext{}, s.err
 	}
 	return s.user, nil
 }
@@ -68,7 +69,7 @@ type probeResult struct {
 	status int
 	code   string
 	ran    bool
-	user   userctx.UserContext
+	user   domain.UserContext
 }
 
 // runProbe serves a single request through the middleware; token == "" sends
@@ -115,7 +116,7 @@ func runProbe(mw gin.HandlerFunc, token string) probeResult {
 // and validating).
 func defaultMW() (*authmw.Middleware, *erpjwt.Service, *stubResolver) {
 	svc := newJWT(testSecret, testIssuer, 15*time.Minute)
-	stub := &stubResolver{user: userctx.UserContext{ID: 42, Admin: true, Preset: "admin"}}
+	stub := &stubResolver{user: domain.UserContext{ID: 42, Admin: true, Preset: "admin"}}
 	mw := authmw.ProvideAuthMiddleware(slog.New(slog.DiscardHandler), svc, stub)
 	return mw, svc, stub
 }
@@ -183,7 +184,7 @@ func TestRequireAuthValidTokenPopulatesUser(t *testing.T) {
 	t.Parallel()
 
 	mw, svc, stub := defaultMW()
-	stub.user = userctx.UserContext{ID: 42, Admin: true, Preset: "admin"}
+	stub.user = domain.UserContext{ID: 42, Admin: true, Preset: "admin"}
 
 	res := runProbe(mw.RequireAuth(), bearerToken(t, svc, 42, "boss@example.com"))
 
@@ -228,7 +229,7 @@ func TestRequireAuthAdminFlagChecks(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			mw, svc, stub := defaultMW()
-			stub.user = userctx.UserContext{ID: 7, Admin: tc.admin, Preset: tc.preset}
+			stub.user = domain.UserContext{ID: 7, Admin: tc.admin, Preset: tc.preset}
 
 			gin.SetMode(gin.TestMode)
 			r := gin.New()

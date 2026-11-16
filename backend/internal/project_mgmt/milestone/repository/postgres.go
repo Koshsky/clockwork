@@ -7,8 +7,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/database"
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/milestone/repository/sqlc"
 	nullable "github.com/Koshsky/erp-backend/pkg/database"
 	"github.com/Koshsky/erp-backend/pkg/date"
@@ -92,7 +92,7 @@ func (r *MilestoneRepository) DeleteMilestone(ctx context.Context, id int64) err
 func (r *MilestoneRepository) ListMilestones(
 	ctx context.Context,
 	userID int64,
-	scope rbac.ListScope,
+	scope access.ListScope,
 	ownerID int64,
 	limit, offset int,
 ) ([]sqlc.Milestone, error) {
@@ -115,7 +115,7 @@ func (r *MilestoneRepository) ListMilestones(
 func (r *MilestoneRepository) CountMilestones(
 	ctx context.Context,
 	userID int64,
-	scope rbac.ListScope,
+	scope access.ListScope,
 	ownerID int64,
 ) (int64, error) {
 	return r.q(ctx).CountMilestones(
@@ -136,10 +136,10 @@ func (r *MilestoneRepository) CountMilestones(
 }
 
 // OwnerChain returns the owner chain (for RBAC checks in the middleware).
-func (r *MilestoneRepository) OwnerChain(ctx context.Context, id int64) (rbac.Owners, error) {
+func (r *MilestoneRepository) OwnerChain(ctx context.Context, id int64) (access.Owners, error) {
 	row, err := r.q(ctx).OwnerChain(ctx, id)
 	if err != nil {
-		return rbac.Owners{}, err
+		return access.Owners{}, err
 	}
-	return rbac.Owners{ProjectOwner: row.ProjectOwner, ProcessOwner: row.ProcessOwner}, nil
+	return access.Owners{ProjectOwner: row.ProjectOwner, ProcessOwner: row.ProcessOwner}, nil
 }

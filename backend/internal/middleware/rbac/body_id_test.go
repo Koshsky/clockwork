@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
 	tracingpkg "github.com/Koshsky/erp-backend/internal/tracing"
 	userctx "github.com/Koshsky/erp-backend/internal/userctx"
@@ -39,7 +40,7 @@ func TestBodyIDRejectsCaseAliases(t *testing.T) {
 				},
 			}})
 			router := gin.New()
-			router.Use(func(c *gin.Context) { c.Set(userctx.KeyUser, userctx.UserContext{ID: 7}) })
+			router.Use(func(c *gin.Context) { c.Set(userctx.KeyUser, access.UserContext{ID: 7}) })
 			router.PUT("/entity", mw.Check("body_id"), func(c *gin.Context) { c.Status(http.StatusNoContent) })
 			response := httptest.NewRecorder()
 			router.ServeHTTP(response, httptest.NewRequest(http.MethodPut, "/entity", strings.NewReader(tc.body)))

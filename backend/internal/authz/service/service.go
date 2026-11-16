@@ -12,19 +12,14 @@ import (
 	"github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/authz/dto"
 	"github.com/Koshsky/erp-backend/internal/authz/engine"
-	"github.com/Koshsky/erp-backend/internal/authz/repository"
 	"github.com/Koshsky/erp-backend/internal/authz/repository/sqlc"
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
 	userdomain "github.com/Koshsky/erp-backend/internal/user/domain"
-	userctx "github.com/Koshsky/erp-backend/internal/userctx"
 	"github.com/Koshsky/erp-backend/pkg/errors"
 )
 
-// policyRepository is the repository seam of the RBAC administration service
-// and the policy store; implemented by *repository.RuleRepository and by the
-// test fakes. Keeping the seam here lets the service be unit-tested without a
-// database (the concrete repository is injected unchanged by the constructors).
-type policyRepository interface {
+// PolicyRepository is shared by policy administration and snapshot loading.
+// It is exported so module composition can bind the existing SQL implementation.
+type PolicyRepository interface {
 	ListActivePresets(ctx context.Context) ([]sqlc.ListActivePresetsRow, error)
 	ListActiveRules(ctx context.Context) ([]sqlc.ListActivePresetRulesRow, error)
 	UpsertRule(
@@ -47,21 +42,22 @@ type policyRepository interface {
 	ListUserPermissions(ctx context.Context, userID int64) ([]sqlc.ListUserPermissionsRow, error)
 	ReplaceUserPermissions(ctx context.Context, userID int64, perms []sqlc.InsertUserPermissionParams) error
 	FindUserPreset(ctx context.Context, userID int64) (string, bool, error)
-	ListUserPrincipals(ctx context.Context) ([]repository.UserPreset, error)
-	ListAllUserPermissions(ctx context.Context) ([]repository.UserPermissionRef, error)
+	ListUserPrincipals(ctx context.Context) ([]sqlc.ListUserPrincipalsRow, error)
+	ListAllUserPermissions(ctx context.Context) ([]sqlc.ListAllUserPermissionsRow, error)
 }
 
 // Service — RBAC policy administration (validation + DB writes +
 // immediate application through the PolicyStore).
 type Service struct {
-	logger *slog.Logger
-	repo   policyRepository
-	store  *PolicyStore
+	logger  *slog.Logger
+	repo    PolicyRepository
+	store   *PolicyStore
+	catalog RouteCatalog
 }
 
 // NewRBACService builds the RBAC administration service.
-func NewRBACService(logger *slog.Logger, repo *repository.RuleRepository, store *PolicyStore) *Service {
-	return &Service{logger: logger.With("component", "rbacpolicy_service"), repo: repo, store: store}
+func NewRBACService(logger *slog.Logger, repo PolicyRepository, store *PolicyStore, catalog RouteCatalog) *Service {
+	return &Service{logger: logger.With("component", "rbacpolicy_service"), repo: repo, store: store, catalog: catalog}
 }
 
 // ListPresets returns the preset catalog.
@@ -140,7 +136,7 @@ func (s *Service) ListRoutePolicies(ctx context.Context) ([]domain.RoutePolicy, 
 // UpsertRoutePolicy validates (kind + parameters against the schema) and writes
 // the route policy.
 func (s *Service) UpsertRoutePolicy(ctx context.Context, in dto.RoutePolicyInput, updatedBy int64) error {
-	if err := engine.ValidateSpec(engine.RouteSpec{Name: in.Name, Kind: in.Kind, Params: in.Params}); err != nil {
+	if err := s.catalog.ValidateSpec(engine.RouteSpec{Name: in.Name, Kind: in.Kind, Params: in.Params}); err != nil {
 		return errors.BadRequest(err.Error())
 	}
 	active := true
@@ -182,7 +178,7 @@ func (s *Service) Reset(ctx context.Context, updatedBy int64) error {
 			UpdatedBy: pgtype.Int8{Int64: updatedBy, Valid: true},
 		})
 	}
-	specs := engine.DefaultRouteSpecs()
+	specs := s.catalog.DefaultRouteSpecs()
 	policies := make([]sqlc.UpsertRoutePolicyParams, 0, len(specs))
 	for _, spec := range specs {
 		params, err := json.Marshal(spec.Params)
@@ -235,7 +231,7 @@ func (s *Service) EffectiveMatrix(ctx context.Context) ([]dto.MatrixCell, error)
 func buildMatrixCells(tags []string, matrix engine.Matrix) []dto.MatrixCell {
 	cells := make([]dto.MatrixCell, 0, len(tags)*resourceCount*actionCount)
 	for _, preset := range tags {
-		for res := rbac.ResourceProject; res <= rbac.ResourceAutoCreate; res++ {
+		for res := domain.ResourceProject; res <= domain.ResourceAutoCreate; res++ {
 			for act := engine.ActionView; act <= engine.ActionPrioritize; act++ {
 				if !engine.ActionApplicable(res, act) {
 					continue
@@ -253,9 +249,9 @@ func buildMatrixCells(tags []string, matrix engine.Matrix) []dto.MatrixCell {
 }
 
 // resourceCount and actionCount size the matrix payload (the engine enums are
-// contiguous: rbac.ResourceProject..ResourceAutoCreate, ActionView..ActionPrioritize).
+// contiguous: domain.ResourceProject..ResourceAutoCreate, ActionView..ActionPrioritize).
 const (
-	resourceCount = int(rbac.ResourceAutoCreate) + 1
+	resourceCount = int(domain.ResourceAutoCreate) + 1
 	actionCount   = int(engine.ActionDelete) + 1
 )
 
@@ -271,7 +267,7 @@ func scopeCode(scope string) string {
 
 // Kinds returns the catalog of route policy kinds.
 func (s *Service) Kinds() []engine.KindInfo {
-	return engine.Kinds()
+	return s.catalog.Kinds()
 }
 
 // Explain answers "why allow/deny" for debugging DB-backed rules.
@@ -285,7 +281,7 @@ func (s *Service) Explain(_ context.Context, in dto.ExplainInput) (dto.ExplainRe
 		return dto.ExplainResult{}, errors.BadRequest("неизвестное действие " + in.Action)
 	}
 	scope := engine.CurrentMatrix().ScopeFor(in.Preset, res, act)
-	allowed := engine.Authorize(in.Preset, res, act, rbac.Owners{
+	allowed := engine.Authorize(in.Preset, res, act, domain.Owners{
 		ProjectOwner: in.ProjectOwner,
 		ProcessOwner: in.ProcessOwner,
 		Owner:        in.Owner,
@@ -321,9 +317,9 @@ func presetExists(presets []sqlc.ListActivePresetsRow, tag string) bool {
 // source is the published Casbin snapshot (RBAC roles + ACL grants/revokes +
 // admin bypass) — exactly the rights the engine applies to requests; the
 // data-level matrix (CurrentMatrix) is only for the admin editor views.
-func (s *Service) MyPermissions(_ context.Context, user userctx.UserContext) []dto.Permission {
+func (s *Service) MyPermissions(_ context.Context, user domain.UserContext) []dto.Permission {
 	out := []dto.Permission{}
-	for res := rbac.ResourceProject; res <= rbac.ResourceAutoCreate; res++ {
+	for res := domain.ResourceProject; res <= domain.ResourceAutoCreate; res++ {
 		for act := engine.ActionView; act <= engine.ActionPrioritize; act++ {
 			if !engine.ActionApplicable(res, act) {
 				continue
@@ -377,7 +373,7 @@ func (s *Service) ListUserPermissions(
 	}
 	admin := presetSet && presetCode == userdomain.PresetAdmin
 	// Preset baseline: the assigned preset without individual overrides.
-	base := userctx.UserContext{
+	base := domain.UserContext{
 		ID:     userID,
 		Admin:  admin,
 		Preset: presetNameRef(preset),
@@ -445,10 +441,10 @@ func (s *Service) ReplaceUserPermissions(
 }
 
 // toRules converts overrides into the engine's user-rule model.
-func toRules(overrides []dto.PermissionOverride) []userctx.PermissionRule {
-	out := make([]userctx.PermissionRule, 0, len(overrides))
+func toRules(overrides []dto.PermissionOverride) []domain.PermissionRule {
+	out := make([]domain.PermissionRule, 0, len(overrides))
 	for _, o := range overrides {
-		out = append(out, userctx.PermissionRule{
+		out = append(out, domain.PermissionRule{
 			Resource: o.Resource,
 			Action:   o.Action,
 			Scope:    o.Scope,
@@ -601,7 +597,7 @@ func findRulePreset(rules []sqlc.ListActivePresetRulesRow, id int64) (string, bo
 
 // resolvePresetRename validates an optional tag rename target of a preset
 // (pattern, built-in and catalog collisions); returns the effective tag.
-func resolvePresetRename(ctx context.Context, repo policyRepository, tag string, rename *string) (string, error) {
+func resolvePresetRename(ctx context.Context, repo PolicyRepository, tag string, rename *string) (string, error) {
 	if rename == nil {
 		return tag, nil
 	}

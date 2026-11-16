@@ -5,8 +5,8 @@ import (
 	"strconv"
 
 	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
+	"github.com/Koshsky/erp-backend/internal/project_mgmt/comment"
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/comment/dto"
-	"github.com/Koshsky/erp-backend/internal/project_mgmt/comment/service"
 	"github.com/Koshsky/erp-backend/internal/response"
 	userctx "github.com/Koshsky/erp-backend/internal/userctx"
 	"github.com/Koshsky/erp-backend/pkg/errors"
@@ -21,7 +21,7 @@ type CommentHandler struct {
 }
 
 // NewCommentHandler builds the CommentHandler handler.
-func NewCommentHandler(logger *slog.Logger, svc *service.CommentService, mw *rbac.Middleware) *CommentHandler {
+func NewCommentHandler(logger *slog.Logger, svc *comment.Service, mw *rbac.Middleware) *CommentHandler {
 	return &CommentHandler{
 		logger:  logger.With("component", "comment_handler"),
 		service: svc,

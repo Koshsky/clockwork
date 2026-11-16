@@ -13,6 +13,7 @@ check: check-layout check-backend check-frontend
 check-layout:
 	python3 scripts/check-repository.py
 check-backend:
+	python3 scripts/check-backend-architecture.py
 	cd backend && go build ./... && go vet ./... && go test ./...
 check-frontend:
 	cd frontend && npm run check && npm run lint && npm run test:stories -- --project unit

@@ -8,64 +8,71 @@ package engine
 // (sqlscope.go) walk. Business rules on top are data (scope expressions), not
 // code: adding a tree level means extending this registry, not new zone logic.
 
-import "github.com/Koshsky/erp-backend/internal/middleware/rbac"
+import (
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
+)
 
 //nolint:gochecknoglobals // derived applicability tables (tree registry)
-var nodeHasOwner = map[rbac.Resource]bool{
-	rbac.ResourceProject:      true,
-	rbac.ResourceProcess:      true,
-	rbac.ResourceTask:         true,
-	rbac.ResourceMilestone:    false,
-	rbac.ResourceAssignment:   false,
-	rbac.ResourceResource:     true,
-	rbac.ResourceWorker:       true,
-	rbac.ResourceState:        false,
-	rbac.ResourceComment:      false,
-	rbac.ResourceUserCatalog:  false,
-	rbac.ResourceRBACConfig:   false,
-	rbac.ResourceUserAdmin:    false,
-	rbac.ResourceStateAdmin:   false,
-	rbac.ResourceOrgStructure: false,
-	rbac.ResourceAudit:        false,
-	rbac.ResourceAutoCreate:   false,
+var nodeHasOwner = map[access.Resource]bool{
+	access.ResourceProject:      true,
+	access.ResourceProcess:      true,
+	access.ResourceTask:         true,
+	access.ResourceMilestone:    false,
+	access.ResourceAssignment:   false,
+	access.ResourceResource:     true,
+	access.ResourceWorker:       true,
+	access.ResourceState:        false,
+	access.ResourceComment:      false,
+	access.ResourceUserCatalog:  false,
+	access.ResourceRBACConfig:   false,
+	access.ResourceUserAdmin:    false,
+	access.ResourceStateAdmin:   false,
+	access.ResourceOrgStructure: false,
+	access.ResourceAudit:        false,
+	access.ResourceAutoCreate:   false,
 }
 
 //nolint:gochecknoglobals // derived applicability tables
-var nodeHasParent = map[rbac.Resource]bool{
-	rbac.ResourceProject:      false,
-	rbac.ResourceProcess:      true,
-	rbac.ResourceTask:         true,
-	rbac.ResourceMilestone:    true,
-	rbac.ResourceAssignment:   true,
-	rbac.ResourceResource:     false,
-	rbac.ResourceWorker:       false,
-	rbac.ResourceState:        false,
-	rbac.ResourceComment:      false,
-	rbac.ResourceUserCatalog:  false,
-	rbac.ResourceRBACConfig:   false,
-	rbac.ResourceUserAdmin:    false,
-	rbac.ResourceStateAdmin:   false,
-	rbac.ResourceOrgStructure: false,
-	rbac.ResourceAudit:        false,
-	rbac.ResourceAutoCreate:   false,
+var nodeHasParent = map[access.Resource]bool{
+	access.ResourceProject:      false,
+	access.ResourceProcess:      true,
+	access.ResourceTask:         true,
+	access.ResourceMilestone:    true,
+	access.ResourceAssignment:   true,
+	access.ResourceResource:     false,
+	access.ResourceWorker:       false,
+	access.ResourceState:        false,
+	access.ResourceComment:      false,
+	access.ResourceUserCatalog:  false,
+	access.ResourceRBACConfig:   false,
+	access.ResourceUserAdmin:    false,
+	access.ResourceStateAdmin:   false,
+	access.ResourceOrgStructure: false,
+	access.ResourceAudit:        false,
+	access.ResourceAutoCreate:   false,
 }
 
 //nolint:gochecknoglobals // derived applicability tables
-var ownerDescendants = map[rbac.Resource][]rbac.Resource{
-	rbac.ResourceProject:      {rbac.ResourceProcess, rbac.ResourceTask},
-	rbac.ResourceProcess:      {rbac.ResourceTask},
-	rbac.ResourceTask:         {rbac.ResourceTask}, // subtasks
-	rbac.ResourceMilestone:    nil,
-	rbac.ResourceAssignment:   nil,
-	rbac.ResourceResource:     nil,
-	rbac.ResourceWorker:       nil,
-	rbac.ResourceState:        nil,
-	rbac.ResourceComment:      nil,
-	rbac.ResourceUserCatalog:  nil,
-	rbac.ResourceRBACConfig:   nil,
-	rbac.ResourceUserAdmin:    nil,
-	rbac.ResourceStateAdmin:   nil,
-	rbac.ResourceOrgStructure: nil,
-	rbac.ResourceAudit:        nil,
-	rbac.ResourceAutoCreate:   nil,
+var ownerDescendants = map[access.Resource][]access.Resource{
+	access.ResourceProject:      {access.ResourceProcess, access.ResourceTask},
+	access.ResourceProcess:      {access.ResourceTask},
+	access.ResourceTask:         {access.ResourceTask}, // subtasks
+	access.ResourceMilestone:    nil,
+	access.ResourceAssignment:   nil,
+	access.ResourceResource:     nil,
+	access.ResourceWorker:       nil,
+	access.ResourceState:        nil,
+	access.ResourceComment:      nil,
+	access.ResourceUserCatalog:  nil,
+	access.ResourceRBACConfig:   nil,
+	access.ResourceUserAdmin:    nil,
+	access.ResourceStateAdmin:   nil,
+	access.ResourceOrgStructure: nil,
+	access.ResourceAudit:        nil,
+	access.ResourceAutoCreate:   nil,
+}
+
+// ResourceRequiresOwners distinguishes row-level resources from global capabilities.
+func ResourceRequiresOwners(res access.Resource) bool {
+	return nodeHasOwner[res] || nodeHasParent[res]
 }

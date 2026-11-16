@@ -2,7 +2,6 @@ package rbac
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	tracingpkg "github.com/Koshsky/erp-backend/internal/tracing"
 	userctx "github.com/Koshsky/erp-backend/internal/userctx"
 	"github.com/Koshsky/erp-backend/pkg/errors"
@@ -19,49 +19,41 @@ import (
 	"github.com/Koshsky/erp-backend/internal/response"
 )
 
-// ResolveByID returns the owner chain of an entity by its id.
-type ResolveByID func(ctx context.Context, id int64) (Owners, error)
-
-// OwnerResolver is implemented by entity repositories that can resolve the
-// owner chain of one of their rows by id.
-type OwnerResolver interface {
-	OwnerChain(ctx context.Context, id int64) (Owners, error)
-}
-
 // Data holds the owner resolver functions (OwnerChain implementations in the
-// entity repositories). They are injected into the engine at startup.
+// entity repositories). They are injected into the HTTP adapter at startup.
 type Data struct {
-	ProjectOwners    ResolveByID
-	ProcessOwners    ResolveByID
-	TaskOwners       ResolveByID
-	MilestoneOwners  ResolveByID
-	AssignmentOwners ResolveByID
-	ResourceOwners   ResolveByID
-	WorkerOwners     ResolveByID
-	CommentOwners    ResolveByID
+	ProjectOwners    access.ResolveByID
+	ProcessOwners    access.ResolveByID
+	TaskOwners       access.ResolveByID
+	MilestoneOwners  access.ResolveByID
+	AssignmentOwners access.ResolveByID
+	ResourceOwners   access.ResolveByID
+	WorkerOwners     access.ResolveByID
+	CommentOwners    access.ResolveByID
 }
 
 // resolve returns the resolver for a resource (nil — the resource has no owner).
-func (d Data) resolve(rsrc Resource) ResolveByID {
+func (d Data) resolve(rsrc access.Resource) access.ResolveByID {
 	switch rsrc {
-	case ResourceProject:
+	case access.ResourceProject:
 		return d.ProjectOwners
-	case ResourceProcess:
+	case access.ResourceProcess:
 		return d.ProcessOwners
-	case ResourceTask:
+	case access.ResourceTask:
 		return d.TaskOwners
-	case ResourceMilestone:
+	case access.ResourceMilestone:
 		return d.MilestoneOwners
-	case ResourceAssignment:
+	case access.ResourceAssignment:
 		return d.AssignmentOwners
-	case ResourceResource:
+	case access.ResourceResource:
 		return d.ResourceOwners
-	case ResourceWorker:
+	case access.ResourceWorker:
 		return d.WorkerOwners
-	case ResourceComment:
+	case access.ResourceComment:
 		return d.CommentOwners
-	case ResourceState, ResourceUserCatalog, ResourceRBACConfig,
-		ResourceUserAdmin, ResourceStateAdmin, ResourceOrgStructure, ResourceAudit, ResourceAutoCreate:
+	case access.ResourceState, access.ResourceUserCatalog, access.ResourceRBACConfig,
+		access.ResourceUserAdmin, access.ResourceStateAdmin, access.ResourceOrgStructure,
+		access.ResourceAudit, access.ResourceAutoCreate:
 		// States and virtual resources have no owner.
 		return nil
 	default:
@@ -79,7 +71,7 @@ type Policy struct {
 // CheckCtx is the policy evaluation context.
 type CheckCtx struct {
 	C    *gin.Context
-	User userctx.UserContext
+	User access.UserContext
 	Data Data
 	body []byte
 }
@@ -124,17 +116,17 @@ func (rc *CheckCtx) BodyID(key string) (int64, error) {
 
 // Owners returns the owner chain of an entity (via the resolver from Data).
 // Missing entities are normalized to a clean "not found" error.
-func (rc *CheckCtx) Owners(rsrc Resource, id int64) (Owners, error) {
+func (rc *CheckCtx) Owners(rsrc access.Resource, id int64) (access.Owners, error) {
 	resolve := rc.Data.resolve(rsrc)
 	if resolve == nil {
-		return Owners{}, errors.NotFound("not found")
+		return access.Owners{}, errors.NotFound("not found")
 	}
 	owners, err := resolve(rc.C.Request.Context(), id)
 	if err != nil {
 		if errors.IsNotFoundError(err) {
-			return Owners{}, errors.NotFound("not found")
+			return access.Owners{}, errors.NotFound("not found")
 		}
-		return Owners{}, err
+		return access.Owners{}, err
 	}
 	return owners, nil
 }
@@ -212,12 +204,12 @@ func readBody(c *gin.Context) ([]byte, error) {
 }
 
 // getUser takes the user from the context (set by AuthMiddleware).
-func getUser(c *gin.Context) (userctx.UserContext, bool) {
+func getUser(c *gin.Context) (access.UserContext, bool) {
 	user, err := userctx.GetUser(c)
 	if err != nil {
 		response.Unauthorized(c, errors.CodeUnauthorized, "authentication required")
 		c.Abort()
-		return userctx.UserContext{}, false
+		return access.UserContext{}, false
 	}
 	return user, true
 }

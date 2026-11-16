@@ -3,22 +3,22 @@ package server
 import (
 	autocreateDelivery "github.com/Koshsky/erp-backend/internal/auto_create/delivery"
 	autocreateService "github.com/Koshsky/erp-backend/internal/auto_create/service"
+	assignmentService "github.com/Koshsky/erp-backend/internal/project_mgmt/assignment"
 	assignmentDelivery "github.com/Koshsky/erp-backend/internal/project_mgmt/assignment/delivery"
-	assignmentService "github.com/Koshsky/erp-backend/internal/project_mgmt/assignment/service"
+	milestoneService "github.com/Koshsky/erp-backend/internal/project_mgmt/milestone"
 	milestoneDelivery "github.com/Koshsky/erp-backend/internal/project_mgmt/milestone/delivery"
-	milestoneService "github.com/Koshsky/erp-backend/internal/project_mgmt/milestone/service"
+	processService "github.com/Koshsky/erp-backend/internal/project_mgmt/process"
 	processDelivery "github.com/Koshsky/erp-backend/internal/project_mgmt/process/delivery"
-	processService "github.com/Koshsky/erp-backend/internal/project_mgmt/process/service"
+	projectService "github.com/Koshsky/erp-backend/internal/project_mgmt/project"
 	projectDelivery "github.com/Koshsky/erp-backend/internal/project_mgmt/project/delivery"
-	projectService "github.com/Koshsky/erp-backend/internal/project_mgmt/project/service"
+	taskService "github.com/Koshsky/erp-backend/internal/project_mgmt/task"
 	taskDelivery "github.com/Koshsky/erp-backend/internal/project_mgmt/task/delivery"
-	taskService "github.com/Koshsky/erp-backend/internal/project_mgmt/task/service"
+	calendarService "github.com/Koshsky/erp-backend/internal/timesheet/calendar"
 	calendarDelivery "github.com/Koshsky/erp-backend/internal/timesheet/calendar/delivery"
-	calendarService "github.com/Koshsky/erp-backend/internal/timesheet/calendar/service"
+	resourceService "github.com/Koshsky/erp-backend/internal/timesheet/resource"
 	resourceDelivery "github.com/Koshsky/erp-backend/internal/timesheet/resource/delivery"
-	resourceService "github.com/Koshsky/erp-backend/internal/timesheet/resource/service"
+	stateService "github.com/Koshsky/erp-backend/internal/timesheet/state"
 	stateDelivery "github.com/Koshsky/erp-backend/internal/timesheet/state/delivery"
-	stateService "github.com/Koshsky/erp-backend/internal/timesheet/state/service"
 	userDelivery "github.com/Koshsky/erp-backend/internal/user/delivery"
 	userService "github.com/Koshsky/erp-backend/internal/user/service"
 )
@@ -40,12 +40,12 @@ type (
 var (
 	_ AutoCreateService = (*autocreateService.AutoCreateService)(nil)
 	_ UserService       = (*userService.UserService)(nil)
-	_ TaskService       = (*taskService.TaskService)(nil)
-	_ ResourceService   = (*resourceService.ResourceService)(nil)
-	_ ProjectService    = (*projectService.ProjectService)(nil)
-	_ ProcessService    = (*processService.ProcessService)(nil)
-	_ MilestoneService  = (*milestoneService.MilestoneService)(nil)
-	_ AssignmentService = (*assignmentService.AssignmentService)(nil)
-	_ StateService      = (*stateService.StateService)(nil)
-	_ CalendarService   = (*calendarService.CalendarService)(nil)
+	_ TaskService       = (*taskService.Service)(nil)
+	_ ResourceService   = (*resourceService.Service)(nil)
+	_ ProjectService    = (*projectService.Service)(nil)
+	_ ProcessService    = (*processService.Service)(nil)
+	_ MilestoneService  = (*milestoneService.Service)(nil)
+	_ AssignmentService = (*assignmentService.Service)(nil)
+	_ StateService      = (*stateService.Service)(nil)
+	_ CalendarService   = (*calendarService.Service)(nil)
 )

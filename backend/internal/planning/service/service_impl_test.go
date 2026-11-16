@@ -9,16 +9,16 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/planning/dto"
 	"github.com/Koshsky/erp-backend/internal/planning/repository/sqlc"
 	"github.com/Koshsky/erp-backend/internal/tracing"
 )
 
 // lsAll/lsOwn/lsNone/lsParent/lsAncestor — compiled scope bundles for tests.
-func lsAll() rbac.ListScope  { return rbac.ListScope{All: true} }
-func lsOwn() rbac.ListScope  { return rbac.ListScope{Self: true} }
-func lsNone() rbac.ListScope { return rbac.ListScope{None: true} }
+func lsAll() access.ListScope  { return access.ListScope{All: true} }
+func lsOwn() access.ListScope  { return access.ListScope{Self: true} }
+func lsNone() access.ListScope { return access.ListScope{None: true} }
 
 // stubPlanningRepo is an in-memory PlanningRepository. The two scoped list
 // methods apply the scoping contract of the SQL queries (filterProjects /
@@ -40,18 +40,18 @@ type stubPlanningRepo struct {
 	byIDsCalls         int
 	lastProjectIDs     []int64
 	lastProjectUser    int64
-	lastProjectScope   rbac.ListScope
+	lastProjectScope   access.ListScope
 	lastProcessUser    int64
-	lastProcessScope   rbac.ListScope
+	lastProcessScope   access.ListScope
 	lastResourceUser   int64
-	lastResourceScope  rbac.ListScope
+	lastResourceScope  access.ListScope
 	listResourcesCalls int
 }
 
 // filterProjects mirrors ListProjectsByIDs: only rows whose id was requested
 // survive; a real view zone ('all'/'own') additionally scopes by ownership,
 // an empty zone (no rule / none) keeps every requested row.
-func filterProjects(all []sqlc.Project, ids []int64, userID int64, scope rbac.ListScope) []sqlc.Project {
+func filterProjects(all []sqlc.Project, ids []int64, userID int64, scope access.ListScope) []sqlc.Project {
 	out := make([]sqlc.Project, 0, len(all))
 	for _, p := range all {
 		if !slices.Contains(ids, p.ID) {
@@ -67,7 +67,7 @@ func filterProjects(all []sqlc.Project, ids []int64, userID int64, scope rbac.Li
 
 // filterResources mirrors ListResources: 'own' keeps only the caller's rows,
 // 'all' and the empty zone (no rule / none) keep every row.
-func filterResources(all []sqlc.Resource, userID int64, scope rbac.ListScope) []sqlc.Resource {
+func filterResources(all []sqlc.Resource, userID int64, scope access.ListScope) []sqlc.Resource {
 	out := make([]sqlc.Resource, 0, len(all))
 	for _, r := range all {
 		if scope.Self && r.OwnerID != userID {
@@ -78,7 +78,7 @@ func filterResources(all []sqlc.Resource, userID int64, scope rbac.ListScope) []
 	return out
 }
 
-func (s *stubPlanningRepo) ListProjects(_ context.Context, _ int64, _ rbac.ListScope) ([]sqlc.Project, error) {
+func (s *stubPlanningRepo) ListProjects(_ context.Context, _ int64, _ access.ListScope) ([]sqlc.Project, error) {
 	return s.projects, nil
 }
 
@@ -86,7 +86,7 @@ func (s *stubPlanningRepo) ListProjectsByIDs(
 	_ context.Context,
 	ids []int64,
 	userID int64,
-	scope rbac.ListScope,
+	scope access.ListScope,
 ) ([]sqlc.Project, error) {
 	s.byIDsCalls++
 	s.lastProjectIDs = ids
@@ -101,7 +101,7 @@ func (s *stubPlanningRepo) ListProjectsByIDs(
 func (s *stubPlanningRepo) ListProcesses(
 	_ context.Context,
 	userID int64,
-	scope rbac.ListScope,
+	scope access.ListScope,
 ) ([]sqlc.ListProcessesRow, error) {
 	s.lastProcessUser = userID
 	s.lastProcessScope = scope
@@ -111,7 +111,7 @@ func (s *stubPlanningRepo) ListProcesses(
 func (s *stubPlanningRepo) ListProcessesByTaskScope(
 	_ context.Context,
 	userID int64,
-	scope rbac.ListScope,
+	scope access.ListScope,
 ) ([]sqlc.ListProcessesByTaskScopeRow, error) {
 	s.lastProcessUser = userID
 	s.lastProcessScope = scope
@@ -121,7 +121,7 @@ func (s *stubPlanningRepo) ListProcessesByTaskScope(
 func (s *stubPlanningRepo) ListResources(
 	_ context.Context,
 	userID int64,
-	scope rbac.ListScope,
+	scope access.ListScope,
 ) ([]sqlc.Resource, error) {
 	s.listResourcesCalls++
 	s.lastResourceUser = userID
@@ -137,7 +137,7 @@ func (s *stubPlanningRepo) ListTasksByProcessIDs(
 	_ context.Context,
 	_ []int64,
 	userID int64,
-	scope rbac.ListScope,
+	scope access.ListScope,
 ) ([]sqlc.Task, error) {
 	if scope.Self && !scope.All {
 		rows := make([]sqlc.Task, 0, len(s.tasks))
@@ -172,11 +172,7 @@ func (s *stubPlanningRepo) ListTaskDependenciesByProcessIDs(
 
 // newPlanningTestService builds a PlanningService over the stub repository.
 func newPlanningTestService(repo *stubPlanningRepo) *PlanningService {
-	return &PlanningService{
-		logger:     slog.New(slog.DiscardHandler),
-		tracer:     tracing.New(nil),
-		repository: repo,
-	}
+	return NewPlanningService(slog.New(slog.DiscardHandler), tracing.New(nil), repo)
 }
 
 // projectRow builds a project row (only the fields the aggregate reads).

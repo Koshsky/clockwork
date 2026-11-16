@@ -31,6 +31,7 @@ const (
 //nolint:gochecknoglobals // wire provider set (established module pattern)
 var ProviderSet = wire.NewSet(
 	repository.NewUserRepository,
+	wire.Bind(new(service.UserRepository), new(*repository.UserRepository)),
 	service.NewUserService,
 	delivery.NewUserHandler,
 	ProvideModule,

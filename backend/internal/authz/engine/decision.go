@@ -15,9 +15,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	userdomain "github.com/Koshsky/erp-backend/internal/user/domain"
-	userctx "github.com/Koshsky/erp-backend/internal/userctx"
 )
 
 // Policy effect codes of the Casbin rows.
@@ -30,12 +29,12 @@ const (
 const matrixInitCap = 64
 
 // resActKey returns the canonical "<resource>/<action>" policy object.
-func resActKey(res rbac.Resource, act Action) string {
+func resActKey(res access.Resource, act Action) string {
 	return ResourceName(res) + "/" + ActionName(act)
 }
 
-// splitKey parses a canonical "<resource>/<action>" object.
-func splitKey(key string) (rbac.Resource, Action, error) {
+// ParsePermissionKey parses a canonical "<resource>/<action>" object.
+func ParsePermissionKey(key string) (access.Resource, Action, error) {
 	resName, actName, found := strings.Cut(key, "/")
 	if !found {
 		return 0, 0, errInvalidKey(key)
@@ -100,12 +99,12 @@ func CurrentMatrix() Matrix {
 		if len(row) < 4 || row[3] != eftAllow || numericSub(row[0]) {
 			continue
 		}
-		res, act, keyErr := splitKey(row[1])
+		res, act, keyErr := ParsePermissionKey(row[1])
 		if keyErr != nil {
 			continue
 		}
 		scope, ok := ParseScope(row[2])
-		if !ok || scope == ScopeNone || scope == ownerModeNone {
+		if !ok || scope == ScopeNone || scope == ScopeNoneCode {
 			continue
 		}
 		rules = append(rules, MatrixRule{Res: res, Act: act, Role: row[0], Scope: scope})
@@ -114,9 +113,12 @@ func CurrentMatrix() Matrix {
 }
 
 // scopeFor resolves the preset scope expression (admin gets ScopeAll — invariant).
-func scopeFor(role string, res rbac.Resource, act Action) string {
+func scopeFor(role string, res access.Resource, act Action) string {
 	if role == userdomain.PresetAdmin {
 		return ScopeAll
+	}
+	if role == "" {
+		return ScopeNone
 	}
 	rows, err := current().e.GetFilteredPolicy(0, role, resActKey(res, act))
 	if err != nil || len(rows) == 0 {
@@ -132,7 +134,7 @@ func scopeFor(role string, res rbac.Resource, act Action) string {
 // scopeForUser resolves the caller's effective scope expression: admin —
 // ScopeAll; a user-level deny (p2) — ScopeNone; a user-level grant — its
 // expression; otherwise the preset expression through the role hierarchy (g).
-func scopeForUser(u userctx.UserContext, res rbac.Resource, act Action) string {
+func scopeForUser(u access.UserContext, res access.Resource, act Action) string {
 	if u.Admin {
 		return ScopeAll
 	}
@@ -155,7 +157,15 @@ func scopeForUser(u userctx.UserContext, res rbac.Resource, act Action) string {
 	// Direct preset row fallback (mirrors the matcher's p.sub == r.sub.Role):
 	// useful before the grouping rows are loaded (tests, tooling) — the preset
 	// row itself is authoritative for the role.
-	if rows, err := s.e.GetFilteredPolicy(0, u.Preset, key); err == nil {
+	return directPresetScope(s, u.Preset, key)
+}
+
+func directPresetScope(s *Snapshot, preset, key string) string {
+	// Casbin treats an empty filter field as a wildcard, not an empty preset.
+	if preset == "" {
+		return ScopeNone
+	}
+	if rows, err := s.e.GetFilteredPolicy(0, preset, key); err == nil {
 		for _, row := range rows {
 			if len(row) >= 4 && row[3] == eftAllow {
 				if scope, ok := ParseScope(row[2]); ok {
@@ -197,17 +207,17 @@ func implicitScope(s *Snapshot, key, uid string) (string, bool) {
 
 // ScopeForUser returns the caller's effective scope expression (admin bypass +
 // per-user overrides applied; Casbin snapshot).
-func ScopeForUser(u userctx.UserContext, res rbac.Resource, act Action) string {
+func ScopeForUser(u access.UserContext, res access.Resource, act Action) string {
 	return scopeForUser(u, res, act)
 }
 
 // Can reports whether a preset can perform an action at all.
-func Can(role string, res rbac.Resource, act Action) bool {
+func Can(role string, res access.Resource, act Action) bool {
 	return scopeFor(role, res, act) != ScopeNone
 }
 
 // CanUser reports whether the caller can perform an action at all.
-func CanUser(u userctx.UserContext, res rbac.Resource, act Action) bool {
+func CanUser(u access.UserContext, res access.Resource, act Action) bool {
 	return scopeForUser(u, res, act) != ScopeNone || (act == ActionView && hasViewAncestor(u, res))
 }
 
@@ -215,20 +225,20 @@ func CanUser(u userctx.UserContext, res rbac.Resource, act Action) bool {
 // requests (canonical: all | none-ish "" | self | up1 | up | region). The
 // list-scope compiler (sqlscope.go CompileViewScopeUser) turns it into the
 // boolean bundle the SQL skeletons consume.
-func ViewScopeCode(role string, res rbac.Resource) string {
+func ViewScopeCode(role string, res access.Resource) string {
 	return scopeFor(role, res, ActionView)
 }
 
 // ViewScopeCodeUser returns the caller's view scope expression for listing
 // requests (admin bypass + per-user overrides applied).
-func ViewScopeCodeUser(u userctx.UserContext, res rbac.Resource) string {
+func ViewScopeCodeUser(u access.UserContext, res access.Resource) string {
 	return scopeForUser(u, res, ActionView)
 }
 
 // Authorize reports whether a preset may perform an action on an entity with
 // its owners (the preset introspection path: effective expression + chain
 // evaluation; per-user overrides do not apply).
-func Authorize(role string, res rbac.Resource, act Action, owners rbac.Owners, userID int64) bool {
+func Authorize(role string, res access.Resource, act Action, owners access.Owners, userID int64) bool {
 	if role == userdomain.PresetAdmin {
 		return true
 	}
@@ -242,7 +252,7 @@ func Authorize(role string, res rbac.Resource, act Action, owners rbac.Owners, u
 // AuthorizeUser reports whether the caller may perform an action on an entity
 // with its owners (admin bypass + per-user overrides applied; zone = the
 // effective expression + chain; presence via the Casbin snapshot).
-func AuthorizeUser(u userctx.UserContext, res rbac.Resource, act Action, owners rbac.Owners, userID int64) bool {
+func AuthorizeUser(u access.UserContext, res access.Resource, act Action, owners access.Owners, userID int64) bool {
 	if u.Admin {
 		return true
 	}
@@ -255,31 +265,31 @@ func AuthorizeUser(u userctx.UserContext, res rbac.Resource, act Action, owners 
 	}
 	return current().enforcePresence(
 		Subject{ID: itoa(userID), Role: u.Preset, Admin: u.Admin},
-		buildObject(res, act, owners, "", 0, rbac.Owners{}),
+		buildObject(res, act, owners, "", 0, access.Owners{}),
 	)
 }
 
 // authorizeScope — the expression evaluation for an entity chain (the preset
 // introspection mirror; legacy zones behave as before: self = own, up1 =
 // parent, up = ancestor).
-func authorizeScope(scope string, res rbac.Resource, owners rbac.Owners, userID int64) bool {
+func authorizeScope(scope string, res access.Resource, owners access.Owners, userID int64) bool {
 	return EvalScope(context.TODO(), scope, res, owners, userID, 0, nil)
 }
 
 // ownField returns the owner of the row itself (chain L0) for a resource
 // (0 — the entity has no own owner: own is not applicable).
-func ownField(res rbac.Resource, owners rbac.Owners) int64 {
+func ownField(res access.Resource, owners access.Owners) int64 {
 	switch res {
-	case rbac.ResourceProject:
+	case access.ResourceProject:
 		return owners.ProjectOwner
-	case rbac.ResourceProcess:
+	case access.ResourceProcess:
 		return owners.ProcessOwner
-	case rbac.ResourceTask, rbac.ResourceResource, rbac.ResourceWorker:
+	case access.ResourceTask, access.ResourceResource, access.ResourceWorker:
 		return owners.Owner
-	case rbac.ResourceMilestone, rbac.ResourceAssignment, rbac.ResourceState,
-		rbac.ResourceComment, rbac.ResourceUserCatalog, rbac.ResourceRBACConfig,
-		rbac.ResourceUserAdmin, rbac.ResourceStateAdmin, rbac.ResourceOrgStructure,
-		rbac.ResourceAudit, rbac.ResourceAutoCreate:
+	case access.ResourceMilestone, access.ResourceAssignment, access.ResourceState,
+		access.ResourceComment, access.ResourceUserCatalog, access.ResourceRBACConfig,
+		access.ResourceUserAdmin, access.ResourceStateAdmin, access.ResourceOrgStructure,
+		access.ResourceAudit, access.ResourceAutoCreate:
 		return 0
 	}
 	return 0
@@ -287,17 +297,17 @@ func ownField(res rbac.Resource, owners rbac.Owners) int64 {
 
 // parentField returns the immediate parent owner for a resource
 // (0 — the resource has no parent in the project → process → task/… hierarchy).
-func parentField(res rbac.Resource, owners rbac.Owners) int64 {
+func parentField(res access.Resource, owners access.Owners) int64 {
 	switch res {
-	case rbac.ResourceProcess:
+	case access.ResourceProcess:
 		return owners.ProjectOwner
-	case rbac.ResourceTask, rbac.ResourceMilestone, rbac.ResourceAssignment:
+	case access.ResourceTask, access.ResourceMilestone, access.ResourceAssignment:
 		return owners.ProcessOwner
-	case rbac.ResourceProject, rbac.ResourceState, rbac.ResourceResource,
-		rbac.ResourceWorker, rbac.ResourceComment,
-		rbac.ResourceUserCatalog, rbac.ResourceRBACConfig,
-		rbac.ResourceUserAdmin, rbac.ResourceStateAdmin, rbac.ResourceOrgStructure,
-		rbac.ResourceAudit, rbac.ResourceAutoCreate:
+	case access.ResourceProject, access.ResourceState, access.ResourceResource,
+		access.ResourceWorker, access.ResourceComment,
+		access.ResourceUserCatalog, access.ResourceRBACConfig,
+		access.ResourceUserAdmin, access.ResourceStateAdmin, access.ResourceOrgStructure,
+		access.ResourceAudit, access.ResourceAutoCreate:
 		return 0
 	}
 	return 0
@@ -307,19 +317,19 @@ func parentField(res rbac.Resource, owners rbac.Owners) int64 {
 // ownership chain (the L0 row owner or any higher one). For process/milestone
 // the self-owner is absent (Owners.Owner = 0) — then the process and project
 // owners are considered.
-func ancestorMatch(res rbac.Resource, owners rbac.Owners, userID int64) bool {
+func ancestorMatch(res access.Resource, owners access.Owners, userID int64) bool {
 	if userID == 0 {
 		return false
 	}
 	switch res {
-	case rbac.ResourceTask, rbac.ResourceMilestone, rbac.ResourceAssignment,
-		rbac.ResourceProcess:
+	case access.ResourceTask, access.ResourceMilestone, access.ResourceAssignment,
+		access.ResourceProcess:
 		return owners.Owner == userID || owners.ProcessOwner == userID || owners.ProjectOwner == userID
-	case rbac.ResourceProject, rbac.ResourceState, rbac.ResourceResource,
-		rbac.ResourceWorker, rbac.ResourceComment,
-		rbac.ResourceUserCatalog, rbac.ResourceRBACConfig,
-		rbac.ResourceUserAdmin, rbac.ResourceStateAdmin, rbac.ResourceOrgStructure,
-		rbac.ResourceAudit, rbac.ResourceAutoCreate:
+	case access.ResourceProject, access.ResourceState, access.ResourceResource,
+		access.ResourceWorker, access.ResourceComment,
+		access.ResourceUserCatalog, access.ResourceRBACConfig,
+		access.ResourceUserAdmin, access.ResourceStateAdmin, access.ResourceOrgStructure,
+		access.ResourceAudit, access.ResourceAutoCreate:
 		return false
 	}
 	return false
@@ -329,14 +339,14 @@ func ancestorMatch(res rbac.Resource, owners rbac.Owners, userID int64) bool {
 // (resource, action), the resolved owner chain, the entity id (for data
 // dependent moves) and the special route modes.
 type Target struct {
-	Res    rbac.Resource
+	Res    access.Resource
 	Act    Action
-	Owners rbac.Owners
+	Owners access.Owners
 	Mode   string
 	// AuthorID — the author leg of ModeAuthorOr.
 	AuthorID int64
 	// OwnerB — the compared owner chain of ModeOwnerMatch.
-	OwnerB rbac.Owners
+	OwnerB access.Owners
 	// ID — the target entity id (for sib/down probes; 0 — not applicable).
 	ID int64
 	// ParentID authorizes creation and moves against the resolved destination.
@@ -352,7 +362,7 @@ type Target struct {
 // an id/context) and the Casbin presence check. The author_or mode skips the
 // zone pre-check for the author leg — the author is allowed regardless of the
 // parent's zone (the matcher enforces the disjunction).
-func EnforceTarget(u userctx.UserContext, t Target) bool {
+func EnforceTarget(u access.UserContext, t Target) bool {
 	if !ActionApplicable(t.Res, t.Act) {
 		return false
 	}
@@ -365,10 +375,9 @@ func EnforceTarget(u userctx.UserContext, t Target) bool {
 	return enforceDirectTarget(u, t)
 }
 
-func enforceDirectTarget(u userctx.UserContext, t Target) bool {
-	if t.Res == rbac.ResourceAssignment && t.Act == ActionView &&
-		scopeForUser(u, t.Res, t.Act) == ScopeParent &&
-		(t.Owners.Owner != u.ID || t.Owners.ResourceOwner != u.ID) {
+func enforceDirectTarget(u access.UserContext, t Target) bool {
+	if t.Res == access.ResourceAssignment && t.Act == ActionView &&
+		!AssignmentOwnersAllowed(u, t.Act, t.Owners) {
 		return false
 	}
 	if t.Mode != ModeAuthorOr || t.AuthorID != u.ID {
@@ -392,12 +401,12 @@ func enforceDirectTarget(u userctx.UserContext, t Target) bool {
 // resource's zone semantics (mirror ownField/parentField; the ancestor zone
 // uses the full chain; the zone leg itself is evaluated Go-side).
 func buildObject(
-	res rbac.Resource,
+	res access.Resource,
 	act Action,
-	owners rbac.Owners,
+	owners access.Owners,
 	mode string,
 	authorID int64,
-	ownerB rbac.Owners,
+	ownerB access.Owners,
 ) Object {
 	return Object{
 		Key:            resActKey(res, act),
@@ -421,11 +430,11 @@ func itoa(id int64) string {
 }
 
 // HasViewAncestor reports potential inherited visibility, independently from direct child denials.
-func HasViewAncestor(u userctx.UserContext, res rbac.Resource) bool {
+func HasViewAncestor(u access.UserContext, res access.Resource) bool {
 	return hasViewAncestor(u, res)
 }
 
-func hasViewAncestor(u userctx.UserContext, res rbac.Resource) bool {
+func hasViewAncestor(u access.UserContext, res access.Resource) bool {
 	for _, parent := range viewAncestors(res) {
 		if scopeForUser(u, parent, ActionView) != ScopeNone {
 			return true
@@ -434,31 +443,31 @@ func hasViewAncestor(u userctx.UserContext, res rbac.Resource) bool {
 	return false
 }
 
-func viewAncestors(res rbac.Resource) []rbac.Resource {
+func viewAncestors(res access.Resource) []access.Resource {
 	switch res {
-	case rbac.ResourceProcess:
-		return []rbac.Resource{rbac.ResourceProject}
-	case rbac.ResourceTask, rbac.ResourceMilestone:
-		return []rbac.Resource{rbac.ResourceProject, rbac.ResourceProcess}
-	case rbac.ResourceAssignment:
-		return []rbac.Resource{rbac.ResourceProject, rbac.ResourceProcess, rbac.ResourceTask}
-	case rbac.ResourceProject,
-		rbac.ResourceState,
-		rbac.ResourceResource,
-		rbac.ResourceWorker,
-		rbac.ResourceComment,
-		rbac.ResourceUserCatalog,
-		rbac.ResourceRBACConfig,
-		rbac.ResourceUserAdmin,
-		rbac.ResourceStateAdmin,
-		rbac.ResourceOrgStructure,
-		rbac.ResourceAudit, rbac.ResourceAutoCreate:
+	case access.ResourceProcess:
+		return []access.Resource{access.ResourceProject}
+	case access.ResourceTask, access.ResourceMilestone:
+		return []access.Resource{access.ResourceProject, access.ResourceProcess}
+	case access.ResourceAssignment:
+		return []access.Resource{access.ResourceProject, access.ResourceProcess, access.ResourceTask}
+	case access.ResourceProject,
+		access.ResourceState,
+		access.ResourceResource,
+		access.ResourceWorker,
+		access.ResourceComment,
+		access.ResourceUserCatalog,
+		access.ResourceRBACConfig,
+		access.ResourceUserAdmin,
+		access.ResourceStateAdmin,
+		access.ResourceOrgStructure,
+		access.ResourceAudit, access.ResourceAutoCreate:
 		return nil
 	}
 	return nil
 }
 
-func inheritedView(u userctx.UserContext, target Target) bool {
+func inheritedView(u access.UserContext, target Target) bool {
 	probe := currentProbe()
 	if probe == nil || probe.Parents == nil || target.ID == 0 {
 		return false
@@ -477,7 +486,8 @@ func inheritedView(u userctx.UserContext, target Target) bool {
 	return false
 }
 
-func unrestrictedViewAncestor(u userctx.UserContext, res rbac.Resource) bool {
+// UnrestrictedViewAncestor reports whether a parent grants an unrestricted view.
+func UnrestrictedViewAncestor(u access.UserContext, res access.Resource) bool {
 	for _, parent := range viewAncestors(res) {
 		if scopeForUser(u, parent, ActionView) == ScopeAll {
 			return true

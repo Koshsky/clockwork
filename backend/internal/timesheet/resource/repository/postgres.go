@@ -9,8 +9,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/database"
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
 	"github.com/Koshsky/erp-backend/internal/timesheet/resource/repository/sqlc"
 	nullable "github.com/Koshsky/erp-backend/pkg/database"
 	"github.com/Koshsky/erp-backend/pkg/date"
@@ -101,7 +101,7 @@ func (r *ResourceRepository) DeleteResource(ctx context.Context, id int64) error
 func (r *ResourceRepository) ListResources(
 	ctx context.Context,
 	userID int64,
-	scope rbac.ListScope,
+	scope access.ListScope,
 	ownerID int64,
 	limit, offset int,
 ) ([]sqlc.ListResourcesRow, error) {
@@ -120,7 +120,7 @@ func (r *ResourceRepository) ListResources(
 func (r *ResourceRepository) CountResources(
 	ctx context.Context,
 	userID int64,
-	scope rbac.ListScope,
+	scope access.ListScope,
 	ownerID int64,
 ) (int64, error) {
 	return r.q(ctx).CountResources(
@@ -222,10 +222,10 @@ func ownerIDValue(v *int64) int64 {
 }
 
 // OwnerChain returns the owner chain (for RBAC checks in the middleware).
-func (r *ResourceRepository) OwnerChain(ctx context.Context, id int64) (rbac.Owners, error) {
+func (r *ResourceRepository) OwnerChain(ctx context.Context, id int64) (access.Owners, error) {
 	owner, err := r.q(ctx).OwnerChain(ctx, id)
 	if err != nil {
-		return rbac.Owners{}, err
+		return access.Owners{}, err
 	}
-	return rbac.Owners{Owner: owner}, nil
+	return access.Owners{Owner: owner}, nil
 }

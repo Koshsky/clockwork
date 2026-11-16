@@ -23,14 +23,15 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	idem "github.com/Koshsky/erp-backend/internal/idempotency"
 	idemrepo "github.com/Koshsky/erp-backend/internal/idempotency/repository"
+	processservice "github.com/Koshsky/erp-backend/internal/project_mgmt/process"
 	processdelivery "github.com/Koshsky/erp-backend/internal/project_mgmt/process/delivery"
 	processrepo "github.com/Koshsky/erp-backend/internal/project_mgmt/process/repository"
-	processservice "github.com/Koshsky/erp-backend/internal/project_mgmt/process/service"
+	taskservice "github.com/Koshsky/erp-backend/internal/project_mgmt/task"
 	taskdelivery "github.com/Koshsky/erp-backend/internal/project_mgmt/task/delivery"
 	taskrepo "github.com/Koshsky/erp-backend/internal/project_mgmt/task/repository"
-	taskservice "github.com/Koshsky/erp-backend/internal/project_mgmt/task/service"
 	"github.com/Koshsky/erp-backend/internal/tracing"
 	"github.com/Koshsky/erp-backend/internal/userctx"
 	"github.com/Koshsky/erp-backend/migrations"
@@ -159,19 +160,19 @@ func appendOrderRouter(pool *pgxpool.Pool) *gin.Engine {
 	tracer := tracing.New(nil)
 	tasks := taskdelivery.NewTaskHandler(
 		logger,
-		taskservice.NewTaskService(logger, tracer, taskrepo.NewTaskRepository(logger, pool), nil),
+		taskservice.NewService(logger, tracer, taskrepo.NewTaskRepository(logger, pool), nil),
 		nil,
 	)
 	processes := processdelivery.NewProcessHandler(
 		logger,
-		processservice.NewProcessService(logger, tracer, processrepo.NewProcessRepository(logger, pool)),
+		processservice.NewService(logger, tracer, processrepo.NewProcessRepository(logger, pool)),
 		nil,
 	)
 	middleware := idem.New(idemrepo.NewIdempotencyRepository(pool), logger, tracer)
 	router := gin.New()
 	group := router.Group("/api/v1")
 	group.Use(func(c *gin.Context) {
-		c.Set(userctx.KeyUser, userctx.UserContext{ID: 1, Admin: true, Preset: "admin"})
+		c.Set(userctx.KeyUser, access.UserContext{ID: 1, Admin: true, Preset: "admin"})
 		c.Next()
 	})
 	group.Use(middleware.Handler(), middleware.RevisionHandler())

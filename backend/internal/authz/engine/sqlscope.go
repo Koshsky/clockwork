@@ -4,32 +4,31 @@ package engine
 // compiler. The skeletons are constants derived once from the ownership tree
 // registry (tree.go) and spliced into the list queries (sqlc, static SQL);
 // the compiler maps the caller's effective view EXPRESSION (scopeexpr.go) to
-// the boolean bundle (middleware/rbac.ListScope) the skeletons read. Runtime
+// the boolean bundle (authz/domain.ListScope) the skeletons read. Runtime
 // values are only user ids — no SQL text interpolation of rules.
 
 import (
 	"strings"
 
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
-	userctx "github.com/Koshsky/erp-backend/internal/userctx"
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 )
 
 // CompileListScope translates a scope expression (canonical) into the boolean
 // ListScope bundle for the list queries. An absent rule ("") yields
 // None=true — the reference-data fallback (include all); it is never produced
 // for gated lists (the ListCheck middleware forbids "").
-func CompileListScope(expr string, _ rbac.Resource) rbac.ListScope {
+func CompileListScope(expr string, _ access.Resource) access.ListScope {
 	p, ok := parseScope(expr)
 	if !ok || p.none {
-		return rbac.ListScope{None: true}
+		return access.ListScope{None: true}
 	}
 	if p.all {
-		return rbac.ListScope{All: true}
+		return access.ListScope{All: true}
 	}
 	if len(p.moves) == 0 {
-		return rbac.ListScope{None: true}
+		return access.ListScope{None: true}
 	}
-	var s rbac.ListScope
+	var s access.ListScope
 	for _, m := range p.moves {
 		switch m.kind {
 		case ScopeProjectOwner:
@@ -62,13 +61,13 @@ func CompileListScope(expr string, _ rbac.Resource) rbac.ListScope {
 // CompileViewScopeUser returns the caller's compiled view scope for a
 // resource (admin bypass + per-user overrides applied) — the value passed
 // into the list queries.
-func CompileViewScopeUser(u userctx.UserContext, res rbac.Resource) rbac.ListScope {
+func CompileViewScopeUser(u access.UserContext, res access.Resource) access.ListScope {
 	scope := CompileListScope(scopeForUser(u, res, ActionView), res)
 	if hasViewAncestor(u, res) {
 		scope.None = false
-		scope.ProjectView = viewTokens(u, rbac.ResourceProject)
-		scope.ProcessView = viewTokens(u, rbac.ResourceProcess)
-		scope.TaskView = viewTokens(u, rbac.ResourceTask)
+		scope.ProjectView = viewTokens(u, access.ResourceProject)
+		scope.ProcessView = viewTokens(u, access.ResourceProcess)
+		scope.TaskView = viewTokens(u, access.ResourceTask)
 	}
 	return scope
 }
@@ -77,7 +76,7 @@ func CompileViewScopeUser(u userctx.UserContext, res rbac.Resource) rbac.ListSco
 // Per-resource WHERE skeletons (spliced into the .sql list queries).
 // Placeholder parameters (@sc_all/@sc_self/@sc_parent/@sc_ancestor/@sc_sib/
 //	@sc_down/@sc_none/@user_id)	are boolean/bigint bind values filled from
-// rbac.ListScope + the caller id. Alias conventions match the query files:
+// access.ListScope + the caller id. Alias conventions match the query files:
 //   - tasks: t (task), p (process), pr (project)
 //   - processes: p, pr
 //   - projects: no alias (the from-list table is "projects")
@@ -232,7 +231,7 @@ const ScopeUser = `(
     @sc_none::boolean
   )`
 
-func viewTokens(u userctx.UserContext, res rbac.Resource) []string {
+func viewTokens(u access.UserContext, res access.Resource) []string {
 	canonical, ok := ParseScope(scopeForUser(u, res, ActionView))
 	if !ok {
 		return nil

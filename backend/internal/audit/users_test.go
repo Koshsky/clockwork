@@ -5,12 +5,12 @@ import (
 	"context"
 	"testing"
 
-	userdto "github.com/Koshsky/erp-backend/internal/user/dto"
+	userdomain "github.com/Koshsky/erp-backend/internal/user/domain"
 )
 
 func TestMatchUser(t *testing.T) {
 	t.Parallel()
-	u := userdto.UserResponse{
+	u := userdomain.Identity{
 		ID:         3,
 		Username:   "ivanov.ii",
 		Name:       "Иванов Иван",
@@ -39,15 +39,15 @@ func TestMatchUser(t *testing.T) {
 }
 
 // stubLookup implements UserLookup with a fixed user list.
-type stubLookup struct{ users []userdto.UserResponse }
+type stubLookup struct{ users []userdomain.Identity }
 
-func (s *stubLookup) ListAllUsers(context.Context) ([]userdto.UserResponse, error) {
+func (s *stubLookup) ListUserIdentities(context.Context) ([]userdomain.Identity, error) {
 	return s.users, nil
 }
 
 func TestResolveUserIDsCaseInsensitive(t *testing.T) {
 	t.Parallel()
-	lk := &stubLookup{users: []userdto.UserResponse{
+	lk := &stubLookup{users: []userdomain.Identity{
 		{ID: 1, Username: "admin", Name: "Admin Name", LastName: "Admin", FirstName: "Name"},
 		{ID: 2, Username: "ivanov.ii", Name: "Иванов Иван", LastName: "Иванов", FirstName: "Иван"},
 	}}
@@ -78,7 +78,7 @@ func TestResolveUserIDsCaseInsensitive(t *testing.T) {
 
 func TestEnrichNamesFillsNameAndLogin(t *testing.T) {
 	t.Parallel()
-	lk := &stubLookup{users: []userdto.UserResponse{
+	lk := &stubLookup{users: []userdomain.Identity{
 		{ID: 1, Username: "admin", Name: "Admin Name", LastName: "Admin", FirstName: "Name"},
 	}}
 	c := &Client{lookup: lk}

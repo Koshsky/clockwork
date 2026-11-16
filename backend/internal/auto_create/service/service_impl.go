@@ -2,14 +2,18 @@ package service
 
 import (
 	"context"
+	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"log/slog"
 	"strings"
 
-	repo "github.com/Koshsky/erp-backend/internal/auto_create/repository"
+	"github.com/jackc/pgx/v5"
+
 	tracingpkg "github.com/Koshsky/erp-backend/internal/tracing"
 
 	"github.com/Koshsky/erp-backend/internal/auto_create/dto"
+	"github.com/Koshsky/erp-backend/internal/auto_create/repository/sqlc"
 	"github.com/Koshsky/erp-backend/pkg/errors"
 	"github.com/Koshsky/erp-backend/pkg/messages"
 	"github.com/Koshsky/erp-backend/pkg/validator"
@@ -25,7 +29,7 @@ type AutoCreateService struct {
 func NewAutoCreateService(
 	logger *slog.Logger,
 	tracer *tracingpkg.Tracer,
-	r *repo.AutoCreateRepository,
+	r AutoCreateRepository,
 ) *AutoCreateService {
 	return &AutoCreateService{
 		logger:     logger.With("component", "auto_create_service"),
@@ -39,7 +43,22 @@ func (s *AutoCreateService) GetConfig(ctx context.Context) (*dto.AutoCreateConfi
 	ctx, end := s.tracer.Start(ctx, "autocreate.GetConfig")
 	defer end(nil)
 
-	return s.repository.GetConfig(ctx)
+	row, err := s.repository.GetConfig(ctx)
+	if err != nil {
+		if stderrors.Is(err, pgx.ErrNoRows) {
+			return &dto.AutoCreateConfig{Enabled: false, Processes: []dto.ProcessTemplate{}}, nil
+		}
+		return nil, err
+	}
+
+	var processes []dto.ProcessTemplate
+	if err = json.Unmarshal(row.Config, &processes); err != nil {
+		return nil, err
+	}
+	if processes == nil {
+		processes = []dto.ProcessTemplate{}
+	}
+	return &dto.AutoCreateConfig{Enabled: row.Enabled, Processes: processes}, nil
 }
 
 // SaveConfig replaces the auto-create config; validates shape and that all
@@ -76,7 +95,14 @@ func (s *AutoCreateService) SaveConfig(ctx context.Context, cfg *dto.AutoCreateC
 		}
 	}
 
-	return s.repository.UpsertConfig(ctx, cfg)
+	raw, err := json.Marshal(cfg.Processes)
+	if err != nil {
+		return err
+	}
+	return s.repository.UpsertConfig(ctx, sqlc.UpsertAutoCreateConfigParams{
+		Enabled: cfg.Enabled,
+		Config:  raw,
+	})
 }
 
 // Limits protecting project creation from a pathological template: the DB

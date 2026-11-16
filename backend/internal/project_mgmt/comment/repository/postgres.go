@@ -7,8 +7,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/database"
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/comment/repository/sqlc"
 	nullable "github.com/Koshsky/erp-backend/pkg/database"
 )
@@ -72,12 +72,12 @@ func (r *CommentRepository) ListComments(ctx context.Context, taskID int64) ([]s
 }
 
 // OwnerChain returns the owner chain of a comment (task owners + the author).
-func (r *CommentRepository) OwnerChain(ctx context.Context, id int64) (rbac.Owners, error) {
+func (r *CommentRepository) OwnerChain(ctx context.Context, id int64) (access.Owners, error) {
 	row, err := r.q(ctx).OwnerChain(ctx, id)
 	if err != nil {
-		return rbac.Owners{}, err
+		return access.Owners{}, err
 	}
-	return rbac.Owners{
+	return access.Owners{
 		ProjectOwner: row.ProjectOwner,
 		ProcessOwner: row.ProcessOwner,
 		Owner:        row.Author,

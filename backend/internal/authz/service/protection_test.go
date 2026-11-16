@@ -1,4 +1,4 @@
-//nolint:testpackage // service tests drive the unexported repository seam (policyRepository)
+//nolint:testpackage // tests inspect snapshot publication and repository call ordering.
 package service
 
 import (
@@ -15,14 +15,13 @@ import (
 	"github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/authz/dto"
 	"github.com/Koshsky/erp-backend/internal/authz/engine"
-	"github.com/Koshsky/erp-backend/internal/authz/repository"
 	"github.com/Koshsky/erp-backend/internal/authz/repository/sqlc"
 	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
 	userdomain "github.com/Koshsky/erp-backend/internal/user/domain"
 	"github.com/Koshsky/erp-backend/pkg/errors"
 )
 
-// stubPolicyRepo is an in-memory policyRepository. It records every call in
+// stubPolicyRepo is an in-memory PolicyRepository. It records every call in
 // callLog and implements the transactional contract of ResetPolicies on its
 // persisted state: the deletes and the upserts are applied step by step, and a
 // failure on the failOnInsert-th insert rolls the whole state back — nothing
@@ -30,8 +29,8 @@ import (
 type stubPolicyRepo struct {
 	activeRules   []sqlc.ListActivePresetRulesRow
 	routePolicies []domain.RoutePolicy
-	principals    []repository.UserPreset
-	permissions   []repository.UserPermissionRef
+	principals    []sqlc.ListUserPrincipalsRow
+	permissions   []sqlc.ListAllUserPermissionsRow
 
 	persistedRules    []sqlc.UpsertPresetRuleParams
 	persistedPolicies []sqlc.UpsertRoutePolicyParams
@@ -173,12 +172,12 @@ func (s *stubPolicyRepo) FindUserPreset(_ context.Context, _ int64) (string, boo
 	return "", false, nil
 }
 
-func (s *stubPolicyRepo) ListUserPrincipals(_ context.Context) ([]repository.UserPreset, error) {
+func (s *stubPolicyRepo) ListUserPrincipals(_ context.Context) ([]sqlc.ListUserPrincipalsRow, error) {
 	s.logCall("ListUserPrincipals")
 	return s.principals, nil
 }
 
-func (s *stubPolicyRepo) ListAllUserPermissions(_ context.Context) ([]repository.UserPermissionRef, error) {
+func (s *stubPolicyRepo) ListAllUserPermissions(_ context.Context) ([]sqlc.ListAllUserPermissionsRow, error) {
 	s.logCall("ListAllUserPermissions")
 	return s.permissions, nil
 }
@@ -187,22 +186,15 @@ func (s *stubPolicyRepo) ListAllUserPermissions(_ context.Context) ([]repository
 // in-memory PolicyStore, so every repository call and the engine apply that
 // the service triggers are observable through the stub.
 func newAuthzTestService(repo *stubPolicyRepo) *Service {
-	store := &PolicyStore{
-		logger: slog.New(slog.DiscardHandler),
-		repo:   repo,
-		mw:     &rbac.Middleware{},
-	}
-	return &Service{
-		logger: slog.New(slog.DiscardHandler),
-		repo:   repo,
-		store:  store,
-	}
+	logger := slog.New(slog.DiscardHandler)
+	store := NewPolicyStore(logger, repo, &rbac.Middleware{}, 0)
+	return NewRBACService(logger, repo, store, &rbac.Middleware{})
 }
 
 // defaultRoutePolicies returns the default route policy set as repository
-// rows (a valid input for PolicyStore.Reload → engine.BuildPolicies).
+// rows (a valid input for PolicyStore.Reload → rbac.BuildPolicies).
 func defaultRoutePolicies() []domain.RoutePolicy {
-	specs := engine.DefaultRouteSpecs()
+	specs := rbac.DefaultRouteSpecs()
 	out := make([]domain.RoutePolicy, 0, len(specs))
 	for _, s := range specs {
 		out = append(out, domain.RoutePolicy{Name: s.Name, Kind: s.Kind, Params: s.Params, Active: true})
@@ -230,7 +222,7 @@ func defaultRuleParams(updatedBy int64) []sqlc.UpsertPresetRuleParams {
 // defaultPolicyParams replicates the service's Reset transformation of the
 // default route specs into sqlc.UpsertRoutePolicyParams.
 func defaultPolicyParams(updatedBy int64) []sqlc.UpsertRoutePolicyParams {
-	specs := engine.DefaultRouteSpecs()
+	specs := rbac.DefaultRouteSpecs()
 	out := make([]sqlc.UpsertRoutePolicyParams, 0, len(specs))
 	for _, spec := range specs {
 		params, err := json.Marshal(spec.Params)

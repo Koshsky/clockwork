@@ -3,10 +3,9 @@ package engine_test
 import (
 	"testing"
 
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/authz/engine"
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
 	userdomain "github.com/Koshsky/erp-backend/internal/user/domain"
-	userctx "github.com/Koshsky/erp-backend/internal/userctx"
 )
 
 // TestScopeForUserOverride verifies the per-user resolution rule:
@@ -17,51 +16,51 @@ func TestScopeForUserOverride(t *testing.T) {
 	m := engine.DefaultMatrix()
 
 	// Preset-only user: rp views own projects.
-	rp := userctx.UserContext{Preset: userdomain.PresetProjectManager}
-	if got := m.ScopeForUser(rp, rbac.ResourceProject, engine.ActionView); got != engine.ScopeOwn {
+	rp := access.UserContext{Preset: userdomain.PresetProjectManager}
+	if got := m.ScopeForUser(rp, access.ResourceProject, engine.ActionView); got != engine.ScopeOwn {
 		t.Errorf("rp without overrides: got %v; want self", got)
 	}
 
 	// Admin bypass wins regardless of rules/overrides.
-	adminUser := userctx.UserContext{
+	adminUser := access.UserContext{
 		Preset: userdomain.PresetAdmin,
 		Admin:  true,
-		Rules:  []userctx.PermissionRule{{Resource: "project", Action: "view", Granted: false}},
+		Rules:  []access.PermissionRule{{Resource: "project", Action: "view", Granted: false}},
 	}
-	if got := m.ScopeForUser(adminUser, rbac.ResourceProject, engine.ActionView); got != engine.ScopeAll {
+	if got := m.ScopeForUser(adminUser, access.ResourceProject, engine.ActionView); got != engine.ScopeAll {
 		t.Errorf("admin bypass: got %v; want all", got)
 	}
 
 	// Worker (no preset rights) with an explicit grant override.
-	workerGranted := userctx.UserContext{
+	workerGranted := access.UserContext{
 		Preset: userdomain.PresetWorker,
-		Rules: []userctx.PermissionRule{
+		Rules: []access.PermissionRule{
 			{Resource: "project", Action: "view", Scope: "all", Granted: true},
 		},
 	}
-	if got := m.ScopeForUser(workerGranted, rbac.ResourceProject, engine.ActionView); got != engine.ScopeAll {
+	if got := m.ScopeForUser(workerGranted, access.ResourceProject, engine.ActionView); got != engine.ScopeAll {
 		t.Errorf("grant override: got %v; want all", got)
 	}
 
 	// Revoke beats the preset grant (rp loses project.view).
-	rpRevoked := userctx.UserContext{
+	rpRevoked := access.UserContext{
 		Preset: userdomain.PresetProjectManager,
-		Rules: []userctx.PermissionRule{
+		Rules: []access.PermissionRule{
 			{Resource: "project", Action: "view", Granted: false},
 		},
 	}
-	if got := m.ScopeForUser(rpRevoked, rbac.ResourceProject, engine.ActionView); got != engine.ScopeNone {
+	if got := m.ScopeForUser(rpRevoked, access.ResourceProject, engine.ActionView); got != engine.ScopeNone {
 		t.Errorf("revoke override: got %v; want none", got)
 	}
 
 	// An unrelated override does not affect the preset rule.
-	rpOther := userctx.UserContext{
+	rpOther := access.UserContext{
 		Preset: userdomain.PresetProjectManager,
-		Rules: []userctx.PermissionRule{
+		Rules: []access.PermissionRule{
 			{Resource: "task", Action: "create", Scope: "parent", Granted: true},
 		},
 	}
-	if got := m.ScopeForUser(rpOther, rbac.ResourceProject, engine.ActionView); got != engine.ScopeOwn {
+	if got := m.ScopeForUser(rpOther, access.ResourceProject, engine.ActionView); got != engine.ScopeOwn {
 		t.Errorf("unrelated override: got %v; want self (preset)", got)
 	}
 }
@@ -102,39 +101,39 @@ func TestAuthorizeUserWithOverrides(t *testing.T) { //nolint:paralleltest // о�
 	)
 
 	// worker granted project.update (own) — allowed only on own rows.
-	workerGranted := userctx.UserContext{
+	workerGranted := access.UserContext{
 		ID:     42,
 		Preset: userdomain.PresetWorker,
 	}
 	if !engine.AuthorizeUser(
 		workerGranted,
-		rbac.ResourceProject,
+		access.ResourceProject,
 		engine.ActionUpdate,
-		rbac.Owners{ProjectOwner: 42},
+		access.Owners{ProjectOwner: 42},
 		42,
 	) {
 		t.Errorf("own-scope grant: want allowed for the owner")
 	}
 	if engine.AuthorizeUser(
 		workerGranted,
-		rbac.ResourceProject,
+		access.ResourceProject,
 		engine.ActionUpdate,
-		rbac.Owners{ProjectOwner: 42},
+		access.Owners{ProjectOwner: 42},
 		7,
 	) {
 		t.Errorf("own-scope grant: want denied for a foreign user")
 	}
 
 	// rp preset allows own project.delete; the revoke must deny entirely.
-	rpRevoked := userctx.UserContext{
+	rpRevoked := access.UserContext{
 		ID:     42,
 		Preset: userdomain.PresetProjectManager,
 	}
 	if engine.AuthorizeUser(
 		rpRevoked,
-		rbac.ResourceProject,
+		access.ResourceProject,
 		engine.ActionDelete,
-		rbac.Owners{ProjectOwner: 42},
+		access.Owners{ProjectOwner: 42},
 		42,
 	) {
 		t.Errorf("revoke override: want denied")
@@ -151,21 +150,21 @@ func TestViewScopeCodeUser(t *testing.T) { //nolint:paralleltest // общий s
 		{User: "6", Preset: userdomain.PresetProjectManager},
 	})
 
-	rp := userctx.UserContext{ID: 5, Preset: userdomain.PresetProjectManager}
-	if got := engine.ViewScopeCodeUser(rp, rbac.ResourceProject); got != "self" {
+	rp := access.UserContext{ID: 5, Preset: userdomain.PresetProjectManager}
+	if got := engine.ViewScopeCodeUser(rp, access.ResourceProject); got != "self" {
 		t.Errorf("rp project view scope: got %q; want self", got)
 	}
 
-	rpRevoked := userctx.UserContext{ID: 6, Preset: userdomain.PresetProjectManager}
+	rpRevoked := access.UserContext{ID: 6, Preset: userdomain.PresetProjectManager}
 	if got := engine.ViewScopeCodeUser(
 		rpRevoked,
-		rbac.ResourceProject,
+		access.ResourceProject,
 	); got != "" {
 		t.Errorf("revoked view scope: got %q; want empty", got)
 	}
 
-	adminUser := userctx.UserContext{Preset: userdomain.PresetAdmin, Admin: true}
-	if got := engine.ViewScopeCodeUser(adminUser, rbac.ResourceProject); got != "all" {
+	adminUser := access.UserContext{Preset: userdomain.PresetAdmin, Admin: true}
+	if got := engine.ViewScopeCodeUser(adminUser, access.ResourceProject); got != "all" {
 		t.Errorf("admin view scope: got %q; want all", got)
 	}
 }

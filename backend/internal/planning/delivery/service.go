@@ -3,20 +3,20 @@ package delivery
 import (
 	"context"
 
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/planning/dto"
 )
 
 type MilestoneService interface {
-	GetProjectPlanning(ctx context.Context, userID int64, scope rbac.ListScope) (*dto.ProjectPlanning, error)
+	GetProjectPlanning(ctx context.Context, userID int64, scope access.ListScope) (*dto.ProjectPlanning, error)
 	GetProcessPlanning(
 		ctx context.Context,
 		userID int64,
-		scope rbac.ListScope, projectScope rbac.ListScope,
+		scope access.ListScope, projectScope access.ListScope,
 	) (*dto.ProcessPlanning, error)
 	GetTaskPlanning(
 		ctx context.Context,
 		userID int64,
-		scope rbac.ListScope, resourceScope rbac.ListScope,
+		scope access.ListScope, resourceScope access.ListScope,
 	) (*dto.TaskPlanning, error)
 }

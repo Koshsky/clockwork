@@ -10,14 +10,15 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/middleware/auth"
 	"github.com/Koshsky/erp-backend/internal/userctx"
 )
 
 type viewResolver struct{ admin bool }
 
-func (r viewResolver) EffectiveUser(_ context.Context, id int64) (userctx.UserContext, error) {
-	return userctx.UserContext{ID: id, Admin: r.admin && id == 1, Preset: "worker"}, nil
+func (r viewResolver) EffectiveUser(_ context.Context, id int64) (domain.UserContext, error) {
+	return domain.UserContext{ID: id, Admin: r.admin && id == 1, Preset: "worker"}, nil
 }
 func TestViewAsReadOnly(t *testing.T) {
 	t.Parallel()

@@ -20,7 +20,10 @@ Go 1.27 / Gin backend for the MVS ERP monorepo (`module github.com/Koshsky/erp-b
 - `make dev` — dev stack: `docker compose up -d db` + the API served locally by `air` (core migrations run inside the backend before startup; existing Flyway databases require explicit adoption) (auto-reload on change; binary in `build/`, ignored). `make infra` is a legacy declared target without a recipe, `make reset` wipes the DB volume (`docker compose down -v`), `make stop` stops the containers. `Makefile` includes the repo-root `.env`.
 - `go run ./cmd/service` — run the API server directly (config comes from env vars, see below).
 - `golangci-lint run ./...` (or `make lint`) — lint (v2 golden config). Use golangci-lint 2.15.0 built with the module's Go toolchain; older importers such as 2.13.2 cannot read Go 1.27 export data even when rebuilt. Install via `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0`. `--fix` also runs the formatters (`goimports` + `golines`, max line 120). Import groups must keep local `github.com/Koshsky/erp-backend` last.
-- `go test ./...` — tests (currently minimal).
+- `go test ./...` — normal-tag unit and behavioral contract tests.
+- `python3 ../scripts/check-backend-architecture.py` — production import graph
+  checks, also run by `make check-backend` and the backend CI job. HTTP tests use
+  Go's separate TestImports/XTestImports and do not create production edges.
 - `swag fmt` then `swag init -g cmd/service/main.go -o docs/swagger` — regenerate swagger after touching handler annotations or global docs.
 - `GOTOOLCHAIN=go1.27.1 go run github.com/google/wire/cmd/wire@latest ./internal/server/...` — regenerate `internal/server/wire_gen.go` after touching any provider or `internal/server/wire.go` (commit `wire_gen.go`; `wire.go` carries the `//go:generate` directive).
 
@@ -29,14 +32,74 @@ Go 1.27 / Gin backend for the MVS ERP monorepo (`module github.com/Koshsky/erp-b
 - `internal/*/repository/sqlc/`: per-package sqlc output. After editing `internal/*/repository/query/*.sql`, run `go generate ./...` (each `repository/postgres.go` carries the `//go:generate` directive). Every package has its own `sqlc.yaml` (v2, pgx/v5) generating into `./sqlc`.
 
 ## Architecture
-- Layered per domain: `internal/<domain>/{delivery,service,repository,domain,dto}`. Structs are constructed by exported `New*` constructors kept in the same file as the struct (`handler.go`/`service_impl.go`/`postgres.go`); there are no `provide.go` files in the layers. Each domain root ships a single `module.go` with a `wire.ProviderSet` referencing those `New*` constructors and a `Module` implementing the `server.Module` interface (`RegisterPublicRoutes`/`RegisterProtectedRoutes`) — the module owns route registration, prefixes and per-route RBAC checks. The app only collects modules via `ProvideModules` in `internal/server/providers.go`; the graph is assembled in `internal/server/wire.go` (generated into `wire_gen.go`). Auxiliary HTTP servers live in `internal/server/*` (`profiler` pprof, `swagger` registrar). New handlers are added to the module's `ProviderSet`; new modules add a `Module` + one line in `ProvideModules`.
-- Access control is the single domain `internal/authz`: its `engine` subpackage is a leaf holding the rules (permission matrix `preset × resource × action → ownership zone`, codecs, route-policy kinds) evaluated by **Casbin v2** (RBAC role inheritance + ACL user grants/revokes + ABAC owner-attribute matcher in `engine/model.go`); `service.PolicyStore` loads the Postgres policy tables (`rbac_presets`, `rbac_preset_rules`, `rbac_route_policies`, `user_permissions`, `users.preset`) on a TTL and publishes an immutable Casbin snapshot (`engine.Publish`) plus the route checks (`rbac.Middleware.Refresh`) and the in-memory principals (`EffectiveUser`). Per-request decisions (middleware checks, `ViewScopeCode*`, `AuthorizeUser`) go through Casbin; the SQL list scoping (`view_scope`) is still the manual translation of the resolved zone into WHERE clauses. The admin API `/rbac/*` + `/permissions/me` lives in `internal/authz/{delivery,service}` (same contract, no swagger changes).
+
+The B01 dependency and compatibility baseline is recorded in
+`../docs/backend-simplification.md` and `../docs/backend-baseline.json`.
+The baseline records the original graph; the implementation notes in that
+document track completed steps. Preserve the recorded API, RBAC, transaction,
+session and replay contracts when implementing each new boundary.
+
+- Shared access facts (`Resource`, `Owners`, `ListScope`, owner resolver contracts,
+  `UserContext`, `PermissionRule`) belong to `internal/authz/domain`. Services and
+  repositories consume these neutral types; Gin accessors remain in `userctx`.
+  HTTP route builders and kind catalogs belong to `middleware/rbac`.
+  PolicyStore consumes its own `RoutePublisher` port, bound to the existing HTTP
+  adapter by Wire. Prepare and validate route checks before publishing Casbin;
+  apply prepared checks only after every load and matrix validation succeeds,
+  then replace principals. Preserve this order and the last valid state on errors.
+- `authz/engine` evaluates neutral targets with `context.Context`; it must not
+  depend on Gin, HTTP middleware or `userctx`. HTTP path/query/body decoding and
+  route-check closures stay in `middleware/rbac`. Policy administration consumes
+  a focused `RouteCatalog` interface instead of importing the HTTP builders.
+- `internal/tracing` owns OpenTelemetry lifecycle and context-based tracing;
+  it must not depend on Gin or HTTP middleware. The Gin adapter lives in
+  `internal/middleware/tracing`; only HTTP composition/adapters use it.
+- Business constructors accept their existing consumer-owned repository/service
+  interfaces and return concrete service pointers. Bind SQL implementations in
+  module ProviderSets; bind dependencies crossing sibling modules in server Wire
+  composition. Do not add parallel interfaces or repository wrappers for DI.
+- Auth and audit consume neutral `user/domain` lookup views, never `user/dto`.
+  Credentials are restricted to password verification; refresh receives an
+  Account without a hash, and audit receives display/search Identities only.
+  User repository/service currency remains sqlc; public HTTP DTOs stay unchanged.
+- Milestone, project, process, assignment, comment, task, task_dependency,
+  `timesheet/state` and `timesheet/resource` keep `Service`, `Repository`,
+  `Mapper` and `Validator` in the feature root. Delivery imports that core; core
+  may use its own DTOs and repository/sqlc but never delivery or the concrete repository.
+  Composition stays in parent `project_mgmt/module.go` or `timesheet/module.go`
+  to avoid a core/delivery import cycle.
+- The timesheet/calendar core keeps Service, Repository and pure interval
+  helpers in its root; preserve event-sweep calculations and SQL scope filtering.
+  Its composition stays in timesheet/module.go.
+- Task execution status constants live in the task core; timesheet day types
+  remain in their separate timesheet/state feature.
+- Task dependency types and pure date helpers live in the task_dependency core.
+  Task consumes its own ConstraintSource port; neither feature core imports the
+  other feature or its SQL adapter. Wire binds the concrete implementation.
+- Task comments keep authenticated authorship and same-task reply validation.
+  Preserve content verbatim; safe Markdown/HTML rendering remains a client concern.
+- Auto-create configuration crosses the SQL adapter as existing sqlc rows/params.
+  Its service owns JSON decoding/encoding, default configuration and validation;
+  keep HTTP DTO identities and null/empty distinctions stable. Retain the service
+  package because the feature root already composes delivery and persistence.
+- PolicyRepository uses existing sqlc principal/permission projections; snapshot
+  consumers must not import the concrete authz repository to name row types.
+- Selected cores must remain transitively independent of Gin, delivery,
+  middleware, userctx and concrete repositories. Their own repository/sqlc is
+  allowed; direct foreign sqlc imports must go through consumer-owned ports.
+  SQL adapters must not depend on HTTP DTOs or adapters. Composition roots and
+  intentional HTTP clients (audit/security/server) retain their adapter roles;
+  do not extend a core allowlist to hide a dependency violation.
+
+- Outside these flattened feature cores, domains retain `internal/<domain>/{delivery,service,repository,domain,dto}`. Structs are constructed by exported `New*` constructors kept in the same file as the struct (`handler.go`/`service_impl.go`/`postgres.go`); there are no `provide.go` files in the layers. Each domain root ships a single `module.go` with a `wire.ProviderSet` referencing those `New*` constructors and a `Module` implementing the `server.Module` interface (`RegisterPublicRoutes`/`RegisterProtectedRoutes`) — the module owns route registration, prefixes and per-route RBAC checks. The app only collects modules via `ProvideModules` in `internal/server/providers.go`; the graph is assembled in `internal/server/wire.go` (generated into `wire_gen.go`). Auxiliary HTTP servers live in `internal/server/*` (`profiler` pprof, `swagger` registrar). New handlers are added to the module's `ProviderSet`; new modules add a `Module` + one line in `ProvideModules`.
+- Access control is the single domain `internal/authz`: its `engine` subpackage is a leaf holding the rules (permission matrix `preset × resource × action → ownership zone`, codecs) evaluated by **Casbin v2** (RBAC role inheritance + ACL user grants/revokes + ABAC owner-attribute matcher in `engine/model.go`); `service.PolicyStore` loads the Postgres policy tables (`rbac_presets`, `rbac_preset_rules`, `rbac_route_policies`, `user_permissions`, `users.preset`) on a TTL and publishes an immutable Casbin snapshot (`engine.Publish`) plus the prepared route checks (`RoutePublisher`) and the in-memory principals (`EffectiveUser`). Per-request decisions (middleware checks, `ViewScopeCode*`, `AuthorizeUser`) go through Casbin; the SQL list scoping (`view_scope`) is still the manual translation of the resolved zone into WHERE clauses. The admin API `/rbac/*` + `/permissions/me` lives in `internal/authz/{delivery,service}` (same contract, no swagger changes).
 - Repository query handles are resolved per request from the context (`r.q(ctx)`, backed by `internal/database.TxFrom`): when the idempotency middleware opened a request-scoped transaction (a protected route carrying an `Idempotency-Key` or opt-in `Operation-Id` header), every repository call of that request runs inside that transaction and commits/rolls back atomically with the key's completion; otherwise queries run on the shared pool. Repository methods that begin their own transaction use `database.BeginOrJoin` (join the ambient one when present instead of opening a nested transaction). Every repository method MUST resolve its handle via `r.q(ctx)` (or `BeginOrJoin`) — a pool-bound call inside a keyed request would bypass the request transaction and break the atomicity guarantee.
 - The internal currency of `repository`/`service` layers is the **sqlc-generated types** (`sqlc.X` table models and `sqlc.*Row` query projections): repositories return them directly and service layers operate on them. Do NOT introduce a hand-written domain struct that re-declares the same columns. The only hand-written mapping boundary is the service → `dto` conversion (and the reverse `dto` → sqlc params at the call site). `domain/` packages keep only what sqlc cannot provide: business constants (preset/status codes), business-shaped argument structs (`user.domain.UserPermission`), and view shapes that genuinely reshape data (e.g. `rbacpolicy.RoutePolicy` with jsonb → map). Availability of a sqlc `*Row` is the acid test: if the query already returns the shape you need, use it directly.
-- All API responses use the `{ data, error }` envelope via `internal/common/response` helpers (`OK`, `Created`, `BadRequest`, `InternalError`, ...). Never define a local response struct in a handler.
-- Calendar dates (`start_date`, `end_date`, `date`) are `internal/common/date.Date` (string `YYYY-MM-DD`), never `time.Time`.
+- All API responses use the `{ data, error }` envelope via `internal/response` helpers (`OK`, `Created`, `BadRequest`, `InternalError`, ...). Never define a local response struct in a handler.
+- Calendar dates (`start_date`, `end_date`, `date`) are `pkg/date.Date` (string `YYYY-MM-DD`), never `time.Time`.
 - `internal/auth` must not touch the `users` table; it depends on the `internal/user` service (single source of truth for user CRUD). Password hashing lives only in `internal/security/hasher`.
-- Authenticated user comes from request context via `internal/common/ctx` (`KeyUser`/`KeyRequest`), set by `internal/middleware/auth`.
+- Authenticated user is a `domain.UserContext`, stored by `internal/middleware/auth`
+  under the existing `userctx.KeyUser` and read through the Gin `userctx` accessors.
 
 ## DB & migrations
 - Postgres 16; schema is Flyway migrations in `migrations/` (core V1..V9: the whole schema and constraints are inline in V1, indexes in V2, functions/triggers in V3..V8, the RBAC catalog — presets, rights matrix, route policies — in V9; embedded into the backend and applied before startup; golang-migrate tracks new versions after explicit `service migrate adopt-flyway`; existing Flyway history and unknown installed SQL plugins are preserved (see `migrations/README.md`)). **The core set is frozen once a database is deployed**: editing an applied migration fails `flyway validate` everywhere it ran (checksum mismatch, and Flyway 9 has no ignore state for it), so changes land as a new file — see `migrations/README.md` for the file map and the rules. Each package must list the immutable migrations defining the tables/columns used by its sqlc queries. Idempotency uses V1 and V15. Never change a deployed migration merely to update generated models. All packages set `omit_unused_structs: true`, so each `sqlc/models.go` contains structs only for the tables referenced by that package's queries — an edit to an unrelated table must produce no diff in that package's generated files; if it does, regenerate with `go generate ./...`.

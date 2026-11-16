@@ -5,27 +5,27 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/wire"
 
+	"github.com/Koshsky/erp-backend/internal/project_mgmt/assignment"
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/assignment/delivery"
 	assignmentRepo "github.com/Koshsky/erp-backend/internal/project_mgmt/assignment/repository"
-	"github.com/Koshsky/erp-backend/internal/project_mgmt/assignment/service"
+	commentService "github.com/Koshsky/erp-backend/internal/project_mgmt/comment"
 	commentDelivery "github.com/Koshsky/erp-backend/internal/project_mgmt/comment/delivery"
 	commentRepo "github.com/Koshsky/erp-backend/internal/project_mgmt/comment/repository"
-	commentService "github.com/Koshsky/erp-backend/internal/project_mgmt/comment/service"
+	milestoneService "github.com/Koshsky/erp-backend/internal/project_mgmt/milestone"
 	milestoneDelivery "github.com/Koshsky/erp-backend/internal/project_mgmt/milestone/delivery"
 	milestoneRepo "github.com/Koshsky/erp-backend/internal/project_mgmt/milestone/repository"
-	milestoneService "github.com/Koshsky/erp-backend/internal/project_mgmt/milestone/service"
+	processService "github.com/Koshsky/erp-backend/internal/project_mgmt/process"
 	processDelivery "github.com/Koshsky/erp-backend/internal/project_mgmt/process/delivery"
 	processRepo "github.com/Koshsky/erp-backend/internal/project_mgmt/process/repository"
-	processService "github.com/Koshsky/erp-backend/internal/project_mgmt/process/service"
+	projectService "github.com/Koshsky/erp-backend/internal/project_mgmt/project"
 	projectDelivery "github.com/Koshsky/erp-backend/internal/project_mgmt/project/delivery"
 	projectRepo "github.com/Koshsky/erp-backend/internal/project_mgmt/project/repository"
-	projectService "github.com/Koshsky/erp-backend/internal/project_mgmt/project/service"
+	taskService "github.com/Koshsky/erp-backend/internal/project_mgmt/task"
 	taskDelivery "github.com/Koshsky/erp-backend/internal/project_mgmt/task/delivery"
 	taskRepo "github.com/Koshsky/erp-backend/internal/project_mgmt/task/repository"
-	taskService "github.com/Koshsky/erp-backend/internal/project_mgmt/task/service"
+	depService "github.com/Koshsky/erp-backend/internal/project_mgmt/task_dependency"
 	depDelivery "github.com/Koshsky/erp-backend/internal/project_mgmt/task_dependency/delivery"
 	depRepo "github.com/Koshsky/erp-backend/internal/project_mgmt/task_dependency/repository"
-	depService "github.com/Koshsky/erp-backend/internal/project_mgmt/task_dependency/service"
 )
 
 // ProviderSet aggregates the project management module's dependencies.
@@ -33,34 +33,41 @@ import (
 //nolint:gochecknoglobals // wire provider set (established module pattern)
 var ProviderSet = wire.NewSet(
 	projectRepo.NewProjectRepository,
-	projectService.NewProjectService,
+	wire.Bind(new(projectService.Repository), new(*projectRepo.ProjectRepository)),
+	projectService.NewService,
 	projectDelivery.NewProjectHandler,
 
 	processRepo.NewProcessRepository,
-	processService.NewProcessService,
+	wire.Bind(new(processService.Repository), new(*processRepo.ProcessRepository)),
+	processService.NewService,
 	processDelivery.NewProcessHandler,
 
 	taskRepo.NewTaskRepository,
-	taskService.NewTaskService,
+	wire.Bind(new(taskService.Repository), new(*taskRepo.TaskRepository)),
+	taskService.NewService,
 	taskDelivery.NewTaskHandler,
 
 	depRepo.NewTaskDependencyRepository,
-	depService.NewTaskDependencyService,
+	wire.Bind(new(depService.Repository), new(*depRepo.TaskDependencyRepository)),
+	depService.NewService,
 	depDelivery.NewTaskDependencyHandler,
 	// The task service validates date changes against the dependency links
 	// (implemented by the task_dependency service).
-	wire.Bind(new(taskService.ConstraintSource), new(*depService.TaskDependencyService)),
+	wire.Bind(new(taskService.ConstraintSource), new(*depService.Service)),
 
 	commentRepo.NewCommentRepository,
-	commentService.NewCommentService,
+	wire.Bind(new(commentService.Repository), new(*commentRepo.CommentRepository)),
+	commentService.NewService,
 	commentDelivery.NewCommentHandler,
 
 	milestoneRepo.NewMilestoneRepository,
-	milestoneService.NewMilestoneService,
+	wire.Bind(new(milestoneService.Repository), new(*milestoneRepo.MilestoneRepository)),
+	milestoneService.NewService,
 	milestoneDelivery.NewMilestoneHandler,
 
 	assignmentRepo.NewAssignmentRepository,
-	service.NewAssignmentService,
+	wire.Bind(new(assignment.Repository), new(*assignmentRepo.AssignmentRepository)),
+	assignment.NewService,
 	delivery.NewAssignmentHandler,
 
 	ProvideModule,

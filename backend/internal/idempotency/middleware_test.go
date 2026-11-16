@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	idem "github.com/Koshsky/erp-backend/internal/idempotency"
 	"github.com/Koshsky/erp-backend/internal/idempotency/repository"
 	userctx "github.com/Koshsky/erp-backend/internal/userctx"
@@ -120,7 +121,7 @@ func (f *fakeRepo) completesCount() int {
 // setUser installs the fixed test user (id 7) into the gin context.
 func setUser() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.Set(userctx.KeyUser, userctx.UserContext{ID: 7})
+		c.Set(userctx.KeyUser, access.UserContext{ID: 7})
 		c.Next()
 	}
 }

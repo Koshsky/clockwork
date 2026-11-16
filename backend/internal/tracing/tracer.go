@@ -6,9 +6,7 @@ package tracing
 
 import (
 	"context"
-	"net/http"
 
-	"github.com/gin-gonic/gin"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -26,14 +24,8 @@ const (
 	AttrRequestID      = "request.id"
 )
 
-// RequestIDKey is the gin context key under which the per-request id is
-// stored (assigned by the server's requestID middleware, L6). Kept here so
-// the root span middleware can read it without a server import cycle.
+// RequestIDKey identifies the request id shared by HTTP adapters and logging.
 const RequestIDKey = "x-request-id"
-
-// ginSpanKey stores the root span on the gin context so handlers and later
-// middleware can attach attributes (e.g. the authenticated user id).
-const ginSpanKey = "tracing.root_span"
 
 // requestIDKey is the context key under which the per-request id is carried
 // in the request context (via WithRequestID). A zero-size struct type is used
@@ -115,64 +107,4 @@ func (t *Tracer) Start(
 		}
 		span.End()
 	}
-}
-
-// FromGin returns the root span attached to the gin context, if any.
-func FromGin(c *gin.Context) (trace.Span, bool) {
-	v, ok := c.Get(ginSpanKey)
-	if !ok {
-		return nil, false
-	}
-	span, ok := v.(trace.Span)
-	return span, ok
-}
-
-// HTTPRootSpan builds the tracing middleware: it creates the root span of the
-// request, stores it on the gin context and in the request context, and after
-// the handler chain records status, duration and the authenticated user id.
-func (t *Tracer) HTTPRootSpan() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		ctx, span := t.tracer.Start(c.Request.Context(), "HTTP "+c.Request.Method+" "+c.Request.URL.Path)
-		c.Request = c.Request.WithContext(ctx)
-		c.Set(ginSpanKey, span)
-
-		c.Next()
-
-		status := c.Writer.Status()
-		span.SetAttributes(
-			attribute.String(AttrHTTPMethod, c.Request.Method),
-			attribute.String(AttrHTTPPath, c.Request.RequestURI),
-			attribute.Int(AttrHTTPStatusCode, status),
-			attribute.String(AttrRequestID, c.GetString(RequestIDKey)),
-		)
-		if status >= http.StatusInternalServerError {
-			span.SetStatus(codes.Error, "http server error")
-		}
-		span.End()
-	}
-}
-
-// GinSpan wraps a middleware body so that each named middleware contributes its
-// own child span to the request trace. It must run after HTTPRootSpan.
-func (t *Tracer) GinSpan(name string) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		ctx, end := t.Start(c.Request.Context(), name)
-		c.Request = c.Request.WithContext(ctx)
-		defer end(nil)
-		c.Next()
-	}
-}
-
-// SetUserOnSpan attaches the authenticated user attributes to the request's
-// root span (called by the auth middleware once the user is known); preset —
-// the user's assigned permission preset ("" — none).
-func SetUserOnSpan(c *gin.Context, userID int64, preset string) {
-	span, ok := FromGin(c)
-	if !ok {
-		return
-	}
-	span.SetAttributes(
-		attribute.Int64(AttrUserID, userID),
-		attribute.String(AttrUserRole, preset),
-	)
 }

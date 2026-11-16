@@ -11,7 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/user/dto"
 	userctx "github.com/Koshsky/erp-backend/internal/userctx"
 )
@@ -20,7 +20,7 @@ type administrationUsers struct {
 	UserService
 
 	users []dto.UserResponse
-	scope rbac.ListScope
+	scope access.ListScope
 }
 
 func (s *administrationUsers) ListAllUsers(context.Context) ([]dto.UserResponse, error) {
@@ -30,7 +30,7 @@ func (s *administrationUsers) ListAllUsers(context.Context) ([]dto.UserResponse,
 func (s *administrationUsers) ListUsers(
 	_ context.Context,
 	_ int64,
-	scope rbac.ListScope,
+	scope access.ListScope,
 	_ string,
 	_ int64,
 	_ string,
@@ -90,7 +90,7 @@ func TestAccountDirectoryUsesAccountScope(t *testing.T) {
 	service := &administrationUsers{}
 	handler := &UserHandler{service: service, logger: slog.New(slog.DiscardHandler)}
 	router := gin.New()
-	router.Use(func(c *gin.Context) { c.Set(userctx.KeyUser, userctx.UserContext{ID: 42, Preset: "worker"}) })
+	router.Use(func(c *gin.Context) { c.Set(userctx.KeyUser, access.UserContext{ID: 42, Preset: "worker"}) })
 	router.GET("/accounts", handler.ListAccounts)
 	reply := httptest.NewRecorder()
 	router.ServeHTTP(reply, httptest.NewRequest(http.MethodGet, "/accounts", nil))

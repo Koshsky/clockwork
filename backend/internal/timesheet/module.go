@@ -5,15 +5,15 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/wire"
 
+	calendarService "github.com/Koshsky/erp-backend/internal/timesheet/calendar"
 	calendarDelivery "github.com/Koshsky/erp-backend/internal/timesheet/calendar/delivery"
 	calendarRepo "github.com/Koshsky/erp-backend/internal/timesheet/calendar/repository"
-	calendarService "github.com/Koshsky/erp-backend/internal/timesheet/calendar/service"
+	resourceService "github.com/Koshsky/erp-backend/internal/timesheet/resource"
 	resourceDelivery "github.com/Koshsky/erp-backend/internal/timesheet/resource/delivery"
 	resourceRepo "github.com/Koshsky/erp-backend/internal/timesheet/resource/repository"
-	resourceService "github.com/Koshsky/erp-backend/internal/timesheet/resource/service"
+	stateService "github.com/Koshsky/erp-backend/internal/timesheet/state"
 	stateDelivery "github.com/Koshsky/erp-backend/internal/timesheet/state/delivery"
 	stateRepo "github.com/Koshsky/erp-backend/internal/timesheet/state/repository"
-	stateService "github.com/Koshsky/erp-backend/internal/timesheet/state/service"
 )
 
 // ProviderSet aggregates the timesheet module's dependencies.
@@ -21,15 +21,18 @@ import (
 //nolint:gochecknoglobals // wire provider set (established module pattern)
 var ProviderSet = wire.NewSet(
 	resourceRepo.NewResourceRepository,
-	resourceService.NewResourceService,
+	wire.Bind(new(resourceService.Repository), new(*resourceRepo.ResourceRepository)),
+	resourceService.NewService,
 	resourceDelivery.NewResourceHandler,
 
 	stateRepo.NewStateRepository,
-	stateService.NewStateService,
+	wire.Bind(new(stateService.Repository), new(*stateRepo.StateRepository)),
+	stateService.NewService,
 	stateDelivery.NewStateHandler,
 
 	calendarRepo.NewCalendarRepository,
-	calendarService.NewCalendarService,
+	wire.Bind(new(calendarService.Repository), new(*calendarRepo.CalendarRepository)),
+	calendarService.NewService,
 	calendarDelivery.NewCalendarHandler,
 
 	ProvideModule,

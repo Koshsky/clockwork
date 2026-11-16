@@ -9,8 +9,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/database"
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/project/repository/sqlc"
 	nullable "github.com/Koshsky/erp-backend/pkg/database"
 	"github.com/Koshsky/erp-backend/pkg/date"
@@ -107,7 +107,7 @@ func (r *ProjectRepository) DeleteProject(ctx context.Context, id int64) error {
 func (r *ProjectRepository) ListProjects(
 	ctx context.Context,
 	userID int64,
-	scope rbac.ListScope,
+	scope access.ListScope,
 	ownerID int64,
 	limit, offset int,
 ) ([]sqlc.Project, error) {
@@ -127,7 +127,7 @@ func (r *ProjectRepository) ListProjects(
 func (r *ProjectRepository) CountProjects(
 	ctx context.Context,
 	userID int64,
-	scope rbac.ListScope,
+	scope access.ListScope,
 	ownerID int64,
 ) (int64, error) {
 	return r.q(ctx).CountProjects(
@@ -155,10 +155,10 @@ func (r *ProjectRepository) AutoCreatedCounts(
 }
 
 // OwnerChain returns the owner chain (for RBAC checks in the middleware).
-func (r *ProjectRepository) OwnerChain(ctx context.Context, id int64) (rbac.Owners, error) {
+func (r *ProjectRepository) OwnerChain(ctx context.Context, id int64) (access.Owners, error) {
 	owner, err := r.q(ctx).OwnerChain(ctx, id)
 	if err != nil {
-		return rbac.Owners{}, err
+		return access.Owners{}, err
 	}
-	return rbac.Owners{ProjectOwner: owner}, nil
+	return access.Owners{ProjectOwner: owner}, nil
 }

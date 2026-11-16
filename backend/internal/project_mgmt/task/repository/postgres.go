@@ -7,10 +7,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	errapi "github.com/Koshsky/erp-backend/pkg/errors"
 
 	"github.com/Koshsky/erp-backend/internal/database"
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/task/repository/sqlc"
 	nullable "github.com/Koshsky/erp-backend/pkg/database"
 )
@@ -110,7 +110,7 @@ func (r *TaskRepository) DeleteTask(ctx context.Context, id int64) error {
 func (r *TaskRepository) ListTasks(
 	ctx context.Context,
 	userID int64,
-	scope rbac.ListScope,
+	scope access.ListScope,
 	ownerID int64,
 	limit, offset int,
 ) ([]sqlc.Task, error) {
@@ -137,7 +137,7 @@ func (r *TaskRepository) ListTasks(
 func (r *TaskRepository) CountTasks(
 	ctx context.Context,
 	userID int64,
-	scope rbac.ListScope,
+	scope access.ListScope,
 	ownerID int64,
 ) (int64, error) {
 	return r.q(ctx).CountTasks(
@@ -203,10 +203,10 @@ func (r *TaskRepository) ReorderTasks(ctx context.Context, ids []int64) error {
 }
 
 // OwnerChain returns the owner chain (for RBAC checks in the middleware).
-func (r *TaskRepository) OwnerChain(ctx context.Context, id int64) (rbac.Owners, error) {
+func (r *TaskRepository) OwnerChain(ctx context.Context, id int64) (access.Owners, error) {
 	row, err := r.q(ctx).OwnerChain(ctx, id)
 	if err != nil {
-		return rbac.Owners{}, err
+		return access.Owners{}, err
 	}
-	return rbac.Owners{ProjectOwner: row.ProjectOwner, ProcessOwner: row.ProcessOwner, Owner: row.OwnerID}, nil
+	return access.Owners{ProjectOwner: row.ProjectOwner, ProcessOwner: row.ProcessOwner, Owner: row.OwnerID}, nil
 }

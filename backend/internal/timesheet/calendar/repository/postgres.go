@@ -7,8 +7,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/database"
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
 	"github.com/Koshsky/erp-backend/internal/timesheet/calendar/repository/sqlc"
 	"github.com/Koshsky/erp-backend/pkg/date"
 )
@@ -40,7 +40,7 @@ func (r *CalendarRepository) q(ctx context.Context) *sqlc.Queries {
 func (r *CalendarRepository) ListResources(
 	ctx context.Context,
 	userID int64,
-	scope rbac.ListScope,
+	scope access.ListScope,
 ) ([]sqlc.ListResourcesRow, error) {
 	return r.q(ctx).ListResources(ctx, sqlc.ListResourcesParams{
 		UserID:             userID,

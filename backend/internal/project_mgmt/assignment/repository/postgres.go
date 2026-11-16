@@ -9,8 +9,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/database"
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
 	"github.com/Koshsky/erp-backend/internal/project_mgmt/assignment/repository/sqlc"
 )
 
@@ -108,7 +108,7 @@ func (r *AssignmentRepository) DeleteAssignment(ctx context.Context, id int64) e
 func (r *AssignmentRepository) ListAssignments(
 	ctx context.Context,
 	userID int64,
-	scope rbac.ListScope,
+	scope access.ListScope,
 	ownerID int64,
 	limit, offset int,
 ) ([]sqlc.Assignment, error) {
@@ -132,7 +132,7 @@ func (r *AssignmentRepository) ListAssignments(
 func (r *AssignmentRepository) CountAssignments(
 	ctx context.Context,
 	userID int64,
-	scope rbac.ListScope,
+	scope access.ListScope,
 	ownerID int64,
 ) (int64, error) {
 	return r.q(ctx).CountAssignments(
@@ -154,12 +154,12 @@ func (r *AssignmentRepository) CountAssignments(
 }
 
 // OwnerChain returns the owner chain (for RBAC checks in the middleware).
-func (r *AssignmentRepository) OwnerChain(ctx context.Context, id int64) (rbac.Owners, error) {
+func (r *AssignmentRepository) OwnerChain(ctx context.Context, id int64) (access.Owners, error) {
 	row, err := r.q(ctx).OwnerChain(ctx, id)
 	if err != nil {
-		return rbac.Owners{}, err
+		return access.Owners{}, err
 	}
-	return rbac.Owners{
+	return access.Owners{
 		ProjectOwner: row.ProjectOwner, ProcessOwner: row.ProcessOwner,
 		Owner: row.OwnerID, ResourceOwner: row.ResourceOwner,
 	}, nil

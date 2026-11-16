@@ -6,9 +6,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/authz/engine"
 	"github.com/Koshsky/erp-backend/internal/database"
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
 )
 
 // OwnerProbe implements the data-dependent scope moves of the ownership tree
@@ -58,9 +58,9 @@ func (p *OwnerProbe) executor(ctx context.Context) interface {
 }
 
 // descendant reports whether the user owns a descendant node below (res, id).
-func (p *OwnerProbe) descendant(ctx context.Context, res rbac.Resource, id, userID int64) (bool, error) {
+func (p *OwnerProbe) descendant(ctx context.Context, res access.Resource, id, userID int64) (bool, error) {
 	switch res {
-	case rbac.ResourceProject:
+	case access.ResourceProject:
 		return p.exists(ctx, `
 			SELECT EXISTS (
 				SELECT 1 FROM processes dp
@@ -70,22 +70,22 @@ func (p *OwnerProbe) descendant(ctx context.Context, res rbac.Resource, id, user
 				JOIN processes dp ON dp.id = d.process_id
 				WHERE dp.project_id = $1 AND d.owner_id = $2
 			)`, id, userID)
-	case rbac.ResourceProcess:
+	case access.ResourceProcess:
 		return p.exists(ctx, `
 			SELECT EXISTS (
 				SELECT 1 FROM tasks d
 				WHERE d.process_id = $1 AND d.owner_id = $2
 			)`, id, userID)
-	case rbac.ResourceTask:
+	case access.ResourceTask:
 		return p.exists(ctx, `
 			SELECT EXISTS (
 				SELECT 1 FROM tasks d
 				WHERE d.parent_id = $1 AND d.owner_id = $2
 			)`, id, userID)
-	case rbac.ResourceMilestone, rbac.ResourceAssignment, rbac.ResourceState,
-		rbac.ResourceResource, rbac.ResourceWorker, rbac.ResourceComment,
-		rbac.ResourceUserCatalog, rbac.ResourceRBACConfig, rbac.ResourceUserAdmin,
-		rbac.ResourceStateAdmin, rbac.ResourceOrgStructure, rbac.ResourceAudit, rbac.ResourceAutoCreate:
+	case access.ResourceMilestone, access.ResourceAssignment, access.ResourceState,
+		access.ResourceResource, access.ResourceWorker, access.ResourceComment,
+		access.ResourceUserCatalog, access.ResourceRBACConfig, access.ResourceUserAdmin,
+		access.ResourceStateAdmin, access.ResourceOrgStructure, access.ResourceAudit, access.ResourceAutoCreate:
 		return false, nil
 	}
 	return false, nil
@@ -93,7 +93,7 @@ func (p *OwnerProbe) descendant(ctx context.Context, res rbac.Resource, id, user
 
 func (p *OwnerProbe) peer(ctx context.Context, target engine.Target, userID int64, project bool) (bool, error) {
 	switch target.Res {
-	case rbac.ResourceProcess:
+	case access.ResourceProcess:
 		if project {
 			return false, nil
 		}
@@ -103,7 +103,7 @@ func (p *OwnerProbe) peer(ctx context.Context, target engine.Target, userID int6
 				WHERE s.project_id = COALESCE(NULLIF($3::bigint, 0), (SELECT project_id FROM processes WHERE id = $1))
 				  AND s.owner_id = $2
 			)`, target.ID, userID, target.ParentID)
-	case rbac.ResourceTask:
+	case access.ResourceTask:
 		return p.exists(ctx, `
 			WITH destination AS (
 				SELECT id, project_id FROM processes
@@ -114,23 +114,23 @@ func (p *OwnerProbe) peer(ctx context.Context, target engine.Target, userID int6
 				JOIN destination d ON CASE WHEN $4::boolean THEN sp.project_id = d.project_id ELSE sp.id = d.id END
 				WHERE s.owner_id = $2
 			)`, target.ID, userID, target.ParentID, project)
-	case rbac.ResourceProject, rbac.ResourceMilestone, rbac.ResourceAssignment,
-		rbac.ResourceState, rbac.ResourceResource, rbac.ResourceWorker,
-		rbac.ResourceComment, rbac.ResourceUserCatalog, rbac.ResourceRBACConfig,
-		rbac.ResourceUserAdmin, rbac.ResourceStateAdmin, rbac.ResourceOrgStructure,
-		rbac.ResourceAudit, rbac.ResourceAutoCreate:
+	case access.ResourceProject, access.ResourceMilestone, access.ResourceAssignment,
+		access.ResourceState, access.ResourceResource, access.ResourceWorker,
+		access.ResourceComment, access.ResourceUserCatalog, access.ResourceRBACConfig,
+		access.ResourceUserAdmin, access.ResourceStateAdmin, access.ResourceOrgStructure,
+		access.ResourceAudit, access.ResourceAutoCreate:
 		return false, nil
 	}
 	return false, nil
 }
 
 func (p *OwnerProbe) related(ctx context.Context, target engine.Target, userID int64, scope string) (bool, error) {
-	if scope == engine.ScopeProcessProjects && target.Res == rbac.ResourceProject {
+	if scope == engine.ScopeProcessProjects && target.Res == access.ResourceProject {
 		return p.exists(ctx, `SELECT EXISTS (
 			SELECT 1 FROM processes WHERE project_id = $1 AND owner_id = $2
 		)`, target.ID, userID)
 	}
-	if scope == engine.ScopeProjectResources && target.Res == rbac.ResourceResource {
+	if scope == engine.ScopeProjectResources && target.Res == access.ResourceResource {
 		return p.exists(ctx, `SELECT EXISTS (
 			SELECT 1 FROM resources r JOIN processes p ON p.owner_id = r.owner_id
 			JOIN projects pr ON pr.id = p.project_id

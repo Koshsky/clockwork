@@ -3,7 +3,6 @@ package repository
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"log/slog"
 
@@ -364,54 +363,14 @@ func (r *RuleRepository) FindUserPreset(ctx context.Context, userID int64) (stri
 
 // ListUserPrincipals returns the preset of every active user (user_id, preset)
 // — the base of the in-memory principal snapshot.
-func (r *RuleRepository) ListUserPrincipals(ctx context.Context) ([]UserPreset, error) {
-	rows, err := r.q(ctx).ListUserPrincipals(ctx)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]UserPreset, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, UserPreset{
-			UserID: row.UserID,
-			Preset: row.Preset,
-		})
-	}
-	return out, nil
+func (r *RuleRepository) ListUserPrincipals(ctx context.Context) ([]sqlc.ListUserPrincipalsRow, error) {
+	return r.q(ctx).ListUserPrincipals(ctx)
 }
 
 // ListAllUserPermissions returns every active per-user override (for the
 // in-memory principal snapshot; grouped by the caller).
-func (r *RuleRepository) ListAllUserPermissions(ctx context.Context) ([]UserPermissionRef, error) {
-	rows, err := r.q(ctx).ListAllUserPermissions(ctx)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]UserPermissionRef, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, UserPermissionRef{
-			UserID:   row.UserID,
-			Resource: row.Resource,
-			Action:   row.Action,
-			Scope:    row.Scope,
-			Granted:  row.Granted,
-		})
-	}
-	return out, nil
-}
-
-// UserPreset — user_id → preset (from ListUserPrincipals).
-type UserPreset struct {
-	UserID int64
-	Preset sql.NullString
-}
-
-// UserPermissionRef — a per-user override reference (from ListAllUserPermissions).
-type UserPermissionRef struct {
-	UserID   int64
-	Resource string
-	Action   string
-	Scope    string
-	Granted  bool
+func (r *RuleRepository) ListAllUserPermissions(ctx context.Context) ([]sqlc.ListAllUserPermissionsRow, error) {
+	return r.q(ctx).ListAllUserPermissions(ctx)
 }
 
 func toInt8(v *int64) pgtype.Int8 {

@@ -3,6 +3,7 @@ package delivery
 import (
 	"log/slog"
 
+	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/authz/engine"
 	planningservice "github.com/Koshsky/erp-backend/internal/planning/service"
 	"github.com/Koshsky/erp-backend/pkg/errors"
@@ -54,7 +55,7 @@ func (h *PlanningHandler) GetProjectPlanning(c *gin.Context) {
 	planning, err := h.service.GetProjectPlanning(
 		c.Request.Context(),
 		user.ID,
-		engine.CompileViewScopeUser(user, rbac.ResourceProject),
+		engine.CompileViewScopeUser(user, access.ResourceProject),
 	)
 	if err != nil {
 		response.InternalError(c, h.logger, err.Error(), err)
@@ -84,8 +85,8 @@ func (h *PlanningHandler) GetProcessPlanning(c *gin.Context) {
 	planning, err := h.service.GetProcessPlanning(
 		c.Request.Context(),
 		user.ID,
-		engine.CompileViewScopeUser(user, rbac.ResourceProcess),
-		engine.CompileViewScopeUser(user, rbac.ResourceProject),
+		engine.CompileViewScopeUser(user, access.ResourceProcess),
+		engine.CompileViewScopeUser(user, access.ResourceProject),
 	)
 	if err != nil {
 		response.InternalError(c, h.logger, err.Error(), err)
@@ -115,8 +116,8 @@ func (h *PlanningHandler) GetTaskPlanning(c *gin.Context) {
 	planning, err := h.service.GetTaskPlanning(
 		c.Request.Context(),
 		user.ID,
-		engine.CompileViewScopeUser(user, rbac.ResourceTask),
-		engine.CompileViewScopeUser(user, rbac.ResourceResource),
+		engine.CompileViewScopeUser(user, access.ResourceTask),
+		engine.CompileViewScopeUser(user, access.ResourceResource),
 	)
 	if err != nil {
 		response.InternalError(c, h.logger, err.Error(), err)

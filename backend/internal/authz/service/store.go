@@ -10,51 +10,55 @@ import (
 
 	"github.com/Koshsky/erp-backend/internal/authz/domain"
 	"github.com/Koshsky/erp-backend/internal/authz/engine"
-	"github.com/Koshsky/erp-backend/internal/authz/repository"
 	"github.com/Koshsky/erp-backend/internal/authz/repository/sqlc"
 	"github.com/Koshsky/erp-backend/internal/config"
-	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
 	userdomain "github.com/Koshsky/erp-backend/internal/user/domain"
-	userctx "github.com/Koshsky/erp-backend/internal/userctx"
 )
 
 // reloadTimeout — budget of a single rule reload from the DB.
 const reloadTimeout = 10 * time.Second
 
+// RoutePublisher prepares route checks without changing the active snapshot.
+// A successful preparation returns an infallible publication action so that
+// database and matrix failures cannot partially replace the active rules.
+type RoutePublisher interface {
+	PrepareRoutes([]engine.RouteSpec) (func(), error)
+}
+
 // PolicyStore keeps DB rules in memory and publishes them to the engine:
 // the Casbin snapshot via engine.Publish (matrix + ACL rows + role
-// assignments), the route checks via rbac.Middleware.Refresh, and the
+// assignments), the prepared route checks, and the
 // per-user principal snapshot (admin bypass, assigned preset, individual
 // overrides) served to the auth middleware via EffectiveUser. When the DB is
 // unavailable it runs on the built-in defaults and "heals" itself by TTL. No
 // load error brings the service down: only a valid, consistent snapshot is
 // applied.
 type PolicyStore struct {
-	logger   *slog.Logger
-	repo     policyRepository
-	mw       *rbac.Middleware
-	interval time.Duration
-	stop     chan struct{}
+	logger    *slog.Logger
+	repo      PolicyRepository
+	publisher RoutePublisher
+	interval  time.Duration
+	stop      chan struct{}
 
 	mu      sync.RWMutex
-	users   map[int64]userctx.UserContext
+	users   map[int64]domain.UserContext
 	started bool
 }
 
 // NewPolicyStore builds the policy store.
 func NewPolicyStore(
 	logger *slog.Logger,
-	repo *repository.RuleRepository,
-	mw *rbac.Middleware,
+	repo PolicyRepository,
+	publisher RoutePublisher,
 	interval config.Duration,
 ) *PolicyStore {
 	return &PolicyStore{
-		logger:   logger.With("component", "rbacpolicy_store"),
-		repo:     repo,
-		mw:       mw,
-		interval: time.Duration(interval),
-		stop:     make(chan struct{}),
-		users:    map[int64]userctx.UserContext{},
+		logger:    logger.With("component", "rbacpolicy_store"),
+		repo:      repo,
+		publisher: publisher,
+		interval:  time.Duration(interval),
+		stop:      make(chan struct{}),
+		users:     map[int64]domain.UserContext{},
 	}
 }
 
@@ -122,7 +126,7 @@ func (s *PolicyStore) Reload(ctx context.Context) error {
 			"в БД нет ни одной активной маршрутной проверки — применение отменено (защита от полной блокировки)",
 		)
 	}
-	built, err := engine.BuildPolicies(routePoliciesToSpecs(routePolicies))
+	publishRoutes, err := s.publisher.PrepareRoutes(routePoliciesToSpecs(routePolicies))
 	if err != nil {
 		return fmt.Errorf("сборка маршрутных проверок: %w", err)
 	}
@@ -161,7 +165,7 @@ func (s *PolicyStore) Reload(ctx context.Context) error {
 		return fmt.Errorf("сборка Casbin-политик: %w", err)
 	}
 
-	s.mw.Refresh(built)
+	publishRoutes()
 	s.mu.Lock()
 	s.users = principals
 	s.mu.Unlock()
@@ -172,12 +176,12 @@ func (s *PolicyStore) Reload(ctx context.Context) error {
 // assigned preset, individual overrides). It never touches the DB per request:
 // the snapshot is refreshed by Start/Reload. A missing entry (unknown or
 // not-yet-loaded user) returns the default deny principal.
-func (s *PolicyStore) EffectiveUser(_ context.Context, userID int64) (userctx.UserContext, error) {
+func (s *PolicyStore) EffectiveUser(_ context.Context, userID int64) (domain.UserContext, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	u, ok := s.users[userID]
 	if !ok {
-		return userctx.UserContext{ID: userID}, nil
+		return domain.UserContext{ID: userID}, nil
 	}
 	return u, nil
 }
@@ -185,7 +189,7 @@ func (s *PolicyStore) EffectiveUser(_ context.Context, userID int64) (userctx.Us
 // loadPrincipals builds the user → principal snapshot: every active user with
 // the assigned preset (admin preset ⇒ the admin bypass) and the individual
 // overrides grouped by user.
-func (s *PolicyStore) loadPrincipals(ctx context.Context) (map[int64]userctx.UserContext, error) {
+func (s *PolicyStore) loadPrincipals(ctx context.Context) (map[int64]domain.UserContext, error) {
 	rows, err := s.repo.ListUserPrincipals(ctx)
 	if err != nil {
 		return nil, err
@@ -194,22 +198,22 @@ func (s *PolicyStore) loadPrincipals(ctx context.Context) (map[int64]userctx.Use
 	if err != nil {
 		return nil, err
 	}
-	overrides := make(map[int64][]userctx.PermissionRule, len(perms))
+	overrides := make(map[int64][]domain.PermissionRule, len(perms))
 	for _, p := range perms {
-		overrides[p.UserID] = append(overrides[p.UserID], userctx.PermissionRule{
+		overrides[p.UserID] = append(overrides[p.UserID], domain.PermissionRule{
 			Resource: p.Resource,
 			Action:   p.Action,
 			Scope:    p.Scope,
 			Granted:  p.Granted,
 		})
 	}
-	users := make(map[int64]userctx.UserContext, len(rows))
+	users := make(map[int64]domain.UserContext, len(rows))
 	for _, row := range rows {
 		preset := ""
 		if row.Preset.Valid {
 			preset = row.Preset.String
 		}
-		users[row.UserID] = userctx.UserContext{
+		users[row.UserID] = domain.UserContext{
 			ID:     row.UserID,
 			Admin:  preset == userdomain.PresetAdmin,
 			Preset: preset,
@@ -243,7 +247,7 @@ func publishInput(rules []sqlc.ListActivePresetRulesRow) engine.PublishInput {
 }
 
 // routePoliciesToSpecs converts route policy definitions into engine
-// specifications (kind and parameter validation happens in BuildPolicies).
+// specifications (the publisher validates kinds and parameters).
 func routePoliciesToSpecs(routes []domain.RoutePolicy) []engine.RouteSpec {
 	specs := make([]engine.RouteSpec, 0, len(routes))
 	for _, p := range routes {

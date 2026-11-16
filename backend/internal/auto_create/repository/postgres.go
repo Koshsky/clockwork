@@ -3,14 +3,10 @@ package repository
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"log/slog"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/Koshsky/erp-backend/internal/auto_create/dto"
 	"github.com/Koshsky/erp-backend/internal/auto_create/repository/sqlc"
 	"github.com/Koshsky/erp-backend/internal/database"
 )
@@ -37,36 +33,18 @@ func (r *AutoCreateRepository) q(ctx context.Context) *sqlc.Queries {
 	return r.db
 }
 
-// GetConfig returns the current config (empty + disabled when not set yet).
-func (r *AutoCreateRepository) GetConfig(ctx context.Context) (*dto.AutoCreateConfig, error) {
+// GetConfig leaves JSON interpretation to the service to keep persistence independent of HTTP DTOs.
+func (r *AutoCreateRepository) GetConfig(ctx context.Context) (*sqlc.GetAutoCreateConfigRow, error) {
 	row, err := r.q(ctx).GetAutoCreateConfig(ctx)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return &dto.AutoCreateConfig{Enabled: false, Processes: []dto.ProcessTemplate{}}, nil
-		}
 		return nil, err
 	}
-
-	var processes []dto.ProcessTemplate
-	if err = json.Unmarshal(row.Config, &processes); err != nil {
-		return nil, err
-	}
-	if processes == nil {
-		processes = []dto.ProcessTemplate{}
-	}
-	return &dto.AutoCreateConfig{Enabled: row.Enabled, Processes: processes}, nil
+	return &row, nil
 }
 
 // UpsertConfig replaces the whole config (single row id=1).
-func (r *AutoCreateRepository) UpsertConfig(ctx context.Context, cfg *dto.AutoCreateConfig) error {
-	raw, err := json.Marshal(cfg.Processes)
-	if err != nil {
-		return err
-	}
-	_, err = r.q(ctx).UpsertAutoCreateConfig(ctx, sqlc.UpsertAutoCreateConfigParams{
-		Enabled: cfg.Enabled,
-		Config:  raw,
-	})
+func (r *AutoCreateRepository) UpsertConfig(ctx context.Context, params sqlc.UpsertAutoCreateConfigParams) error {
+	_, err := r.q(ctx).UpsertAutoCreateConfig(ctx, params)
 	return err
 }
 
