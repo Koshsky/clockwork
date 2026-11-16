@@ -3,7 +3,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [main]
+    branches: [main, test/frontend-quality]
 permissions:
   contents: read
 concurrency:
@@ -20,7 +20,13 @@ jobs:
         with:
           fetch-depth: 0
       - id: filter
-        run: python3 scripts/ci.py detect
+        run: |
+          # The temporary branch trigger must check the full topic diff.
+          if [ "$GITHUB_REF_NAME" = 'test/frontend-quality' ]; then
+            jq --arg before "$(git merge-base origin/main HEAD)" '.before = $before' "$GITHUB_EVENT_PATH" > "$RUNNER_TEMP/ci-branch-event.json"
+            export GITHUB_EVENT_PATH="$RUNNER_TEMP/ci-branch-event.json"
+          fi
+          python3 scripts/ci.py detect
   frontend-changes:
     name: Is frontend changed?
     runs-on: ubuntu-latest
@@ -31,7 +37,13 @@ jobs:
         with:
           fetch-depth: 0
       - id: filter
-        run: python3 scripts/ci.py detect
+        run: |
+          # The temporary branch trigger must check the full topic diff.
+          if [ "$GITHUB_REF_NAME" = 'test/frontend-quality' ]; then
+            jq --arg before "$(git merge-base origin/main HEAD)" '.before = $before' "$GITHUB_EVENT_PATH" > "$RUNNER_TEMP/ci-branch-event.json"
+            export GITHUB_EVENT_PATH="$RUNNER_TEMP/ci-branch-event.json"
+          fi
+          python3 scripts/ci.py detect
   common-changes:
     name: Is API changed?
     runs-on: ubuntu-latest
@@ -42,7 +54,13 @@ jobs:
         with:
           fetch-depth: 0
       - id: filter
-        run: python3 scripts/ci.py detect
+        run: |
+          # The temporary branch trigger must check the full topic diff.
+          if [ "$GITHUB_REF_NAME" = 'test/frontend-quality' ]; then
+            jq --arg before "$(git merge-base origin/main HEAD)" '.before = $before' "$GITHUB_EVENT_PATH" > "$RUNNER_TEMP/ci-branch-event.json"
+            export GITHUB_EVENT_PATH="$RUNNER_TEMP/ci-branch-event.json"
+          fi
+          python3 scripts/ci.py detect
   backend:
     name: Backend
     needs: backend-changes
