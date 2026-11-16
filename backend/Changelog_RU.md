@@ -5,7 +5,11 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 проект придерживается [Semantic Versioning](https://semver.org/lang/ru/).
 
-## [Unreleased]
+## [1.5.1] - 2026-11-16
+
+### Изменено
+
+- Упрощены модули бэкенда и разделены границы авторизации, HTTP и хранения данных без изменения API.
 
 ### Исправлено
 
