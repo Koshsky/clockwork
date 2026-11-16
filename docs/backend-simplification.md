@@ -971,3 +971,54 @@ query and revision/replay acceptance was not executed. No browser/Electron
 acceptance or fresh frontend SDK generation is claimed.
 Evidence: `../local/backend-b16-20261116/`. No push, merge, CI, release, deployment
 or remote server changes were performed.
+
+## B17 implementation ledger — 2026-11-16
+
+Continued on `refactor/backend-access-tracing` after `4930b92`. Calendar service,
+repository port and pure interval helpers now live in the timesheet/calendar
+feature root; `calendar/service` is removed. HTTP DTOs and SQL adapter/sqlc remain
+separate, with composition in parent `timesheet/module.go`. Normalizing internal
+names, the package declaration, formatting and one constructor comment reproduces
+both original core files exactly. The event sweep, date limits, empty responses,
+interval coalescing and SQL resource-owner filtering are unchanged. Regenerated
+Wire preserves provider calls, arguments and order. Architecture guards now
+include the calendar core and reject concrete-repository/HTTP coupling.
+
+All 470 existing Test functions remain. The nine original calendar functions
+moved without assertion changes; six new functions add 27 named subcases and 33
+passing outcomes. All 42 original-layout calendar outcomes match the final run.
+Checks cover overlapping and adjacent absences, clipping at the requested start,
+inclusive hire/termination/absence boundaries, simultaneous employee replacement
+without a capacity seam, exhausted availability, multiple resources and nullable
+employment dates. They preserve resource isolation in the service output, the
+exact 730-included-day maximum across a leap-year start, non-nil empty responses,
+the existing three-read sequence and short-circuiting on repository failures.
+
+HTTP tests exercise real middleware, handler and core with fake repositories:
+own/all/admin scopes, denied and anonymous access, date parsing, missing/reversed
+or excessive windows and exact daily availability periods. These scope checks
+verify authorization and scope forwarding, not execution of SQL visibility
+predicates. The actual SQL adapter is exercised over a fake request-scoped
+pgx.Tx without a fallback pool. Resource scope flags, user ID, date argument order,
+context and row errors are preserved; repository reads do not finalize a
+transaction owned by the request. These tests do not prove real SQL filtering,
+absence joins or transaction isolation.
+
+Fresh Swagger JSON/YAML before and after are byte-identical (57 paths, 93
+operations, 92 definitions); all nine frozen contract groups still match B01.
+SQL, generated sqlc, DTOs, migrations, versions, published changelogs and
+revision/replay middleware remain unchanged.
+
+Validation: build/vet, full normal-tag suite (396 top-level pass, 16 skip; 3,212
+pass events and 20 skips including subtests), full race suite in 58 tested
+packages, lint 2.15.0 (0 issues), repository policy and whitespace checks pass.
+All 476 Test functions compile/list with the integration tag; 64 tagged functions
+were not executed. The 49 existing frontend resource scenario/usage unit tests
+pass, including day/week behavior, weekly peak load/minimum availability and
+native command-transform parity. No frontend source changed; no browser,
+Electron packaging or end-to-end acceptance is claimed.
+
+The local Docker daemon is unavailable, so real PostgreSQL/API owner filtering,
+employment/absence queries and revision/replay acceptance were not executed.
+Evidence: `../local/backend-b17-20261116/`. No push, merge, CI, release, deployment
+or remote server changes were performed.

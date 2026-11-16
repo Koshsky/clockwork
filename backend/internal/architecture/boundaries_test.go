@@ -30,6 +30,7 @@ func TestNeutralCoresDoNotDependOnHTTPAdapters(t *testing.T) {
 		"./internal/project_mgmt/milestone",
 		"./internal/timesheet/state",
 		"./internal/timesheet/resource",
+		"./internal/timesheet/calendar",
 		"./internal/project_mgmt/comment",
 		"./internal/project_mgmt/assignment",
 		"./internal/project_mgmt/project",
@@ -49,6 +50,7 @@ func TestNeutralCoresDoNotDependOnHTTPAdapters(t *testing.T) {
 			dependency == "github.com/Koshsky/erp-backend/internal/project_mgmt/milestone/repository" ||
 			dependency == "github.com/Koshsky/erp-backend/internal/timesheet/state/repository" ||
 			dependency == "github.com/Koshsky/erp-backend/internal/timesheet/resource/repository" ||
+			dependency == "github.com/Koshsky/erp-backend/internal/timesheet/calendar/repository" ||
 			dependency == "github.com/Koshsky/erp-backend/internal/project_mgmt/comment/repository" ||
 			dependency == "github.com/Koshsky/erp-backend/internal/project_mgmt/assignment/repository" ||
 			dependency == "github.com/Koshsky/erp-backend/internal/project_mgmt/project/repository" ||

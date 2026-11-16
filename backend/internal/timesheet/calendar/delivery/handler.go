@@ -9,7 +9,7 @@ import (
 	"github.com/Koshsky/erp-backend/internal/authz/engine"
 	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
 	"github.com/Koshsky/erp-backend/internal/response"
-	"github.com/Koshsky/erp-backend/internal/timesheet/calendar/service"
+	"github.com/Koshsky/erp-backend/internal/timesheet/calendar"
 	"github.com/Koshsky/erp-backend/internal/userctx"
 	"github.com/Koshsky/erp-backend/pkg/date"
 	"github.com/Koshsky/erp-backend/pkg/errors"
@@ -22,7 +22,7 @@ type CalendarHandler struct {
 }
 
 // NewCalendarHandler builds the CalendarHandler handler.
-func NewCalendarHandler(logger *slog.Logger, svc *service.CalendarService, mw *rbac.Middleware) *CalendarHandler {
+func NewCalendarHandler(logger *slog.Logger, svc *calendar.Service, mw *rbac.Middleware) *CalendarHandler {
 	return &CalendarHandler{
 		logger:  logger.With("component", "calendar_handler"),
 		service: svc,

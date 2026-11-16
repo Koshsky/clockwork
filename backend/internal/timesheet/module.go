@@ -5,9 +5,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/wire"
 
+	calendarService "github.com/Koshsky/erp-backend/internal/timesheet/calendar"
 	calendarDelivery "github.com/Koshsky/erp-backend/internal/timesheet/calendar/delivery"
 	calendarRepo "github.com/Koshsky/erp-backend/internal/timesheet/calendar/repository"
-	calendarService "github.com/Koshsky/erp-backend/internal/timesheet/calendar/service"
 	resourceService "github.com/Koshsky/erp-backend/internal/timesheet/resource"
 	resourceDelivery "github.com/Koshsky/erp-backend/internal/timesheet/resource/delivery"
 	resourceRepo "github.com/Koshsky/erp-backend/internal/timesheet/resource/repository"
@@ -31,8 +31,8 @@ var ProviderSet = wire.NewSet(
 	stateDelivery.NewStateHandler,
 
 	calendarRepo.NewCalendarRepository,
-	wire.Bind(new(calendarService.CalendarRepository), new(*calendarRepo.CalendarRepository)),
-	calendarService.NewCalendarService,
+	wire.Bind(new(calendarService.Repository), new(*calendarRepo.CalendarRepository)),
+	calendarService.NewService,
 	calendarDelivery.NewCalendarHandler,
 
 	ProvideModule,

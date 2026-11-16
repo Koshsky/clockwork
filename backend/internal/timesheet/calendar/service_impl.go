@@ -1,4 +1,4 @@
-package service
+package calendar
 
 import (
 	"context"
@@ -23,15 +23,15 @@ const (
 	hoursPerDay      = 24
 )
 
-type CalendarService struct {
+type Service struct {
 	logger     *slog.Logger
-	repository CalendarRepository
+	repository Repository
 	tracer     *tracingpkg.Tracer
 }
 
-// NewCalendarService builds the CalendarService service.
-func NewCalendarService(logger *slog.Logger, tracer *tracingpkg.Tracer, r CalendarRepository) *CalendarService {
-	return &CalendarService{
+// NewService builds the calendar service.
+func NewService(logger *slog.Logger, tracer *tracingpkg.Tracer, r Repository) *Service {
+	return &Service{
 		logger:     logger.With("component", "calendar_service"),
 		repository: r,
 		tracer:     tracer,
@@ -43,7 +43,7 @@ func NewCalendarService(logger *slog.Logger, tracer *tracingpkg.Tracer, r Calend
 // depends on resource members and state intervals, not the number of days.
 // Resources are scoped by the caller's resource view zone (userID/scope),
 // so a process owner only sees capacity curves of its own resources.
-func (s *CalendarService) GetCalendar(
+func (s *Service) GetCalendar(
 	ctx context.Context,
 	userID int64,
 	scope access.ListScope,

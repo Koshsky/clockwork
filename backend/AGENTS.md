@@ -65,6 +65,9 @@ session and replay contracts when implementing each new boundary.
   may use its own DTOs and repository/sqlc but never delivery or the concrete repository.
   Composition stays in parent `project_mgmt/module.go` or `timesheet/module.go`
   to avoid a core/delivery import cycle.
+- The timesheet/calendar core keeps Service, Repository and pure interval
+  helpers in its root; preserve event-sweep calculations and SQL scope filtering.
+  Its composition stays in timesheet/module.go.
 - Task execution status constants live in the task core; timesheet day types
   remain in their separate timesheet/state feature.
 - Task dependency types and pure date helpers live in the task_dependency core.

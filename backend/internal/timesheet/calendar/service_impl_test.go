@@ -1,5 +1,5 @@
 //nolint:testpackage // tests the unexported buildPeriods directly
-package service
+package calendar
 
 import (
 	"context"
@@ -100,17 +100,17 @@ func TestBuildPeriodsTerminationAndMerge(t *testing.T) {
 	}
 }
 
-// newTestCalendarService builds a CalendarService whose repository is never
+// newTestService builds a Service whose repository is never
 // reached by the validation tests (validation runs before any repo call).
-func newTestCalendarService() *CalendarService {
-	return NewCalendarService(slog.New(slog.DiscardHandler), tracing.New(nil), nil)
+func newTestService() *Service {
+	return NewService(slog.New(slog.DiscardHandler), tracing.New(nil), nil)
 }
 
 // TestGetCalendarReversedRangeIsBadRequest checks that an inverted date range
 // is a client error (400), not a 500.
 func TestGetCalendarReversedRangeIsBadRequest(t *testing.T) {
 	t.Parallel()
-	_, err := newTestCalendarService().GetCalendar(
+	_, err := newTestService().GetCalendar(
 		context.Background(),
 		0,
 		lsOwn(),
@@ -129,7 +129,7 @@ func TestGetCalendarReversedRangeIsBadRequest(t *testing.T) {
 // error (400), not a 500.
 func TestGetCalendarTooWideRangeIsBadRequest(t *testing.T) {
 	t.Parallel()
-	_, err := newTestCalendarService().GetCalendar(
+	_, err := newTestService().GetCalendar(
 		context.Background(),
 		0,
 		lsOwn(),
@@ -144,7 +144,7 @@ func TestGetCalendarTooWideRangeIsBadRequest(t *testing.T) {
 	}
 }
 
-// stubCalendarRepo is an in-memory CalendarRepository. ListResources applies the
+// stubCalendarRepo is an in-memory Repository. ListResources applies the
 // scoping contract of the SQL query: 'all' returns every resource row, 'own'
 // keeps only rows owned by the caller, and an empty zone (no rule / none — the
 // engine code for a missing matrix row) also returns every row (reference
@@ -191,9 +191,9 @@ func (s *stubCalendarRepo) ListUnavailableRanges(
 	return s.ranges, nil
 }
 
-// newScopedCalendarService builds a CalendarService over the stub repository.
-func newScopedCalendarService(repo CalendarRepository) *CalendarService {
-	return NewCalendarService(slog.New(slog.DiscardHandler), tracing.New(nil), repo)
+// newScopedService builds a Service over the stub repository.
+func newScopedService(repo Repository) *Service {
+	return NewService(slog.New(slog.DiscardHandler), tracing.New(nil), repo)
 }
 
 // calendarWindow is the date range shared by the view-scope tests.
@@ -214,7 +214,7 @@ func TestGetCalendarResourceScopeOwn(t *testing.T) {
 	}
 	start, end := calendarWindow()
 
-	got, err := newScopedCalendarService(repo).GetCalendar(context.Background(), 7, lsOwn(), start, end)
+	got, err := newScopedService(repo).GetCalendar(context.Background(), 7, lsOwn(), start, end)
 	if err != nil {
 		t.Fatalf("GetCalendar() error = %v", err)
 	}
@@ -240,7 +240,7 @@ func TestGetCalendarNoResourceScopeRule(t *testing.T) {
 	}
 	start, end := calendarWindow()
 
-	got, err := newScopedCalendarService(repo).GetCalendar(context.Background(), 7, lsNone(), start, end)
+	got, err := newScopedService(repo).GetCalendar(context.Background(), 7, lsNone(), start, end)
 	if err != nil {
 		t.Fatalf("GetCalendar() error = %v", err)
 	}
@@ -264,7 +264,7 @@ func TestGetCalendarResourceScopeAll(t *testing.T) {
 	}
 	start, end := calendarWindow()
 
-	got, err := newScopedCalendarService(repo).GetCalendar(context.Background(), 7, lsAll(), start, end)
+	got, err := newScopedService(repo).GetCalendar(context.Background(), 7, lsAll(), start, end)
 	if err != nil {
 		t.Fatalf("GetCalendar() error = %v", err)
 	}
@@ -292,7 +292,7 @@ func TestGetCalendarEmptyResources(t *testing.T) {
 	}
 	start, end := calendarWindow()
 
-	got, err := newScopedCalendarService(repo).GetCalendar(context.Background(), 7, lsOwn(), start, end)
+	got, err := newScopedService(repo).GetCalendar(context.Background(), 7, lsOwn(), start, end)
 	if err != nil {
 		t.Fatalf("GetCalendar() error = %v", err)
 	}
