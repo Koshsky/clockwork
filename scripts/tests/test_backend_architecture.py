@@ -100,6 +100,21 @@ class ArchitectureTest(unittest.TestCase):
                 ]
                 architecture.check_graph(packages)
 
+    def test_cgo_pseudo_import_does_not_require_go_package_metadata(self):
+        packages = graph()
+        core = packages[architecture.INTERNAL + "tracing"]
+        core.update(GoFiles=[], CgoFiles=["native.go"], Imports=["C"])
+        decoded = architecture.decode_packages("\n".join(json.dumps(row) for row in packages.values()))
+        self.assertEqual(architecture.check_graph(decoded)["production_packages"], len(architecture.CORES))
+
+    def test_cgo_only_sql_adapters_still_obey_http_boundaries(self):
+        packages = graph()
+        dto = architecture.INTERNAL + "auto_create/dto"
+        node(packages, dto)
+        node(packages, architecture.INTERNAL + "auto_create/repository", ["C", dto], GoFiles=[], CgoFiles=["native.go"])
+        with self.assertRaisesRegex(ValueError, "SQL adapter depends on HTTP/DTO"):
+            architecture.check_graph(packages)
+
     def test_missing_cores_and_dependency_metadata_fail_closed(self):
         packages = graph()
         del packages[architecture.INTERNAL + "tracing"]
@@ -139,6 +154,7 @@ class PackageInputTest(unittest.TestCase):
                 {"Error": {"Err": "parse failed"}}, {"Error": {}}, {"Incomplete": True},
                 {"DepsErrors": [{"Err": "missing package"}]}, {"Imports": "bad"},
                 {"Imports": [None]}, {"GoFiles": ["hidden_test.go"]}, {"XTestImports": [""]},
+                {"CgoFiles": ["hidden_test.go"]}, {"CgoFiles": "bad"},
             ]],
         ]
         for text in invalid:

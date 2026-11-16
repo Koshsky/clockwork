@@ -1204,3 +1204,16 @@ deployment/backup restore. Evidence: `../local/backend-b19-20261116/`.
 Local implementation and acceptance are ready for review. B19 and the epic stay
 open pending publication and successful remote CI; no push, merge, release,
 deployment or remote server change was performed.
+
+### PR #9 CI follow-up — 2026-11-16
+
+Publishing the branch exposed a checker bug on the CGO-enabled Linux runner:
+the compiler's pseudo-import C has no ordinary go-list package record. The
+checker now skips that compiler edge and includes CgoFiles when selecting
+production packages and rejecting test sources. This does not allow ordinary
+missing dependencies or hide CGO-only SQL adapters from HTTP/DTO rules.
+Two regression methods cover those cases; all 186 tooling tests pass (three
+existing opt-in Docker tests skipped), and real graph checks pass with
+CGO_ENABLED=0 and CGO_ENABLED=1. Application code and contracts are unchanged.
+Sourcery initially skipped the PR as too large and supplied no code findings;
+that skip is not a completed review. No release, deployment or merge was started.

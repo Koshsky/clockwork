@@ -35,11 +35,11 @@ def decode_packages(text):
             raise ValueError("go list returned an empty or duplicate import path: " + name)
         if package.get("Incomplete") or package.get("Error") is not None or package.get("DepsErrors"):
             raise ValueError("go list returned an incomplete package: " + name)
-        for field in ("Imports", "GoFiles", "TestImports", "XTestImports"):
+        for field in ("Imports", "GoFiles", "CgoFiles", "TestImports", "XTestImports"):
             values = package.get(field, [])
             if not isinstance(values, list) or any(not isinstance(value, str) or not value for value in values):
                 raise ValueError("invalid go list field " + field + ": " + name)
-        if any(value.endswith("_test.go") for value in package.get("GoFiles", [])):
+        if any(value.endswith("_test.go") for value in package.get("GoFiles", []) + package.get("CgoFiles", [])):
             raise ValueError("test source listed as production: " + name)
         packages[name] = package
     if not packages:
@@ -72,6 +72,9 @@ def dependency_paths(packages, origin):
     while pending:
         name, path = pending.popleft()
         for dependency in sorted(packages[name].get("Imports", [])):
+            # C is resolved by cgo rather than a Go package with dependency metadata.
+            if dependency == "C":
+                continue
             if dependency in seen:
                 continue
             seen.add(dependency)
@@ -83,7 +86,7 @@ def dependency_paths(packages, origin):
 
 
 def check_graph(packages):
-    production = {name: row for name, row in packages.items() if row.get("GoFiles")}
+    production = {name: row for name, row in packages.items() if row.get("GoFiles") or row.get("CgoFiles")}
     missing = [INTERNAL + core for core in CORES if INTERNAL + core not in production]
     if missing:
         raise ValueError("missing selected cores: " + ", ".join(missing))
@@ -116,7 +119,7 @@ def check_graph(packages):
 
 
 def main():
-    fields = "ImportPath,Imports,GoFiles,TestImports,XTestImports,Incomplete,Error,DepsErrors"
+    fields = "ImportPath,Imports,GoFiles,CgoFiles,TestImports,XTestImports,Incomplete,Error,DepsErrors"
     result = subprocess.run(
         ["go", "list", "-p=2", "-deps", "-json=" + fields, "./internal/..."],
         cwd=ROOT / "backend", text=True, capture_output=True, check=True,
