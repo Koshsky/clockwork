@@ -115,14 +115,24 @@ function declarations(file: string, source: string): Declaration[] {
   const script = (text: string) => {
     if (!mayContainLayer(text)) return
     const tree = ts.createSourceFile(file + '.ts', text, ts.ScriptTarget.Latest, true)
-    function visit(node: ts.Node) {
-      if (ts.isPropertyAssignment(node) && ['zIndex', 'z-index'].includes(node.name.getText(tree).replace(/['"]/g, ''))) {
-        const value = node.initializer
-        if (ts.isNumericLiteral(value) || ts.isPrefixUnaryExpression(value) || ts.isStringLiteral(value) && /^[-+]?\d+$/.test(value.text)) {
-          result.push(postcss.decl({ prop: 'z-index', value: ts.isStringLiteral(value) ? value.text : value.getText(tree) }))
-        }
-      }
+    const recorded = new Set<ts.Node>()
+    const record = (node: ts.Expression) => {
+      recorded.add(node)
       if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+        result.push(postcss.decl({ prop: 'z-index', value: node.text.trim() }))
+      } else if (ts.isNumericLiteral(node) || ts.isPrefixUnaryExpression(node)) {
+        result.push(postcss.decl({ prop: 'z-index', value: node.getText(tree) }))
+      }
+    }
+    const isLayer = (name: string) => name === 'zIndex' || name === 'z-index'
+    function visit(node: ts.Node) {
+      if (ts.isPropertyAssignment(node) && isLayer(ts.isStringLiteral(node.name) ? node.name.text : node.name.getText(tree))) record(node.initializer)
+      if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+        const target = node.left
+        if (ts.isPropertyAccessExpression(target) && isLayer(target.name.text)
+          || ts.isElementAccessExpression(target) && ts.isStringLiteral(target.argumentExpression) && isLayer(target.argumentExpression.text)) record(node.right)
+      }
+      if ((ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) && !recorded.has(node)) {
         const value = node.text.trim()
         if (/^var\(\s*--z-[a-z-]+(?:\s*[,)]).*$/.test(value)) {
           result.push(postcss.decl({ prop: 'z-index', value }))
@@ -242,6 +252,33 @@ describe('z-index ladder', () => {
       <template><div /></template>
       <style>.overlay { z-index: 7 }</style>
     `)).map(hit => hit.value)).toEqual([7])
+  })
+
+  it('finds layers inside nested conditional and loop templates', () => {
+    const conditional = declarations('Fixture.vue', `
+      <template>
+        <template v-if="visible">
+          <div v-for="item in items" style="z-index: 999" />
+        </template>
+        <template v-else><span :style="{ zIndex: 'var(--z-missing)' }" /></template>
+      </template>
+    `)
+    expect(rawNumbers(conditional).map(hit => hit.value)).toEqual([999])
+    expect(conditional.some(declaration => declaration.value === 'var(--z-missing)')).toBe(true)
+  })
+
+  it('finds direct layer assignments and tokens inside CSS calculations', () => {
+    const assigned = declarations('fixture.ts', `
+      style.zIndex = 999
+      style['z-index'] = -3
+      style.zIndex = 'calc(var(--z-missing) + 1)'
+    `)
+    expect(rawNumbers(assigned).map(hit => hit.value)).toEqual([999, -3])
+    expect(assigned.some(declaration => declaration.value.includes('--z-missing'))).toBe(true)
+    const calculated = declarations('Fixture.vue', `
+      <template><div :style="{ zIndex: 'calc(var(--z-typo) + 1)' }" /></template>
+    `)
+    expect(calculated.some(declaration => declaration.value.includes('--z-typo'))).toBe(true)
   })
 
   it('finds numeric and undeclared layers in inline Vue and TypeScript styles', () => {

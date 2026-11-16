@@ -10,7 +10,7 @@ The web app and the desktop wrapper are versioned together.
 
 ### Fixed
 
-- Successful empty resource lists clear stale rows without discarding loaded pages after network errors.
+- Resource lists clear forbidden or deleted rows, reject stale pages and preserve pagination after incomplete responses or network errors.
 
 ## [2.1.0] - 2026-11-15
 

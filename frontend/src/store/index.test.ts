@@ -320,6 +320,141 @@ describe('refreshResources: silent background mode', () => {
   })
 })
 
+describe('resource pagination snapshots', () => {
+  const envelope = (data: unknown) => ({ data: { data } })
+  const deferred = () => {
+    let resolve!: (data: ReturnType<typeof envelope>) => void
+    let reject!: (error: unknown) => void
+    const promise = new Promise<ReturnType<typeof envelope>>((done, fail) => { resolve = done; reject = fail })
+    return { promise, resolve, reject }
+  }
+  const forbidden = { isAxiosError: true, response: { status: 403 } }
+  beforeEach(() => {
+    appStore.resources = [{ id: 1, title: 'Loaded' }]
+    appStore.resourcesTotal = 3
+  })
+
+  it.each(['API', 'local permissions'])('clears inaccessible rows when load-more is denied by %s', async source => {
+    if (source === 'API') api.resourcesGet.mockRejectedValueOnce(forbidden)
+    else {
+      const rbac = useRbacStore()
+      rbac.permsLoaded = true
+      rbac.myPermissions = [{ resource: 'resource', action: 'view', scope: 'none' }]
+    }
+    expect(await appStore.loadMoreResources()).toBe(false)
+    expect(appStore.resources).toEqual([])
+    expect(appStore.resourcesTotal).toBe(0)
+    expect(appStore.resourcesHasMore).toBe(false)
+    expect(appStore.resourcesLoadingMore).toBe(false)
+    expect(api.resourcesGet).toHaveBeenCalledTimes(source === 'API' ? 1 : 0)
+  })
+
+  it('preserves the collection on a load-more network failure', async () => {
+    api.resourcesGet.mockRejectedValueOnce(new Error('Network unavailable'))
+    expect(await appStore.loadMoreResources()).toBe(false)
+    expect(appStore.resources).toEqual([{ id: 1, title: 'Loaded' }])
+    expect(appStore.resourcesTotal).toBe(3)
+    expect(appStore.resourcesHasMore).toBe(true)
+    expect(appStore.resourcesError).toBe('Network unavailable')
+    expect(appStore.resourcesLoadingMore).toBe(false)
+  })
+
+  it.each([
+    ['empty', 'success'], ['updated', 'success'], ['forbidden', 'success'], ['updated', 'forbidden'],
+  ])('ignores an older page after a %s refresh (late %s)', async (state, outcome) => {
+    const old = deferred()
+    api.resourcesGet.mockReturnValueOnce(old.promise)
+    const more = appStore.loadMoreResources()
+    if (state === 'forbidden') api.resourcesGet.mockRejectedValueOnce(forbidden)
+    else api.resourcesGet.mockResolvedValueOnce(envelope({ items: state === 'empty' ? [] : [{ id: 1, title: 'Fresh' }], total: state === 'empty' ? 0 : 3 }))
+    await appStore.refreshResources()
+    expect(appStore.resourcesLoadingMore).toBe(false)
+    const current = appStore.resources
+    const total = appStore.resourcesTotal
+    const error = appStore.resourcesError
+    if (outcome === 'forbidden') old.reject(forbidden)
+    else old.resolve(envelope({ items: [{ id: 2, title: 'Obsolete' }], total: 3 }))
+    expect(await more).toBe(false)
+    expect(appStore.resources).toBe(current)
+    expect(appStore.resourcesTotal).toBe(total)
+    expect(appStore.resourcesError).toBe(error)
+    expect(appStore.resourcesLoadingMore).toBe(false)
+  })
+
+  it('keeps a new page loading after the superseded page completes', async () => {
+    const old = deferred(), current = deferred()
+    api.resourcesGet.mockReturnValueOnce(old.promise)
+    const obsolete = appStore.loadMoreResources()
+    pageResources([{ id: 1, title: 'Fresh' }], 3)
+    await appStore.refreshResources()
+    api.resourcesGet.mockReturnValueOnce(current.promise)
+    const more = appStore.loadMoreResources()
+    old.resolve(envelope({ items: [{ id: 2 }], total: 3 }))
+    expect(await obsolete).toBe(false)
+    expect(appStore.resourcesLoadingMore).toBe(true)
+    current.resolve(envelope({ items: [{ id: 3 }], total: 3 }))
+    expect(await more).toBe(true)
+    expect(appStore.resources.map(row => row.id)).toEqual([1, 3])
+    expect(appStore.resourcesLoadingMore).toBe(false)
+  })
+
+  it('does not cancel a useful page when a refresh fails on the network', async () => {
+    const page = deferred()
+    api.resourcesGet.mockReturnValueOnce(page.promise).mockRejectedValueOnce(new Error('Refresh unavailable'))
+    const more = appStore.loadMoreResources()
+    await appStore.refreshResources()
+    page.resolve(envelope({ items: [{ id: 2 }], total: 3 }))
+    expect(await more).toBe(true)
+    expect(appStore.resources.map(row => row.id)).toEqual([1, 2])
+    expect(appStore.resourcesTotal).toBe(3)
+    expect(appStore.resourcesLoadingMore).toBe(false)
+  })
+
+  it('cannot restore rows from a pending refresh after load-more denies access', async () => {
+    const old = deferred()
+    api.resourcesGet.mockReturnValueOnce(old.promise).mockRejectedValueOnce(forbidden)
+    const refresh = appStore.refreshResources()
+    expect(await appStore.loadMoreResources()).toBe(false)
+    const error = appStore.resourcesError
+    old.resolve(envelope({ items: [{ id: 2 }], total: 3 }))
+    await refresh
+    expect(appStore.resources).toEqual([])
+    expect(appStore.resourcesTotal).toBe(0)
+    expect(appStore.resourcesError).toBe(error)
+    expect(appStore.resourcesLoading).toBe(false)
+  })
+
+  it('clears the collection when load-more explicitly confirms it is empty', async () => {
+    pageResources([], 0)
+    expect(await appStore.loadMoreResources()).toBe(true)
+    expect(appStore.resources).toEqual([])
+    expect(appStore.resourcesTotal).toBe(0)
+    expect(appStore.resourcesHasMore).toBe(false)
+  })
+
+  describe.each(['refresh', 'load more'])('incomplete %s responses', operation => {
+    it.each([{ total: 0 }, { items: null, total: 0 }, {}])('preserves rows and totals without an explicit items array: %j', async partial => {
+      api.resourcesGet.mockResolvedValueOnce(envelope(partial))
+      const before = appStore.resources
+      if (operation === 'refresh') await appStore.refreshResources()
+      else expect(await appStore.loadMoreResources()).toBe(false)
+      expect(appStore.resources).toBe(before)
+      expect(appStore.resourcesTotal).toBe(3)
+      expect(appStore.resourcesHasMore).toBe(true)
+      expect(appStore.resourcesLoading).toBe(false)
+      expect(appStore.resourcesLoadingMore).toBe(false)
+    })
+  })
+
+  it('preserves pagination when a refresh omits its total', async () => {
+    api.resourcesGet.mockResolvedValueOnce(envelope({ items: [{ id: 1, title: 'Fresh' }] }))
+    await appStore.refreshResources()
+    expect(appStore.resources[0]?.title).toBe('Fresh')
+    expect(appStore.resourcesTotal).toBe(3)
+    expect(appStore.resourcesHasMore).toBe(true)
+  })
+})
+
 describe('mergeEmployeeLists / sameEmployees (via refreshEmployees)', () => {
   it('dedups the roster by id, fresh wins, extras preserved, order stable', async () => {
     tsStore.employees = [
