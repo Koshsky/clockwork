@@ -646,13 +646,21 @@ export const useAppStore = defineStore('app', () => {
   const resourcesTotal = ref(0)
   const resourcesError = ref<string | null>(null)
   let resourceReads = new AbortController()
+  let resourcePages = new AbortController()
+
+  function invalidateResourcePages(): void {
+    const previous = resourcePages
+    resourcePages = new AbortController()
+    previous.abort()
+    resourcesLoadingMore.value = false
+  }
 
   function invalidateResourceReads(): void {
     const previous = resourceReads
     resourceReads = new AbortController()
     previous.abort()
+    invalidateResourcePages()
     resourcesLoading.value = false
-    resourcesLoadingMore.value = false
   }
 
   function clearResources(): void {
@@ -661,7 +669,7 @@ export const useAppStore = defineStore('app', () => {
     resourcesTotal.value = 0
   }
 
-  onScopeDispose(() => resourceReads.abort())
+  onScopeDispose(() => { resourceReads.abort(); resourcePages.abort() })
 
   /** Whether another resources page can be requested */
   const resourcesHasMore = computed(() => resourcesTotal.value > resources.value.length)
@@ -753,7 +761,7 @@ export const useAppStore = defineStore('app', () => {
       // An authoritative empty collection must remove rows retained from older pages.
       const merged = data.total === 0 && items.length === 0 ? [] : mergeResourceLists(visible, items)
       // Older pages must not restore rows after a newer collection snapshot.
-      invalidateResourceReads()
+      invalidateResourcePages()
       if (!sameResources(merged, resources.value)) resources.value = merged
       resourcesTotal.value = data.total ?? Math.max(resourcesTotal.value, merged.length)
     } catch (e: unknown) {
@@ -779,7 +787,7 @@ export const useAppStore = defineStore('app', () => {
       return false
     }
     if (resourcesLoadingMore.value || !resourcesHasMore.value) return true
-    const own = resourceReads
+    const own = resourcePages
     resourcesLoadingMore.value = true
     resourcesError.value = null
     try {
@@ -816,7 +824,7 @@ export const useAppStore = defineStore('app', () => {
       resourcesError.value = e instanceof Error ? e.message || String(e) : String(e)
       return false
     } finally {
-      if (own === resourceReads) resourcesLoadingMore.value = readPending('resources.more')
+      if (own === resourcePages) resourcesLoadingMore.value = readPending('resources.more')
     }
   }
 

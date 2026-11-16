@@ -398,6 +398,20 @@ describe('resource pagination snapshots', () => {
     expect(appStore.resourcesLoadingMore).toBe(false)
   })
 
+  it('does not cancel a network refresh when page entry reads the cached first page', async () => {
+    pageResources([{ id: 1, title: 'Cached' }], 3)
+    await appStore.refreshResources()
+    const fresh = deferred()
+    api.resourcesGet.mockReturnValueOnce(fresh.promise)
+    const refreshing = appStore.refreshResources()
+    await appStore.loadResources()
+    expect(appStore.resourcesLoading).toBe(true)
+    fresh.resolve(envelope({ items: [{ id: 1, title: 'Fresh' }], total: 3 }))
+    await refreshing
+    expect(appStore.resources[0]?.title).toBe('Fresh')
+    expect(appStore.resourcesLoading).toBe(false)
+  })
+
   it('does not cancel a useful page when a refresh fails on the network', async () => {
     const page = deferred()
     api.resourcesGet.mockReturnValueOnce(page.promise).mockRejectedValueOnce(new Error('Refresh unavailable'))
