@@ -732,7 +732,8 @@ export const useAppStore = defineStore('app', () => {
       const complete = nativeQueue?.mainSync ? await cacheGet<DtoResourceResponse[]>(userCachePrefix() + '/local/resource-header?owner_id=all') : null
       const completeById = complete ? new Map(complete.map(row => [row.id, row])) : null
       const visible = completeById ? resources.value.flatMap(row => completeById.has(row.id) ? [completeById.get(row.id)!] : []) : resources.value
-      const merged = mergeResourceLists(visible, items)
+      // An authoritative empty collection must remove rows retained from older pages.
+      const merged = data?.total === 0 && items.length === 0 ? [] : mergeResourceLists(visible, items)
       if (!sameResources(merged, resources.value)) resources.value = merged
       resourcesTotal.value = data?.total ?? 0
     } catch (e: unknown) {

@@ -1,6 +1,6 @@
 import { ADMIN_CAPABILITIES, permissionBlocks, permissionActionGroups } from './labels'
 import { afterEach, describe, expect, it } from 'vitest'
-import { setAppLocale } from '@/i18n'
+import { setAppLocale, t } from '@/i18n'
 import { canonicalScope, evalScope, scopeMoves } from '@/rbacScope'
 import { SCOPE_OPTIONS, scopeLabel, scopeOptionDescription, scopeOptionLabel, hasAdditionalScope, simpleScope, viewParentResources } from './labels'
 
@@ -8,26 +8,32 @@ afterEach(() => setAppLocale('ru'))
 
 describe('administrator-facing ownership labels', () => {
   it.each([
-    ['project', 'down', 'Связанные', 'Related'],
-    ['process', 'up1', 'В проектах сотрудника', "In employee's projects"],
-    ['process', 'up', 'Проект или процесс сотрудника', 'Employee-owned project or process'],
-    ['process', 'sib', 'По общему проекту', 'In the same project'],
-    ['process', 'down', 'С задачами сотрудника', "With employee's tasks"],
-    ['task', 'up1', 'В процессах сотрудника', "In employee's processes"],
-    ['task', 'up', 'Задача, процесс или проект сотрудника', 'Employee-owned task, process or project'],
-    ['task', 'sib', 'По общему процессу', 'In the same process'],
-    ['task', 'sib_project', 'По общему проекту', 'In the same project'],
-    ['task', 'down', 'С подзадачами сотрудника', "With employee's subtasks"],
-    ['milestone', 'up1', 'В процессах сотрудника', "In employee's processes"],
-    ['milestone', 'up', 'В проектах или процессах сотрудника', "In employee's projects or processes"],
-    ['assignment', 'up', 'Задача, процесс или проект сотрудника', 'Employee-owned task, process or project'],
-  ])('translates %s %s in both interface languages', (resource, scope, ru, en) => {
-    setAppLocale('ru')
-    expect(scopeOptionLabel(resource, scope)).toBe(ru)
-    expect(scopeOptionDescription(resource, scope).toLowerCase()).toContain('сотрудник')
-    setAppLocale('en')
-    expect(scopeOptionLabel(resource, scope)).toBe(en)
-    expect(scopeOptionDescription(resource, scope)).toContain('employee')
+    ['project', 'down', 'down', 'relatedProjects'],
+    ['process', 'up1', 'up1Projects', 'projectOwner'],
+    ['process', 'up', 'projectOrProcessOwner', 'processOwnerChain'],
+    ['process', 'sib', 'sharedProject', 'sharedProcessProject'],
+    ['process', 'down', 'withEmployeeTasks', 'employeeTasks'],
+    ['task', 'up1', 'up1Processes', 'processOwner'],
+    ['task', 'up', 'taskProcessOrProjectOwner', 'taskOwnerChain'],
+    ['task', 'sib', 'sharedProcess', 'sharedTaskProcess'],
+    ['task', 'sib_project', 'sharedProject', 'sharedTaskProject'],
+    ['task', 'down', 'withEmployeeSubtasks', 'employeeSubtasks'],
+    ['milestone', 'up1', 'ownMilestones', 'processOwner'],
+    ['milestone', 'up', 'inEmployeeProjectsOrProcesses', 'processOwnerChain'],
+    ['assignment', 'up', 'taskProcessOrProjectOwner', 'assignmentOwnerChain'],
+  ])('maps %s %s to the same ownership condition in both languages', (resource, scope, label, help) => {
+    const labels = []
+    for (const locale of ['ru', 'en'] as const) {
+      setAppLocale(locale)
+      const labelKey = `adminConfig.perm.zone.${label}`
+      const helpKey = `adminConfig.perm.scopeHelp.${help}`
+      expect(t(labelKey)).not.toBe(labelKey)
+      expect(t(helpKey)).not.toBe(helpKey)
+      expect(scopeOptionLabel(resource, scope)).toBe(t(labelKey))
+      expect(scopeOptionDescription(resource, scope)).toBe(t(helpKey))
+      labels.push(scopeOptionLabel(resource, scope))
+    }
+    expect(labels[0]).not.toBe(labels[1])
   })
 
   it('preserves independent project, ancestor and descendant conditions for processes', () => {
@@ -40,21 +46,12 @@ describe('administrator-facing ownership labels', () => {
     expect(evalScope('up1 down', 'process', { projectOwner: 7 }, 7, { descendant: false })).toBe(true)
   })
 
-  it('describes the actual ownership chain, including the row owner', () => {
-    setAppLocale('ru')
-    expect(scopeOptionDescription('process', 'up')).toContain('процесса или его проекта')
-    expect(scopeOptionDescription('task', 'up')).toContain('задачи, её процесса или проекта')
-    expect(scopeOptionDescription('project', 'down')).toContain('процесс или задача')
-    expect(scopeOptionDescription('process', 'down')).toContain('задача')
-    expect(scopeOptionDescription('task', 'down')).toContain('подзадача')
-  })
-
   it('renders combined and legacy expressions without changing their stored codes', () => {
     setAppLocale('ru')
-    expect(scopeLabel('process', 'up1 down')).toBe('В проектах сотрудника + С задачами сотрудника')
-    expect(scopeLabel('process', 'ancestor')).toBe('Проект или процесс сотрудника')
+    expect(scopeLabel('process', 'up1 down')).toBe([scopeOptionLabel('process', 'up1'), scopeOptionLabel('process', 'down')].join(t('authz.scope.join')))
+    expect(scopeLabel('process', 'ancestor')).toBe(scopeOptionLabel('process', 'up'))
     setAppLocale('en')
-    expect(scopeLabel('process', 'up1 down')).toBe("In employee's projects + With employee's tasks")
+    expect(scopeLabel('process', 'up1 down')).toBe([scopeOptionLabel('process', 'up1'), scopeOptionLabel('process', 'down')].join(t('authz.scope.join')))
     expect(canonicalScope('up1 down')).toBe('up1 down')
   })
 })

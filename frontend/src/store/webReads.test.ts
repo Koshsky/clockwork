@@ -28,13 +28,15 @@ import { setAccessToken } from '@/token'
 import { isOffline } from '@/offline/state'
 import { legacyQueueAvailability } from '@/platform/state'
 import { pendingRefs } from '@/offline/outbox'
+import { tablePageSize } from '@/settings'
 const body = (data: unknown) => ({ data: { data } })
 const deferred = <T>() => { let resolve!: (value: T) => void; const promise = new Promise<T>(r => { resolve = r }); return { promise, resolve } }
 const forbidden = () => new AxiosError('Forbidden', 'ERR_BAD_REQUEST', undefined, undefined, { status: 403, statusText: 'Forbidden', headers: {}, config: { headers: new AxiosHeaders() }, data: { error: { message: 'Forbidden' } } } as AxiosResponse)
 let pinia: ReturnType<typeof createPinia>
 let values: Map<string, string>
+let previousPageSize: typeof tablePageSize.value
 beforeEach(() => {
-  vi.resetAllMocks(); invalidateApiReads()
+  vi.resetAllMocks(); invalidateApiReads(); previousPageSize = tablePageSize.value
   values = new Map([['mvs_erp_user', JSON.stringify({ id: 1, preset: 'admin', username: 'fixture' })]])
   vi.stubGlobal('localStorage', { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value), removeItem: (key: string) => values.delete(key) })
   vi.stubGlobal('window', { setInterval: vi.fn(() => 1), clearInterval: vi.fn(), addEventListener: vi.fn(), removeEventListener: vi.fn(), setTimeout, clearTimeout })
@@ -59,7 +61,7 @@ beforeEach(() => {
   pinia = createPinia(); setActivePinia(pinia); pendingRefs.value = new Set(); legacyQueueAvailability.value = 'empty'; isOffline.value = false
   setAccessToken('e30.' + btoa(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 })) + '.fixture')
 })
-afterEach(() => { disposePinia(pinia); invalidateApiReads(); setAccessToken(null); vi.unstubAllGlobals() })
+afterEach(() => { tablePageSize.value = previousPageSize; disposePinia(pinia); invalidateApiReads(); setAccessToken(null); vi.unstubAllGlobals() })
 
 describe('web render-facing loaders with forbidden IndexedDB', () => {
   it.each([
@@ -143,6 +145,9 @@ describe('web render-facing loaders with forbidden IndexedDB', () => {
     const app = useAppStore(), old = deferred<ReturnType<typeof body>>(), recent = deferred<ReturnType<typeof body>>()
     fake.api.userAccountsGet.mockReturnValueOnce(old.promise).mockReturnValueOnce(recent.promise)
     const first = app.refreshAdminUsers('old'), second = app.refreshAdminUsers('recent')
+    expect(fake.api.userAccountsGet.mock.calls.map(args => args.slice(0, 6))).toEqual([
+      [500, undefined, undefined, false, 'old', 0], [500, undefined, undefined, false, 'recent', 0],
+    ])
     await first; expect(app.adminUsersLoading).toBe(true)
     recent.resolve(body({ items: [{ id: 3 }], total: 1 })); await second
     old.resolve(body({ items: [{ id: 2 }], total: 1 }))
@@ -180,13 +185,19 @@ describe('web render-facing loaders with forbidden IndexedDB', () => {
     expect(await ts.refreshPeriods('2026-11-01', '2026-11-30')).toBe(true)
     expect(ts.periodsByEmployee[2]?.[0]?.id).toBe(4)
   })
-  it('does not merge an obsolete timesheet window over the latest one', async () => {
+  it.each([
+    ['start', '2026-11-02', '2026-11-20'],
+    ['end', '2026-11-01', '2026-11-30'],
+  ])('does not merge an obsolete timesheet window after its %s changes', async (_, start, end) => {
     const ts = useTimesheetStore(); ts.employees = [{ id: 2 }]
     const old = deferred<ReturnType<typeof body>>()
     fake.api.userDaysGet.mockReturnValueOnce(old.promise).mockResolvedValueOnce(body([{ user_id: 2, days: [{ id: 5, start_date: '2026-11-02', end_date: '2026-11-03' }] }]))
     const first = ts.refreshPeriods('2026-11-01', '2026-11-20')
-    expect(await ts.refreshPeriods('2026-11-01', '2026-11-30')).toBe(true)
+    expect(await ts.refreshPeriods(start, end)).toBe(true)
     expect(await first).toBe(false); old.resolve(body([{ user_id: 2, days: [] }]))
+    expect(fake.api.userDaysGet.mock.calls.map(args => args.slice(0, 3))).toEqual([
+      ['2', '2026-11-01', '2026-11-20'], ['2', start, end],
+    ])
     expect(ts.periodsByEmployee[2]?.[0]?.id).toBe(5)
   })
 })
@@ -235,4 +246,43 @@ it('keeps a worker-only timesheet usable without requesting a forbidden day-type
   const ts = useTimesheetStore(); await ts.loadStates(); await ts.loadEmployees()
   expect(fake.api.timesheetStatesGet).not.toHaveBeenCalled()
   expect(ts.employees).toHaveLength(1); expect(ts.error).toBeNull()
+})
+
+it('deduplicates concurrent directory loads at the real store boundary', async () => {
+  const app = useAppStore(), gate = deferred<ReturnType<typeof body>>()
+  fake.api.userAllGet.mockReturnValueOnce(gate.promise)
+  const first = app.loadUsers(), second = app.loadUsers()
+  expect(fake.api.userAllGet).toHaveBeenCalledOnce()
+  gate.resolve(body([{ id: 2, last_name: 'Current' }]))
+  await Promise.all([first, second])
+  expect(app.users).toEqual([{ id: 2, last_name: 'Current' }])
+  expect(app.usersLoading).toBe(false)
+})
+it('does not reuse the first page after changing the configured table size', async () => {
+  const app = useAppStore()
+  tablePageSize.value = 25
+  fake.api.resourcesGet.mockResolvedValueOnce(body({ items: [{ id: 8, code: 'first page' }], total: 1 }))
+  await app.loadResources()
+  tablePageSize.value = 100
+  fake.api.resourcesGet.mockResolvedValueOnce(body({ items: [{ id: 8, code: 'new page' }], total: 1 }))
+  await app.loadResources()
+  expect(fake.api.resourcesGet.mock.calls.map(args => args.slice(0, 3))).toEqual([[25, undefined, 0], [100, undefined, 0]])
+  expect(app.resources[0]?.code).toBe('new page')
+})
+it('invalidates cached and pending directory responses when real permissions change', async () => {
+  const rbac = useRbacStore(), app = useAppStore(), gate = deferred<ReturnType<typeof body>>()
+  await rbac.refreshPermissions()
+  fake.api.userAllGet.mockResolvedValueOnce(body([{ id: 2, last_name: 'Previous scope' }]))
+  await app.loadUsers()
+  fake.api.userAllGet.mockReturnValueOnce(gate.promise)
+  const old = app.refreshUsers()
+  fake.api.permissionsMeGet.mockResolvedValueOnce(body([{ resource: 'project', action: 'view', scope: 'self' }]))
+  expect(await rbac.refreshPermissions()).toBe(true)
+  fake.api.userAllGet.mockResolvedValueOnce(body([{ id: 3, last_name: 'Current scope' }]))
+  await app.loadUsers()
+  gate.resolve(body([{ id: 2, last_name: 'Late previous scope' }]))
+  await old
+  expect(app.users).toEqual([{ id: 3, last_name: 'Current scope' }])
+  expect(app.usersError).toBeNull()
+  expect(fake.api.userAllGet).toHaveBeenCalledTimes(3)
 })

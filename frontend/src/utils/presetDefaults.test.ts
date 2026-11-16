@@ -13,7 +13,7 @@ describe('process and task permissions follow their parents', () => {
     expect(scopeOptionLabel('process', 'up1')).toBe('В проектах сотрудника')
     expect(scopeOptionLabel('task', 'up1')).toBe('В процессах сотрудника')
   })
-  it.each(['view', 'create', 'update', 'delete'])('normalizes old cached scopes for %s', () => {
+  it('normalizes old cached ownership scopes without changing other grants', () => {
     expect(parentScope('process', 'self')).toBe('up1')
     expect(parentScope('task', 'own')).toBe('up1')
     expect(parentScope('task', 'self up1 sib')).toBe('up1 sib')

@@ -95,3 +95,15 @@ describe('complete API resource-header adapter', () => {
     expect(fake.put.mock.calls[1][0]).not.toBe(first)
   })
 })
+
+it('isolates cached header pages by the selected resource owner', async () => {
+  fake.get.mockImplementation(async (_limit, owner) => response([{ id: owner, owner_id: owner }]))
+  const signal = new AbortController().signal
+  expect(await loadResourceHeader(configuration, 7, signal)).toEqual([{ id: 7, owner_id: 7 }])
+  expect(await loadResourceHeader(configuration, 8, signal)).toEqual([{ id: 8, owner_id: 8 }])
+  expect(await loadResourceHeader(configuration, 7, signal)).toEqual([{ id: 7, owner_id: 7 }])
+  expect(fake.get.mock.calls.map(args => args.slice(0, 3))).toEqual([[500, 7, 0], [500, 8, 0]])
+  expect(fake.put.mock.calls.map(([key]) => key)).toEqual([
+    expect.stringContaining('owner_id=7&scope='), expect.stringContaining('owner_id=8&scope='), expect.stringContaining('owner_id=7&scope='),
+  ])
+})

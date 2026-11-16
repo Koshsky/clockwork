@@ -11,7 +11,7 @@
  *  - FIFO flush ordering by ts (entries are sorted, not send-in-map-order);
  *  - quarantine/backoff gate retries without deleting entries.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('@/platform/context', () => ({ platformCapabilities: { kind: 'desktop', optionalStorage: false } }))
 
 /** In-memory fake replacing the IndexedDB layer (offline/db.ts). */
@@ -69,10 +69,18 @@ vi.mock('axios', () => ({
   default: axiosCall.fn,
 }))
 
-import { enqueueMutation, flushOutbox, clearOutbox, createMutationKey, replayOutboxToCache, type OutboxEntry } from './outbox'
+import { enqueueMutation, flushOutbox as requestFlush, clearOutbox, createMutationKey, replayOutboxToCache, type OutboxEntry } from './outbox'
 import { idbPut, idbDel, idbAll } from './db'
+import { probeBackend } from './state'
+import { applyToCache } from './cacheApply'
 
 const okResponse = { data: { data: {} } }
+
+async function flushOutbox() {
+  const pending = requestFlush()
+  await vi.runAllTimersAsync()
+  return pending
+}
 
 function httpError(status: number, message?: string): { response: { status: number }; message: string } {
   return { response: { status }, message: message ?? `Request failed with status code ${status}` }
@@ -84,9 +92,20 @@ function seed(entry: Partial<OutboxEntry> & Pick<OutboxEntry, 'id' | 'ts' | 'met
 }
 
 beforeEach(() => {
+  vi.useFakeTimers()
   fake.reset()
   vi.clearAllMocks()
+  vi.mocked(probeBackend).mockReset().mockResolvedValue(true)
+  vi.mocked(applyToCache).mockReset().mockResolvedValue(undefined)
+  axiosCall.fn.mockReset()
   axiosCall.fn.mockResolvedValue(okResponse)
+})
+afterEach(() => {
+  const remaining = vi.getTimerCount()
+  vi.clearAllTimers()
+  vi.useRealTimers()
+  vi.unstubAllGlobals()
+  expect(remaining).toBe(0)
 })
 
 describe('enqueueMutation — dedup and persistence', () => {
@@ -193,9 +212,17 @@ describe('flushOutbox — temp-id → real-id mapping (idmap)', () => {
 
   it('sends an Idempotency-Key header on mutating methods (stable across retries)', async () => {
     seed({ id: 'upd', ts: 100, method: 'PUT', url: 'http://api.test/api/v1/resource/1', body: { title: 'X' }, entity: 'resource' })
-    await flushOutbox()
-    const config = axiosCall.fn.mock.calls[0][0] as { headers?: Record<string, string>; id?: string }
-    expect(config?.headers?.['Idempotency-Key']).toBe('upd')
+    axiosCall.fn.mockRejectedValueOnce(httpError(500))
+    expect((await flushOutbox()).failed).toBe(1)
+    const retryAt = (fake.store('outbox').get('upd') as OutboxEntry).failed!.at + 60000
+    vi.setSystemTime(retryAt - 1)
+    expect((await flushOutbox()).ok).toBe(0)
+    expect(axiosCall.fn).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect((await flushOutbox()).ok).toBe(1)
+    expect(axiosCall.fn.mock.calls.map(([config]) => config.headers['Idempotency-Key'])).toEqual(['upd', 'upd'])
+    expect(axiosCall.fn.mock.calls.map(([config]) => config.data)).toEqual([{ title: 'X' }, { title: 'X' }])
+    expect(fake.store('outbox').size).toBe(0)
   })
 })
 
@@ -227,6 +254,23 @@ describe('flushOutbox — idempotent drop of DELETE 404/410', () => {
 })
 
 describe('flushOutbox — ordering and retry gates', () => {
+  it('waits for the send interval before sending the next entry', async () => {
+    seed({ id: 'first', ts: 100, method: 'PUT', url: '/task/1', entity: 'task' })
+    seed({ id: 'next', ts: 200, method: 'PUT', url: '/task/2', entity: 'task' })
+    const pending = requestFlush()
+
+    await vi.advanceTimersByTimeAsync(0)
+    expect(axiosCall.fn).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(99)
+    expect(axiosCall.fn).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(axiosCall.fn).toHaveBeenCalledTimes(2)
+    await vi.runAllTimersAsync()
+
+    expect((await pending).ok).toBe(2)
+    expect(fake.store('outbox').size).toBe(0)
+  })
+
   it('sends entries in ts (FIFO) order even when the store returns them unsorted', async () => {
     seed({ id: 'a', ts: 300, method: 'PUT', url: 'http://api.test/api/v1/resource/3', entity: 'resource' })
     seed({ id: 'b', ts: 100, method: 'PUT', url: 'http://api.test/api/v1/resource/1', entity: 'resource' })
@@ -381,17 +425,19 @@ it('does not let a second tab send a queue already being flushed', async () => {
     try { return await run({}) } finally { held.delete(name) }
   } } })
   let reply!: (result: unknown) => void
-  axiosCall.fn.mockImplementationOnce(() => new Promise(resolve => { reply = resolve }))
+  let started!: () => void
+  const requestStarted = new Promise<void>(resolve => { started = resolve })
+  axiosCall.fn.mockImplementationOnce(() => new Promise(resolve => { reply = resolve; started() }))
   seed({ id: 'shared', ts: 1, method: 'PUT', url: '/task/7', entity: 'task', body: { title: 'updated' } })
-  const first = flushOutbox()
-  await vi.waitFor(() => expect(axiosCall.fn).toHaveBeenCalledTimes(1))
+  const first = requestFlush()
+  await requestStarted
   vi.resetModules()
   const sibling = await import('./outbox')
-  const second = sibling.flushOutbox()
-  await new Promise(resolve => setTimeout(resolve, 10))
+  await sibling.flushOutbox()
   const calls = axiosCall.fn.mock.calls.length
   reply(okResponse)
-  await Promise.all([first, second])
+  await vi.runAllTimersAsync()
+  await first
   vi.unstubAllGlobals()
   expect(calls).toBe(1)
   expect(fake.store('outbox').size).toBe(0)
@@ -463,11 +509,13 @@ it('replays the new account after waiting for an old account overlay to finish',
   try {
     const { applyToCache } = await import('./cacheApply')
     let finish!: () => void
-    vi.mocked(applyToCache).mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve }))
+    let started!: () => void
+    const overlayStarted = new Promise<void>(resolve => { started = resolve })
+    vi.mocked(applyToCache).mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; started() }))
     seed({ id: 'first', ts: 1, method: 'PUT', url: '/task/7', entity: 'task', creator: 'first' })
     seed({ id: 'next', ts: 2, method: 'PUT', url: '/task/8', entity: 'task', creator: 'next' })
     const old = replayOutboxToCache()
-    await vi.waitFor(() => expect(applyToCache).toHaveBeenCalledOnce())
+    await overlayStarted
     account = 'next'
     const recent = replayOutboxToCache(); finish()
     await Promise.all([old, recent])

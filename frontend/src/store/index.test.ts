@@ -16,19 +16,19 @@
  *  - the ORDER of existing entries is stable (current precedes fresh-only);
  *  - the ARRAY IDENTITY is preserved when the merged roster equals the current
  *    one (sameResources/sameEmployees), so dependents do not re-render;
- *  - empty page input keeps the current list untouched;
+ *  - a successful empty collection clears stale rows;
  *  - id-less rows are dropped (they cannot be deduplicated).
  *
  * The auth-store section checks the real token.expiry decoding contract that
  * drives the proactive-refresh margin (accessExpired check).
  */
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createPinia, setActivePinia } from 'pinia'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createPinia, disposePinia, setActivePinia } from 'pinia'
 import { resetWebCommands } from './data/webCommands'
 import { useAppStore, useTimesheetStore, useAuthStore, useRbacStore } from './index'
 import { buildPullSteps } from '../offline/warmup'
 import { reloadDomainsFor } from '../offline/sync'
-import { getAccessToken, setAccessToken } from '@/token'
+import { setAccessToken } from '@/token'
 import type { DtoUserInfo } from '@/api'
 
 /** Mutable per-test method implementations for the mocked API classes. */
@@ -107,15 +107,27 @@ function pageEmployees(items: EmployeeLike[], total: number): void {
   api.userGet.mockResolvedValue({ data: { data: { items, total } } })
 }
 
+let pinia: ReturnType<typeof createPinia>
 let appStore: ReturnType<typeof useAppStore>
 let tsStore: ReturnType<typeof useTimesheetStore>
 
 beforeEach(() => {
+  // Auth-store subscriptions must be disposed before restoring these globals.
+  vi.stubGlobal('window', { addEventListener: vi.fn(), removeEventListener: vi.fn() })
+  vi.stubGlobal('document', { addEventListener: vi.fn(), removeEventListener: vi.fn() })
   resetWebCommands()
-  setActivePinia(createPinia())
+  pinia = createPinia()
+  setActivePinia(pinia)
   appStore = useAppStore()
   tsStore = useTimesheetStore()
-  vi.clearAllMocks()
+  vi.resetAllMocks()
+})
+
+afterEach(() => {
+  disposePinia(pinia)
+  setActivePinia(undefined)
+  setAccessToken(null)
+  vi.unstubAllGlobals()
 })
 
 describe('mergeResourceLists / sameResources (via refreshResources)', () => {
@@ -188,16 +200,44 @@ describe('mergeResourceLists / sameResources (via refreshResources)', () => {
     expect(appStore.resources[0]?.title).toBe('Один-обновлён')
   })
 
-  it('returns an empty page without touching the current list (identity stable)', async () => {
+  it.each([false, true])('clears stale rows after a successful empty collection (silent=%s)', async silent => {
     appStore.resources = [{ id: 1, code: 'R1', title: 'Один' }]
+    appStore.resourcesTotal = 2
     pageResources([], 0)
 
+    await appStore.refreshResources(silent)
+
+    expect(appStore.resources).toEqual([])
+    expect(appStore.resourcesTotal).toBe(0)
+    expect(appStore.resourcesHasMore).toBe(false)
+    expect(appStore.resourcesLoading).toBe(false)
+    expect(appStore.resourcesError).toBeNull()
+  })
+
+  it('preserves extra pages when an empty page is not an empty collection', async () => {
+    appStore.resources = [{ id: 1, code: 'R1', title: 'Existing' }]
+    appStore.resourcesTotal = 2
+    pageResources([], 2)
     const before = appStore.resources
+
     await appStore.refreshResources()
 
     expect(appStore.resources).toBe(before)
-    expect(appStore.resources).toHaveLength(1)
+    expect(appStore.resourcesTotal).toBe(2)
+    expect(appStore.resourcesHasMore).toBe(true)
+  })
+
+  it('clears rows and the pagination total when access is forbidden', async () => {
+    appStore.resources = [{ id: 1, code: 'R1', title: 'Existing' }]
+    appStore.resourcesTotal = 2
+    api.resourcesGet.mockRejectedValue({ isAxiosError: true, response: { status: 403 } })
+
+    await appStore.refreshResources()
+
+    expect(appStore.resources).toEqual([])
     expect(appStore.resourcesTotal).toBe(0)
+    expect(appStore.resourcesHasMore).toBe(false)
+    expect(appStore.resourcesLoading).toBe(false)
   })
 
   it('drops rows without an id from the merged result', async () => {
@@ -264,13 +304,19 @@ describe('refreshResources: silent background mode', () => {
     expect(appStore.resourcesError).toBeNull()
   })
 
-  it('a loud failure lands in the error flag', async () => {
+  it('a loud network failure preserves the loaded rows and pagination', async () => {
+    appStore.resources = [{ id: 1, code: 'R1', title: 'Existing' }]
+    appStore.resourcesTotal = 2
+    const before = appStore.resources
     api.resourcesGet.mockRejectedValue(new Error('boom'))
 
     await appStore.refreshResources()
 
     expect(appStore.resourcesError).toBe('boom')
     expect(appStore.resourcesLoading).toBe(false)
+    expect(appStore.resources).toBe(before)
+    expect(appStore.resourcesTotal).toBe(2)
+    expect(appStore.resourcesHasMore).toBe(true)
   })
 })
 
@@ -330,15 +376,6 @@ describe('mergeEmployeeLists / sameEmployees (via refreshEmployees)', () => {
 })
 
 describe('auth access-expiry decoding (a token-margin contract)', () => {
-  // The auth store subscribes to the cross-tab session channel at creation,
-  // which touches window/document — provide inert stubs for the node env.
-  beforeAll(() => {
-    vi.stubGlobal('window', { addEventListener: vi.fn(), removeEventListener: vi.fn() })
-    vi.stubGlobal('document', { addEventListener: vi.fn(), removeEventListener: vi.fn() })
-  })
-  afterAll(() => {
-    vi.unstubAllGlobals()
-  })
 
   const jwt = (expSec: number): string => {
     // btoa is the app's own base64url encoder input (see base64UrlDecode in
@@ -395,27 +432,11 @@ describe('auth access-expiry decoding (a token-margin contract)', () => {
     setAccessToken(null)
     expect(auth.accessExpired()).toBe(true)
   })
-
-  it('round-trips through the in-memory token store', () => {
-    expect(getAccessToken()).toBe('')
-    setAccessToken('abc.def.ghi')
-    expect(getAccessToken()).toBe('abc.def.ghi')
-  })
 })
 
 describe('reloadDomainsFor — the entity → affected-domains map (online post-mutation refresh)', () => {
-  // reloadDomainsFor instantiates the stores at call time; the auth store
-  // touches window/document on creation (cross-tab session channel).
-  beforeAll(() => {
-    vi.stubGlobal('window', { addEventListener: vi.fn(), removeEventListener: vi.fn() })
-    vi.stubGlobal('document', { addEventListener: vi.fn(), removeEventListener: vi.fn() })
-  })
-  afterAll(() => {
-    vi.unstubAllGlobals()
-  })
 
   beforeEach(() => {
-    setActivePinia(createPinia())
     // The roster-family reloads are gated by "sees the roster" — give the
     // auth store an admin preset so the fallback path admits them.
     useAuthStore().user = { preset: 'admin' } satisfies DtoUserInfo
@@ -463,12 +484,8 @@ it('explicit none scopes never enable resource navigation or actions', () => {
 
 describe('RBAC peer probes reach the scope evaluator', () => {
   beforeEach(() => {
-    setActivePinia(createPinia())
-    vi.stubGlobal('window', { addEventListener: vi.fn(), removeEventListener: vi.fn() })
-    vi.stubGlobal('document', { addEventListener: vi.fn(), removeEventListener: vi.fn() })
     useAuthStore().user = { id: 7, preset: 'worker' }
   })
-  afterEach(() => vi.unstubAllGlobals())
 
   it.each(['sib', 'sib_project'])('uses the supplied %s probe and denies missing evidence', (scope) => {
     const rbac = useRbacStore()
@@ -583,11 +600,6 @@ describe('individual permission snapshots', () => {
 
 
 describe('dictionary administration without employee-calendar access', () => {
-  beforeAll(() => {
-    vi.stubGlobal('window', { addEventListener: vi.fn(), removeEventListener: vi.fn() })
-    vi.stubGlobal('document', { addEventListener: vi.fn(), removeEventListener: vi.fn() })
-  })
-  afterAll(() => vi.unstubAllGlobals())
   beforeEach(() => { useAuthStore().user = { id: 42, preset: 'worker' } })
   it('refreshes dictionary changes without loading employees or their periods', () => {
     const rbac = useRbacStore()

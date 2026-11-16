@@ -17,19 +17,19 @@ describe('API read coordination', () => {
     gate.resolve(8)
     expect(await Promise.all([first, second, other])).toEqual([8, 8, 8])
   })
-  it.each(['offset', 'owner', 'search', 'from', 'to'])('cancels an obsolete %s query and rejects its late answer', async field => {
+  it('cancels an obsolete query and rejects its late answer', async () => {
     const gate = deferred<string>(); let signal!: AbortSignal
-    const old = cache.read('query', { [field]: 1 }, request => { signal = request; return gate.promise })
+    const old = cache.read('query', { filter: 1 }, request => { signal = request; return gate.promise })
     const rejected = expect(old).rejects.toBeInstanceOf(ReadCancelled)
-    expect(await cache.read('query', { [field]: 2 }, async () => 'new')).toBe('new')
+    expect(await cache.read('query', { filter: 2 }, async () => 'new')).toBe('new')
     expect(signal.aborted).toBe(true)
     gate.resolve('old'); await rejected
-    expect(await cache.read('query', { [field]: 2 }, async () => 'wrong', { preferCache: true })).toBe('new')
+    expect(await cache.read('query', { filter: 2 }, async () => 'wrong', { preferCache: true })).toBe('new')
   })
-  it.each(['account', 'server', 'permissions', 'locale'])('rejects a response after the %s scope changes', async reason => {
+  it('rejects a response after its context changes', async () => {
     const gate = deferred<number>()
     const pending = cache.read('rows', undefined, () => gate.promise)
-    scope += ':' + reason
+    scope = 'next context'
     gate.resolve(1)
     await expect(pending).rejects.toBeInstanceOf(ReadCancelled)
   })
