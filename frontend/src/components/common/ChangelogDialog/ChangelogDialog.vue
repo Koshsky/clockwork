@@ -1,12 +1,4 @@
 <script setup lang="ts">
-/**
- * ChangelogDialog: the changelog of the ACTIVE interface language
- * (Changelog_RU.md or Changelog_ENG.md — the pair maintained with every
- * release) rendered through the shared MarkdownView in a centered modal:
- * rounded corners, header with title and ✕, and a vertically scrolling body.
- * Opened from the header icon. Both files are bundled as raw text; the switch
- * is reactive, so a language change re-renders the open dialog.
- */
 import { computed } from 'vue'
 import changelogEn from '../../../../Changelog_ENG.md?raw'
 import changelogRu from '../../../../Changelog_RU.md?raw'
@@ -19,10 +11,11 @@ import type { ChangelogDialogProps, ChangelogDialogEmits } from './types'
 const props = defineProps<ChangelogDialogProps>()
 const emit = defineEmits<ChangelogDialogEmits>()
 
-const appVersion = __APP_VERSION__
+const title = computed(() => t(props.service === 'backend' ? 'changelog.backendTitle' : 'changelog.frontendTitle'))
+const appVersion = computed(() => props.version ?? (props.service === 'backend' ? '—' : __APP_VERSION__))
 
 /** Changelog text of the interface language (fallback: Russian). */
-const changelogSource = computed(() => (appLocale.value === 'en' ? changelogEn : changelogRu))
+const changelogSource = computed(() => props.service === 'backend' ? props.content ?? '' : appLocale.value === 'en' ? changelogEn : changelogRu)
 
 const { dialogEl, onKeydown } = useModalFocus({
   open: () => props.open,
@@ -38,7 +31,7 @@ const { dialogEl, onKeydown } = useModalFocus({
         class="cdlg-card"
         role="dialog"
         aria-modal="true"
-        :aria-label="t('changelog.title')"
+        :aria-label="title"
         tabindex="-1"
         @keydown="onKeydown"
       >
@@ -47,13 +40,14 @@ const { dialogEl, onKeydown } = useModalFocus({
             <AppIcon name="scroll" :size="18" />
           </span>
           <div class="cdlg-head-text">
-            <h3 class="cdlg-title">{{ t('changelog.title') }}</h3>
+            <h3 class="cdlg-title">{{ title }}</h3>
             <span class="cdlg-version">{{ t('changelog.currentVersion') }} {{ appVersion }}</span>
           </div>
           <button type="button" class="cdlg-close" :aria-label="t('common.close')" :title="t('common.close')" @click="emit('close')">✕</button>
         </header>
         <div class="cdlg-body">
-          <MarkdownView :source="changelogSource" />
+          <MarkdownView v-if="changelogSource" :source="changelogSource" />
+          <p v-else role="status">{{ t('changelog.unavailable') }}</p>
         </div>
       </div>
     </div>

@@ -58,6 +58,7 @@ func (a *App) registerRoutes(router *gin.Engine) {
 	// Health: liveness probe without authorization. The frontend uses it to
 	// check backend availability before offline sync (instead of static files).
 	api.GET("/health", a.health)
+	api.GET("/about", a.applicationInfo)
 
 	for _, m := range a.modules {
 		m.RegisterPublicRoutes(api)

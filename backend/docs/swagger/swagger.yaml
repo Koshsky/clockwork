@@ -1671,6 +1671,15 @@ definitions:
       state:
         type: string
     type: object
+  release.Info:
+    properties:
+      changelog_en:
+        type: string
+      changelog_ru:
+        type: string
+      version:
+        type: string
+    type: object
   response.ErrorResponse:
     properties:
       data: {}
@@ -1709,6 +1718,25 @@ info:
   title: Enterprise Resource Planning
   version: 1.5.1
 paths:
+  /about:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/release.Info'
+                error:
+                  type: object
+              type: object
+      summary: Get backend version and release notes
+      tags:
+      - Application
   /assignment:
     get:
       description: Get a list of all assignments

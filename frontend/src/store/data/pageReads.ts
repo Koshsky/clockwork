@@ -1,6 +1,7 @@
 import { createApplicationServices } from './applicationClients'
 import { desktopSession, prepareDesktopSession } from '@/session/desktop'
-import { type Configuration } from '@/api'
+import { type Configuration, type ReleaseInfo } from '@/api'
+import { isOffline } from '@/offline/state'
 import { readApi } from './apiReads'
 import { readConfiguration } from './readConfiguration'
 
@@ -13,6 +14,13 @@ export function loadStructure(configuration: () => Configuration, signal?: Abort
 export async function loadAppManifest(): Promise<{ version?: string } | null> {
   const response = await fetch('/precache-manifest.json', { signal: AbortSignal.timeout(5000) })
   return response.ok ? await response.json() : null
+}
+
+export async function loadBackendInfo(signal?: AbortSignal): Promise<ReleaseInfo | null> {
+  const applicationServices = createApplicationServices()
+  const response = await readApi('application.info', undefined,
+    request => applicationServices.application.info(request), isOffline.value, signal)
+  return response.data?.data ?? null
 }
 
 export async function probeServerLogin(base: string | undefined): Promise<boolean> {

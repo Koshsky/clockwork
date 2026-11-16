@@ -1319,5 +1319,18 @@
       }
     },
     "page": true
+  },
+  {
+    "kind": "read",
+    "operation": "application.info",
+    "service": "application",
+    "name": "info",
+    "client": "ApplicationApi",
+    "method": "aboutGet",
+    "input": "undefined",
+    "arguments": [],
+    "request": {
+      "route": "GET /about"
+    }
   }
 ]

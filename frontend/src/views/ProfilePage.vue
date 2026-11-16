@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore, useRbacStore } from '../store'
 import { isOffline } from '@/store/data/uiServices'
-import { loadAppManifest } from '@/store/data/pageReads'
-import { t } from '../i18n'
+import { loadBackendInfo } from '@/store/data/pageReads'
+import { AppIcon } from '@/components/common/AppIcon'
+import { ChangelogDialog } from '@/components/common/ChangelogDialog'
+import type { ReleaseInfo } from '@/api'
+import { appLocale, t } from '../i18n'
 import { fullName } from '../utils/fullName'
 import { presetLabelFromCatalog } from '../utils/presets'
 import ProfileEditPage from './ProfileEditPage.vue'
@@ -32,19 +35,22 @@ const presetLabel = computed(() => presetLabelFromCatalog(auth.user?.preset, rba
 const connectionLabel = computed(() =>
   isOffline.value ? t('adminUsers.profile.offline') : t('adminUsers.profile.online'),
 )
-const appBuildVersion = __APP_VERSION__
-const appVersion = ref('—')
+const frontendVersion = __APP_VERSION__
+const backendInfo = ref<ReleaseInfo | null>(null)
+const changelogService = ref<'frontend' | 'backend' | null>(null)
+const request = new AbortController()
+const backendChangelog = computed(() => appLocale.value === 'en' ? backendInfo.value?.changelog_en : backendInfo.value?.changelog_ru)
+const changelogAvailable = computed(() => Boolean(backendChangelog.value))
 
 async function refreshAppInfo() {
   try {
-    const data = await loadAppManifest()
-    if (data) {
-      appVersion.value = data.version ?? '—'
-    }
+    backendInfo.value = await loadBackendInfo(request.signal)
   } catch {
-    // An unavailable manifest must not prevent access to account settings.
+    // Account settings remain usable when the connected backend is unavailable.
   }
 }
+
+onBeforeUnmount(() => request.abort())
 
 onMounted(() => {
   const id = auth.user?.id
@@ -100,13 +106,35 @@ onMounted(() => {
                 <span class="pf-dot" aria-hidden="true"></span>{{ connectionLabel }}
               </dd>
             </div>
-            <div><dt>{{ t('adminUsers.profile.field.appVersion') }}</dt><dd class="pf-version">{{ appVersion }}</dd></div>
-            <div><dt>{{ t('adminUsers.profile.field.buildVersion') }}</dt><dd class="pf-version">{{ appBuildVersion }}</dd></div>
-            <div><dt>{{ t('adminUsers.profile.field.id') }}</dt><dd>{{ auth.user?.id ?? '—' }}</dd></div>
+            <div>
+              <dt>{{ t('adminUsers.profile.field.frontendVersion') }}</dt>
+              <dd class="pf-version-line">
+                <span class="pf-version">{{ frontendVersion }}</span>
+                <button type="button" class="pf-changelog" :title="t('changelog.frontendTitle')" :aria-label="t('changelog.frontendTitle')" @click="changelogService = 'frontend'">
+                  <AppIcon name="scroll" :size="14" />
+                </button>
+              </dd>
+            </div>
+            <div>
+              <dt>{{ t('adminUsers.profile.field.backendVersion') }}</dt>
+              <dd class="pf-version-line">
+                <span class="pf-version">{{ backendInfo?.version || '—' }}</span>
+                <button type="button" class="pf-changelog" :disabled="!changelogAvailable" :title="t(changelogAvailable ? 'changelog.backendTitle' : 'changelog.unavailable')" :aria-label="t('changelog.backendTitle')" @click="changelogService = 'backend'">
+                  <AppIcon name="scroll" :size="14" />
+                </button>
+              </dd>
+            </div>
           </dl>
         </section>
       </div>
     </div>
+    <ChangelogDialog
+      :open="changelogService != null"
+      :service="changelogService ?? 'frontend'"
+      :version="changelogService === 'backend' ? backendInfo?.version || '—' : frontendVersion"
+      :content="backendChangelog"
+      @close="changelogService = null"
+    />
   </section>
 </template>
 
@@ -167,6 +195,23 @@ onMounted(() => {
 .pf-fields { display: grid; gap: 22px; margin: 24px 0 0; font-size: calc(var(--ui-font-scale, 1) * 14px); }
 .pf-fields dt { margin-bottom: 6px; color: var(--ui-text-muted); font-size: calc(var(--ui-font-scale, 1) * 13px); }
 .pf-fields dd { margin: 0; color: var(--ui-text); font-weight: 500; overflow-wrap: anywhere; }
+.pf-version-line { display: flex; align-items: center; gap: 8px; }
+.pf-changelog {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-sm);
+  background: var(--ui-surface-2);
+  color: var(--ui-text-muted);
+  cursor: pointer;
+}
+.pf-changelog:hover:not(:disabled) { background: var(--ui-accent-soft); color: var(--ui-accent); }
+.pf-changelog:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
+.pf-changelog:disabled { opacity: 0.45; cursor: default; }
 .pf-version { font-family: var(--ui-font-mono, monospace); }
 .pf-connection { display: flex; align-items: center; gap: 8px; }
 .pf-connection.on { color: var(--ui-success); }
