@@ -3,12 +3,15 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/Koshsky/erp-backend/internal/auto_create/dto"
+	"github.com/Koshsky/erp-backend/internal/auto_create/repository/sqlc"
 	tracingpkg "github.com/Koshsky/erp-backend/internal/tracing"
 	"github.com/Koshsky/erp-backend/pkg/errors"
 )
@@ -26,13 +29,20 @@ type fakeRepo struct {
 	userCalls     int
 }
 
-func (f *fakeRepo) GetConfig(_ context.Context) (*dto.AutoCreateConfig, error) {
-	return f.cfg, f.failErr
+func (f *fakeRepo) GetConfig(_ context.Context) (*sqlc.GetAutoCreateConfigRow, error) {
+	if f.failErr != nil {
+		return nil, f.failErr
+	}
+	raw, err := json.Marshal(f.cfg.Processes)
+	return &sqlc.GetAutoCreateConfigRow{Enabled: f.cfg.Enabled, Config: raw}, err
 }
 
-func (f *fakeRepo) UpsertConfig(_ context.Context, cfg *dto.AutoCreateConfig) error {
+func (f *fakeRepo) UpsertConfig(_ context.Context, params sqlc.UpsertAutoCreateConfigParams) error {
 	f.upsertCalls++
-	f.upserted = cfg
+	f.upserted = &dto.AutoCreateConfig{Enabled: params.Enabled}
+	if err := json.Unmarshal(params.Config, &f.upserted.Processes); err != nil {
+		return err
+	}
 	return f.failErr
 }
 
@@ -276,7 +286,7 @@ func TestValidateConfigTitlesAndColors(t *testing.T) {
 	}
 }
 
-// TestGetConfigPassthrough checks the service forwards the repository value.
+// TestGetConfigPassthrough protects the response across the SQL boundary.
 func TestGetConfigPassthrough(t *testing.T) {
 	t.Parallel()
 	want := configWithOwnerAndResource()
@@ -286,7 +296,7 @@ func TestGetConfigPassthrough(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetConfig() error = %v", err)
 	}
-	if got != want {
+	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("GetConfig() = %v, want the repository config", got)
 	}
 }
@@ -308,7 +318,7 @@ func TestSaveConfigHappyPath(t *testing.T) {
 	if repo.upsertCalls != 1 {
 		t.Errorf("upsert calls = %d, want 1", repo.upsertCalls)
 	}
-	if repo.upserted != cfg {
+	if !reflect.DeepEqual(repo.upserted, cfg) {
 		t.Errorf("upserted config = %v, want the saved config", repo.upserted)
 	}
 }

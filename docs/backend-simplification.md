@@ -1022,3 +1022,61 @@ The local Docker daemon is unavailable, so real PostgreSQL/API owner filtering,
 employment/absence queries and revision/replay acceptance were not executed.
 Evidence: `../local/backend-b17-20261116/`. No push, merge, CI, release, deployment
 or remote server changes were performed.
+
+## B18 implementation ledger — 2026-11-16
+
+Continued on `refactor/backend-access-tracing` after `d4d706e`. Auto-create's SQL
+adapter no longer imports HTTP DTOs or encodes/decodes template JSON. Its existing
+repository port now returns `*sqlc.GetAutoCreateConfigRow` and accepts
+`sqlc.UpsertAutoCreateConfigParams`; no table-shaped domain model or new package
+was introduced. The service owns the existing missing-row default, decoding,
+top-level null-to-empty read normalization and encoding after reference checks.
+The service package stays separate because the feature root composes delivery.
+Wire was regenerated and is byte-identical. Architecture tests reject DTO
+imports in the SQL adapter and HTTP/concrete-repository coupling in the service.
+
+The original GetConfig mapping/default code matches the moved service code after
+normalizing the repository call and errors import alias. The encoding block,
+validation, reference-ID collectors and resource/user repository lookups remain
+unchanged. Request-scoped query selection still uses `q(ctx)`; this step does not
+change transaction ownership or the SQL project-creation trigger.
+
+All 476 existing Test functions remain. Existing constructor/happy-path tests
+adapt their fake repository to sqlc and compare configuration values instead of
+requiring one DTO pointer to cross the SQL boundary. Seven new functions add 42
+named subcases and 49 passing outcomes. All 66 original-layout auto-create test
+outcomes match the post-change run. Contract tests use the real service and SQL
+adapter over a fake pgx.Tx without a fallback pool. They cover absent/wrapped
+missing rows, disabled config, null/empty and nested collections, unknown fields,
+malformed/wrong-shaped stored JSON, complete process/task/operation/resource
+round-trips, Unicode titles, colors, enabled flags and input immutability.
+Unspecified owners stay null; explicit zero/negative owners still go through the
+existing existence check. Repeated resource/owner references retain deduplication
+and encounter order. Lookup/write errors stop subsequent queries; disabling a
+template does not bypass validation. Tracing may derive a child context, while
+the same request transaction and correlation ID remain available to SQL calls.
+Direct adapter tests preserve raw JSON/row fields and sqlc parameters without
+normalizing, decoding or finalizing the caller's transaction.
+
+HTTP tests exercise real middleware, handler, service and SQL adapter: view-only
+versus management capability, administrator bypass, denied/anonymous access,
+malformed/invalid input and private-error redaction. PUT retains a null processes
+response when omitted, while a subsequent GET retains the empty-array response;
+explicit empty arrays remain arrays. These tests do not execute PostgreSQL
+JSONB normalization, trigger creation or rollback.
+
+Fresh Swagger JSON/YAML before and after are byte-identical (57 paths, 93
+operations, 92 definitions); all nine frozen contract groups still match B01.
+SQL, generated sqlc, DTO identities, migrations, versions, published changelogs,
+frontend SDK and revision/replay middleware are unchanged.
+
+Validation: build/vet, full normal-tag suite (403 top-level pass, 16 skip; 3,261
+pass events and 20 skips including subtests), full race suite in 58 tested
+packages, lint 2.15.0 (0 issues), repository policy and whitespace checks pass.
+After test-helper-only lint fixes, focused auto-create/architecture race checks
+also pass (107 outcomes). All 483 Test functions compile/list with the integration
+tag; 64 tagged functions were not executed. The local Docker daemon is unavailable,
+so real PostgreSQL/API template creation, assignment-owner constraints, atomic
+rollback and revision/replay acceptance were not executed. No frontend/browser
+or Electron acceptance is claimed. Evidence: `../local/backend-b18-20261116/`.
+No push, merge, CI, release, deployment or remote server changes were performed.

@@ -26,6 +26,7 @@ func TestNeutralCoresDoNotDependOnHTTPAdapters(t *testing.T) {
 		"./internal/authz/service",
 		"./internal/tracing",
 		"./internal/auth/service",
+		"./internal/auto_create/service",
 		"./internal/user/domain",
 		"./internal/project_mgmt/milestone",
 		"./internal/timesheet/state",
@@ -47,6 +48,7 @@ func TestNeutralCoresDoNotDependOnHTTPAdapters(t *testing.T) {
 		if strings.HasPrefix(dependency, "github.com/gin-gonic/") ||
 			strings.HasPrefix(dependency, "github.com/Koshsky/erp-backend/internal/middleware/") ||
 			dependency == "github.com/Koshsky/erp-backend/internal/userctx" ||
+			dependency == "github.com/Koshsky/erp-backend/internal/auto_create/repository" ||
 			dependency == "github.com/Koshsky/erp-backend/internal/project_mgmt/milestone/repository" ||
 			dependency == "github.com/Koshsky/erp-backend/internal/timesheet/state/repository" ||
 			dependency == "github.com/Koshsky/erp-backend/internal/timesheet/resource/repository" ||
@@ -85,6 +87,20 @@ func TestUserLookupConsumersDoNotImportHTTPUserDTOs(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestAutoCreateSQLAdapterDoesNotImportHTTPDTOs(t *testing.T) {
+	t.Parallel()
+	files, err := filepath.Glob("../auto_create/repository/*.go")
+	if err != nil || len(files) == 0 {
+		t.Fatalf("auto-create repository sources missing: %v", err)
+	}
+	for _, path := range files {
+		if strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+		checkSiblingImports(t, path, "github.com/Koshsky/erp-backend/internal/auto_create/dto")
 	}
 }
 
