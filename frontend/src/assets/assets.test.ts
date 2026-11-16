@@ -85,9 +85,17 @@ describe('catalog merge: custom overrides default for the same file name', () =>
     expect(merged.get('ru/permissions-editor.md')).toEqual(customs.get('ru/permissions-editor.md'))
   })
 
-  it('the validator is format-agnostic (works for raw Markdown strings)', () => {
-    expect(accepts('# Права (кастом)\n\nПерекрытие.')).toBe(true)
-    expect(accepts('# Права доступа пользователя\n\nТекст.')).toBe(false)
+  it('validates each custom entry and preserves the built-in fallback', () => {
+    const validate = vi.fn(accepts)
+    const merged = mergeCatalogs(defaults, new Map([
+      ...customs,
+      ['ru/planner.md', '# Invalid override'],
+    ]), validate)
+
+    expect(validate).toHaveBeenCalledTimes(3)
+    expect(validate).toHaveBeenCalledWith('# Invalid override')
+    expect(merged.get('ru/planner.md')).toBe(defaults.get('ru/planner.md'))
+    expect(merged.get('en/planner.md')).toBe(customs.get('en/planner.md'))
   })
 
   it('resolveAsset forwards the validator to the merge (empty real custom catalog — default stays)', () => {

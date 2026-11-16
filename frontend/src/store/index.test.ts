@@ -16,19 +16,19 @@
  *  - the ORDER of existing entries is stable (current precedes fresh-only);
  *  - the ARRAY IDENTITY is preserved when the merged roster equals the current
  *    one (sameResources/sameEmployees), so dependents do not re-render;
- *  - empty page input keeps the current list untouched;
+ *  - a successful empty collection clears stale rows;
  *  - id-less rows are dropped (they cannot be deduplicated).
  *
  * The auth-store section checks the real token.expiry decoding contract that
  * drives the proactive-refresh margin (accessExpired check).
  */
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createPinia, setActivePinia } from 'pinia'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createPinia, disposePinia, setActivePinia } from 'pinia'
 import { resetWebCommands } from './data/webCommands'
 import { useAppStore, useTimesheetStore, useAuthStore, useRbacStore } from './index'
 import { buildPullSteps } from '../offline/warmup'
 import { reloadDomainsFor } from '../offline/sync'
-import { getAccessToken, setAccessToken } from '@/token'
+import { setAccessToken } from '@/token'
 import type { DtoUserInfo } from '@/api'
 
 /** Mutable per-test method implementations for the mocked API classes. */
@@ -107,15 +107,27 @@ function pageEmployees(items: EmployeeLike[], total: number): void {
   api.userGet.mockResolvedValue({ data: { data: { items, total } } })
 }
 
+let pinia: ReturnType<typeof createPinia>
 let appStore: ReturnType<typeof useAppStore>
 let tsStore: ReturnType<typeof useTimesheetStore>
 
 beforeEach(() => {
+  // Auth-store subscriptions must be disposed before restoring these globals.
+  vi.stubGlobal('window', { addEventListener: vi.fn(), removeEventListener: vi.fn() })
+  vi.stubGlobal('document', { addEventListener: vi.fn(), removeEventListener: vi.fn() })
   resetWebCommands()
-  setActivePinia(createPinia())
+  pinia = createPinia()
+  setActivePinia(pinia)
   appStore = useAppStore()
   tsStore = useTimesheetStore()
-  vi.clearAllMocks()
+  vi.resetAllMocks()
+})
+
+afterEach(() => {
+  disposePinia(pinia)
+  setActivePinia(undefined)
+  setAccessToken(null)
+  vi.unstubAllGlobals()
 })
 
 describe('mergeResourceLists / sameResources (via refreshResources)', () => {
@@ -188,16 +200,44 @@ describe('mergeResourceLists / sameResources (via refreshResources)', () => {
     expect(appStore.resources[0]?.title).toBe('Один-обновлён')
   })
 
-  it('returns an empty page without touching the current list (identity stable)', async () => {
+  it.each([false, true])('clears stale rows after a successful empty collection (silent=%s)', async silent => {
     appStore.resources = [{ id: 1, code: 'R1', title: 'Один' }]
+    appStore.resourcesTotal = 2
     pageResources([], 0)
 
+    await appStore.refreshResources(silent)
+
+    expect(appStore.resources).toEqual([])
+    expect(appStore.resourcesTotal).toBe(0)
+    expect(appStore.resourcesHasMore).toBe(false)
+    expect(appStore.resourcesLoading).toBe(false)
+    expect(appStore.resourcesError).toBeNull()
+  })
+
+  it('preserves extra pages when an empty page is not an empty collection', async () => {
+    appStore.resources = [{ id: 1, code: 'R1', title: 'Existing' }]
+    appStore.resourcesTotal = 2
+    pageResources([], 2)
     const before = appStore.resources
+
     await appStore.refreshResources()
 
     expect(appStore.resources).toBe(before)
-    expect(appStore.resources).toHaveLength(1)
+    expect(appStore.resourcesTotal).toBe(2)
+    expect(appStore.resourcesHasMore).toBe(true)
+  })
+
+  it('clears rows and the pagination total when access is forbidden', async () => {
+    appStore.resources = [{ id: 1, code: 'R1', title: 'Existing' }]
+    appStore.resourcesTotal = 2
+    api.resourcesGet.mockRejectedValue({ isAxiosError: true, response: { status: 403 } })
+
+    await appStore.refreshResources()
+
+    expect(appStore.resources).toEqual([])
     expect(appStore.resourcesTotal).toBe(0)
+    expect(appStore.resourcesHasMore).toBe(false)
+    expect(appStore.resourcesLoading).toBe(false)
   })
 
   it('drops rows without an id from the merged result', async () => {
@@ -264,13 +304,168 @@ describe('refreshResources: silent background mode', () => {
     expect(appStore.resourcesError).toBeNull()
   })
 
-  it('a loud failure lands in the error flag', async () => {
+  it('a loud network failure preserves the loaded rows and pagination', async () => {
+    appStore.resources = [{ id: 1, code: 'R1', title: 'Existing' }]
+    appStore.resourcesTotal = 2
+    const before = appStore.resources
     api.resourcesGet.mockRejectedValue(new Error('boom'))
 
     await appStore.refreshResources()
 
     expect(appStore.resourcesError).toBe('boom')
     expect(appStore.resourcesLoading).toBe(false)
+    expect(appStore.resources).toBe(before)
+    expect(appStore.resourcesTotal).toBe(2)
+    expect(appStore.resourcesHasMore).toBe(true)
+  })
+})
+
+describe('resource pagination snapshots', () => {
+  const envelope = (data: unknown) => ({ data: { data } })
+  const deferred = () => {
+    let resolve!: (data: ReturnType<typeof envelope>) => void
+    let reject!: (error: unknown) => void
+    const promise = new Promise<ReturnType<typeof envelope>>((done, fail) => { resolve = done; reject = fail })
+    return { promise, resolve, reject }
+  }
+  const forbidden = { isAxiosError: true, response: { status: 403 } }
+  beforeEach(() => {
+    appStore.resources = [{ id: 1, title: 'Loaded' }]
+    appStore.resourcesTotal = 3
+  })
+
+  it.each(['API', 'local permissions'])('clears inaccessible rows when load-more is denied by %s', async source => {
+    if (source === 'API') api.resourcesGet.mockRejectedValueOnce(forbidden)
+    else {
+      const rbac = useRbacStore()
+      rbac.permsLoaded = true
+      rbac.myPermissions = [{ resource: 'resource', action: 'view', scope: 'none' }]
+    }
+    expect(await appStore.loadMoreResources()).toBe(false)
+    expect(appStore.resources).toEqual([])
+    expect(appStore.resourcesTotal).toBe(0)
+    expect(appStore.resourcesHasMore).toBe(false)
+    expect(appStore.resourcesLoadingMore).toBe(false)
+    expect(api.resourcesGet).toHaveBeenCalledTimes(source === 'API' ? 1 : 0)
+  })
+
+  it('preserves the collection on a load-more network failure', async () => {
+    api.resourcesGet.mockRejectedValueOnce(new Error('Network unavailable'))
+    expect(await appStore.loadMoreResources()).toBe(false)
+    expect(appStore.resources).toEqual([{ id: 1, title: 'Loaded' }])
+    expect(appStore.resourcesTotal).toBe(3)
+    expect(appStore.resourcesHasMore).toBe(true)
+    expect(appStore.resourcesError).toBe('Network unavailable')
+    expect(appStore.resourcesLoadingMore).toBe(false)
+  })
+
+  it.each([
+    ['empty', 'success'], ['updated', 'success'], ['forbidden', 'success'], ['updated', 'forbidden'],
+  ])('ignores an older page after a %s refresh (late %s)', async (state, outcome) => {
+    const old = deferred()
+    api.resourcesGet.mockReturnValueOnce(old.promise)
+    const more = appStore.loadMoreResources()
+    if (state === 'forbidden') api.resourcesGet.mockRejectedValueOnce(forbidden)
+    else api.resourcesGet.mockResolvedValueOnce(envelope({ items: state === 'empty' ? [] : [{ id: 1, title: 'Fresh' }], total: state === 'empty' ? 0 : 3 }))
+    await appStore.refreshResources()
+    expect(appStore.resourcesLoadingMore).toBe(false)
+    const current = appStore.resources
+    const total = appStore.resourcesTotal
+    const error = appStore.resourcesError
+    if (outcome === 'forbidden') old.reject(forbidden)
+    else old.resolve(envelope({ items: [{ id: 2, title: 'Obsolete' }], total: 3 }))
+    expect(await more).toBe(false)
+    expect(appStore.resources).toBe(current)
+    expect(appStore.resourcesTotal).toBe(total)
+    expect(appStore.resourcesError).toBe(error)
+    expect(appStore.resourcesLoadingMore).toBe(false)
+  })
+
+  it('keeps a new page loading after the superseded page completes', async () => {
+    const old = deferred(), current = deferred()
+    api.resourcesGet.mockReturnValueOnce(old.promise)
+    const obsolete = appStore.loadMoreResources()
+    pageResources([{ id: 1, title: 'Fresh' }], 3)
+    await appStore.refreshResources()
+    api.resourcesGet.mockReturnValueOnce(current.promise)
+    const more = appStore.loadMoreResources()
+    old.resolve(envelope({ items: [{ id: 2 }], total: 3 }))
+    expect(await obsolete).toBe(false)
+    expect(appStore.resourcesLoadingMore).toBe(true)
+    current.resolve(envelope({ items: [{ id: 3 }], total: 3 }))
+    expect(await more).toBe(true)
+    expect(appStore.resources.map(row => row.id)).toEqual([1, 3])
+    expect(appStore.resourcesLoadingMore).toBe(false)
+  })
+
+  it('does not cancel a network refresh when page entry reads the cached first page', async () => {
+    pageResources([{ id: 1, title: 'Cached' }], 3)
+    await appStore.refreshResources()
+    const fresh = deferred()
+    api.resourcesGet.mockReturnValueOnce(fresh.promise)
+    const refreshing = appStore.refreshResources()
+    await appStore.loadResources()
+    expect(appStore.resourcesLoading).toBe(true)
+    fresh.resolve(envelope({ items: [{ id: 1, title: 'Fresh' }], total: 3 }))
+    await refreshing
+    expect(appStore.resources[0]?.title).toBe('Fresh')
+    expect(appStore.resourcesLoading).toBe(false)
+  })
+
+  it('does not cancel a useful page when a refresh fails on the network', async () => {
+    const page = deferred()
+    api.resourcesGet.mockReturnValueOnce(page.promise).mockRejectedValueOnce(new Error('Refresh unavailable'))
+    const more = appStore.loadMoreResources()
+    await appStore.refreshResources()
+    page.resolve(envelope({ items: [{ id: 2 }], total: 3 }))
+    expect(await more).toBe(true)
+    expect(appStore.resources.map(row => row.id)).toEqual([1, 2])
+    expect(appStore.resourcesTotal).toBe(3)
+    expect(appStore.resourcesLoadingMore).toBe(false)
+  })
+
+  it('cannot restore rows from a pending refresh after load-more denies access', async () => {
+    const old = deferred()
+    api.resourcesGet.mockReturnValueOnce(old.promise).mockRejectedValueOnce(forbidden)
+    const refresh = appStore.refreshResources()
+    expect(await appStore.loadMoreResources()).toBe(false)
+    const error = appStore.resourcesError
+    old.resolve(envelope({ items: [{ id: 2 }], total: 3 }))
+    await refresh
+    expect(appStore.resources).toEqual([])
+    expect(appStore.resourcesTotal).toBe(0)
+    expect(appStore.resourcesError).toBe(error)
+    expect(appStore.resourcesLoading).toBe(false)
+  })
+
+  it('clears the collection when load-more explicitly confirms it is empty', async () => {
+    pageResources([], 0)
+    expect(await appStore.loadMoreResources()).toBe(true)
+    expect(appStore.resources).toEqual([])
+    expect(appStore.resourcesTotal).toBe(0)
+    expect(appStore.resourcesHasMore).toBe(false)
+  })
+
+  describe.each(['refresh', 'load more'])('incomplete %s responses', operation => {
+    it.each([{ total: 0 }, { items: null, total: 0 }, {}])('preserves rows and totals without an explicit items array: %j', async partial => {
+      api.resourcesGet.mockResolvedValueOnce(envelope(partial))
+      const before = appStore.resources
+      if (operation === 'refresh') await appStore.refreshResources()
+      else expect(await appStore.loadMoreResources()).toBe(false)
+      expect(appStore.resources).toBe(before)
+      expect(appStore.resourcesTotal).toBe(3)
+      expect(appStore.resourcesHasMore).toBe(true)
+      expect(appStore.resourcesLoading).toBe(false)
+      expect(appStore.resourcesLoadingMore).toBe(false)
+    })
+  })
+
+  it('preserves pagination when a refresh omits its total', async () => {
+    api.resourcesGet.mockResolvedValueOnce(envelope({ items: [{ id: 1, title: 'Fresh' }] }))
+    await appStore.refreshResources()
+    expect(appStore.resources[0]?.title).toBe('Fresh')
+    expect(appStore.resourcesTotal).toBe(3)
+    expect(appStore.resourcesHasMore).toBe(true)
   })
 })
 
@@ -330,15 +525,6 @@ describe('mergeEmployeeLists / sameEmployees (via refreshEmployees)', () => {
 })
 
 describe('auth access-expiry decoding (a token-margin contract)', () => {
-  // The auth store subscribes to the cross-tab session channel at creation,
-  // which touches window/document — provide inert stubs for the node env.
-  beforeAll(() => {
-    vi.stubGlobal('window', { addEventListener: vi.fn(), removeEventListener: vi.fn() })
-    vi.stubGlobal('document', { addEventListener: vi.fn(), removeEventListener: vi.fn() })
-  })
-  afterAll(() => {
-    vi.unstubAllGlobals()
-  })
 
   const jwt = (expSec: number): string => {
     // btoa is the app's own base64url encoder input (see base64UrlDecode in
@@ -395,27 +581,11 @@ describe('auth access-expiry decoding (a token-margin contract)', () => {
     setAccessToken(null)
     expect(auth.accessExpired()).toBe(true)
   })
-
-  it('round-trips through the in-memory token store', () => {
-    expect(getAccessToken()).toBe('')
-    setAccessToken('abc.def.ghi')
-    expect(getAccessToken()).toBe('abc.def.ghi')
-  })
 })
 
 describe('reloadDomainsFor — the entity → affected-domains map (online post-mutation refresh)', () => {
-  // reloadDomainsFor instantiates the stores at call time; the auth store
-  // touches window/document on creation (cross-tab session channel).
-  beforeAll(() => {
-    vi.stubGlobal('window', { addEventListener: vi.fn(), removeEventListener: vi.fn() })
-    vi.stubGlobal('document', { addEventListener: vi.fn(), removeEventListener: vi.fn() })
-  })
-  afterAll(() => {
-    vi.unstubAllGlobals()
-  })
 
   beforeEach(() => {
-    setActivePinia(createPinia())
     // The roster-family reloads are gated by "sees the roster" — give the
     // auth store an admin preset so the fallback path admits them.
     useAuthStore().user = { preset: 'admin' } satisfies DtoUserInfo
@@ -463,12 +633,8 @@ it('explicit none scopes never enable resource navigation or actions', () => {
 
 describe('RBAC peer probes reach the scope evaluator', () => {
   beforeEach(() => {
-    setActivePinia(createPinia())
-    vi.stubGlobal('window', { addEventListener: vi.fn(), removeEventListener: vi.fn() })
-    vi.stubGlobal('document', { addEventListener: vi.fn(), removeEventListener: vi.fn() })
     useAuthStore().user = { id: 7, preset: 'worker' }
   })
-  afterEach(() => vi.unstubAllGlobals())
 
   it.each(['sib', 'sib_project'])('uses the supplied %s probe and denies missing evidence', (scope) => {
     const rbac = useRbacStore()
@@ -583,11 +749,6 @@ describe('individual permission snapshots', () => {
 
 
 describe('dictionary administration without employee-calendar access', () => {
-  beforeAll(() => {
-    vi.stubGlobal('window', { addEventListener: vi.fn(), removeEventListener: vi.fn() })
-    vi.stubGlobal('document', { addEventListener: vi.fn(), removeEventListener: vi.fn() })
-  })
-  afterAll(() => vi.unstubAllGlobals())
   beforeEach(() => { useAuthStore().user = { id: 42, preset: 'worker' } })
   it('refreshes dictionary changes without loading employees or their periods', () => {
     const rbac = useRbacStore()

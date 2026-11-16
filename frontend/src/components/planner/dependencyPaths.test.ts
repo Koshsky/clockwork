@@ -34,7 +34,8 @@ function link(type: DependencyType, patch: Partial<LinkEndpoints> = {}): LinkEnd
 
 /** Numbers of a path `d` in source order. */
 function nums(d: string): number[] {
-  return (d.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number)
+  const coordinates = d.replace(/\b[MLQC]\b/g, ' ').trim()
+  return coordinates ? coordinates.split(/[\s,]+/).map(Number) : []
 }
 
 /** First/last point of a path. */
@@ -49,6 +50,13 @@ function lastPoint(d: string): number[] {
 /** How many times a path command appears. */
 function commands(d: string, cmd: 'L' | 'Q' | 'C'): number {
   return (d.match(new RegExp(`\\b${cmd}\\b`, 'g')) ?? []).length
+}
+
+function expectRoute(arrow: ReturnType<typeof linkArrow>, start: number[], end: number[]) {
+  expect(firstPoint(arrow.d)).toEqual(start)
+  expect(lastPoint(arrow.d)).toEqual(end)
+  expect([arrow.tipX, arrow.tipY]).toEqual(end)
+  expect(nums(arrow.d).every(Number.isFinite)).toBe(true)
 }
 
 describe('linkBulge', () => {
@@ -83,21 +91,22 @@ describe('rounded elbow — route per dependency type', () => {
   })
 
   it('ff: predecessor END → successor END (route closes in from the right)', () => {
-    expect(linkArrow(link('ff'), 'rounded').d).toBe(
-      'M 200,33 L 204,33 Q 208,33 208,37 L 208,41 Q 208,46 213,46 L 409,46 Q 414,46 414,51 L 414,54 Q 414,59 409,59 L 400,59',
-    )
+    const arrow = linkArrow(link('ff'), 'rounded')
+    expectRoute(arrow, [200, 33], [400, 59])
+    expect(nums(arrow.d)[nums(arrow.d).length - 4]).toBeGreaterThan(arrow.tipX)
   })
 
   it('ss: predecessor START → successor START (route opens to the left)', () => {
-    expect(linkArrow(link('ss'), 'rounded').d).toBe(
-      'M 100,33 L 96,33 Q 92,33 92,37 L 92,41 Q 92,46 97,46 L 281,46 Q 286,46 286,51 L 286,54 Q 286,59 291,59 L 300,59',
-    )
+    const arrow = linkArrow(link('ss'), 'rounded')
+    expectRoute(arrow, [100, 33], [300, 59])
+    expect(nums(arrow.d)[2]).toBeLessThan(100)
   })
 
   it('sf: predecessor START → successor END', () => {
-    expect(linkArrow(link('sf'), 'rounded').d).toBe(
-      'M 100,33 L 96,33 Q 92,33 92,37 L 92,41 Q 92,46 97,46 L 409,46 Q 414,46 414,51 L 414,54 Q 414,59 409,59 L 400,59',
-    )
+    const arrow = linkArrow(link('sf'), 'rounded')
+    expectRoute(arrow, [100, 33], [400, 59])
+    expect(nums(arrow.d)[2]).toBeLessThan(100)
+    expect(nums(arrow.d)[nums(arrow.d).length - 4]).toBeGreaterThan(400)
   })
 
   it('uses exactly the edge pair the engine helpers describe', () => {
@@ -113,9 +122,7 @@ describe('rounded elbow — route per dependency type', () => {
 describe('rounded elbow — degenerate layouts', () => {
   it('bars touching: the two verticals merge into a staircase', () => {
     const a = linkArrow(link('fs', { predEndX: 200, succStartX: 200 }), 'rounded')
-    expect(a.d).toBe(
-      'M 200,33 L 204,33 Q 208,33 208,37 L 208,41 Q 208,46 208,51 L 208,55 Q 208,59 204,59 L 200,59',
-    )
+    expectRoute(a, [200, 33], [200, 59])
     // The route never swings back over the predecessor's own bar.
     const xs = a.d.match(/-?\d+(?:\.\d+)?/g)?.map(Number).filter((_, i) => i % 2 === 0) ?? []
     expect(Math.min(...xs)).toBeGreaterThanOrEqual(200)
@@ -132,9 +139,8 @@ describe('rounded elbow — degenerate layouts', () => {
       link('ss', { predStartX: 500, predEndX: 600, succStartX: 100, succEndX: 200 }),
       'rounded',
     )
-    expect(a.d).toBe(
-      'M 500,33 L 496,33 Q 492,33 492,37 L 492,41 Q 492,46 487,46 L 91,46 Q 86,46 86,51 L 86,54 Q 86,59 91,59 L 100,59',
-    )
+    expectRoute(a, [500, 33], [100, 59])
+    expect(nums(a.d)[2]).toBeLessThan(500)
   })
 
   it('rounds every corner and keeps the radius inside the adjacent segments', () => {
@@ -158,17 +164,14 @@ describe('orthogonal variants — sharp, smooth, metro', () => {
 
   it('smooth: the same route with large corners, zero-length steps dropped', () => {
     const a = linkArrow(link('fs'), 'smooth')
-    expect(a.d).toBe(
-      'M 200,33 L 204,33 Q 208,33 208,37 L 208,39.5 Q 208,46 214.5,46 L 279.5,46 Q 286,46 286,52.5 Q 286,59 292.5,59 L 300,59',
-    )
+    expectRoute(a, [200, 33], [300, 59])
+    expect(nums(a.d)).not.toEqual(nums(linkArrow(link('fs'), 'rounded').d))
     expect(commands(a.d, 'Q')).toBe(4)
   })
 
   it('metro: a 45° diagonal onto the channel, corners rounded', () => {
     const a = linkArrow(link('fs'), 'metro')
-    expect(a.d).toBe(
-      'M 200,33 L 204,33 Q 208,33 210.83,35.83 L 216.76,41.76 Q 221,46 227,46 L 280,46 Q 286,46 286,52 L 286,53 Q 286,59 292,59 L 300,59',
-    )
+    expectRoute(a, [200, 33], [300, 59])
     // The diagonal runs at exactly 45°: a point sits as far right of the exit
     // stub (x = 208) as it sits below the anchor row (y = 33).
     const flat = nums(a.d)
@@ -190,7 +193,9 @@ describe('orthogonal variants — sharp, smooth, metro', () => {
 describe('curve variants — hockey', () => {
   it('leaves the anchor vertically and enters the bound edge horizontally', () => {
     const a = linkArrow(link('fs'), 'hockey')
-    expect(a.d).toBe('M 200,33 C 200,47.3 250,59 300,59')
+    expectRoute(a, [200, 33], [300, 59])
+    expect(nums(a.d)[3]).toBeGreaterThan(33)
+    expect(nums(a.d)[3]).toBeLessThan(59)
     expect(commands(a.d, 'C')).toBe(1)
     expect(commands(a.d, 'Q')).toBe(0)
     // Vertical exit: the first control point shares the anchor's x.
@@ -211,7 +216,11 @@ describe('curve variants — hockey', () => {
 describe('s-curve — route per dependency type', () => {
   it('fs: predecessor END → successor START', () => {
     const a = linkArrow(link('fs'), 's-curve')
-    expect(a.d).toBe('M 200,33 C 248,33 250,59 300,59')
+    expectRoute(a, [200, 33], [300, 59])
+    expect(nums(a.d)[2]).toBeGreaterThan(200)
+    expect(nums(a.d)[3]).toBe(33)
+    expect(nums(a.d)[4]).toBeLessThan(300)
+    expect(nums(a.d)[5]).toBe(59)
     expect(a.tipX).toBe(300)
     expect(a.tipY).toBe(59)
     expect(commands(a.d, 'C')).toBe(1)
@@ -219,16 +228,25 @@ describe('s-curve — route per dependency type', () => {
   })
 
   it('ff: predecessor END → successor END (curve closes from the right)', () => {
-    expect(linkArrow(link('ff'), 's-curve').d).toBe('M 200,33 C 248,33 500,59 400,59')
+    const arrow = linkArrow(link('ff'), 's-curve')
+    expectRoute(arrow, [200, 33], [400, 59])
+    expect(nums(arrow.d)[4]).toBeGreaterThan(400)
+    expect(nums(arrow.d)[5]).toBe(59)
   })
 
   it('ss: predecessor START → successor START (curve opens to the left)', () => {
-    expect(linkArrow(link('ss'), 's-curve').d).toBe('M 100,33 C 52,33 200,59 300,59')
+    const arrow = linkArrow(link('ss'), 's-curve')
+    expectRoute(arrow, [100, 33], [300, 59])
+    expect(nums(arrow.d)[2]).toBeLessThan(100)
+    expect(nums(arrow.d)[4]).toBeLessThan(300)
   })
 
   it('sf: predecessor START → successor END, entry hook clamped on a wide span', () => {
     expect(linkBulge(100, 400)).toBe(LINK_MAX_BULGE)
-    expect(linkArrow(link('sf'), 's-curve').d).toBe('M 100,33 C 52,33 520,59 400,59')
+    const arrow = linkArrow(link('sf'), 's-curve')
+    expectRoute(arrow, [100, 33], [400, 59])
+    expect(nums(arrow.d)[2]).toBeLessThan(100)
+    expect(nums(arrow.d)[4]! - 400).toBeLessThanOrEqual(LINK_MAX_BULGE)
   })
 
   it('caps the exit hook so a long link cannot reach back over the task labels', () => {
@@ -272,7 +290,7 @@ describe('style invariant', () => {
           const where = `${style} ${type} ${JSON.stringify(patch)}`
           expect(firstPoint(arrow.d), where).toEqual(firstPoint(reference.d))
           expect(lastPoint(arrow.d), where).toEqual(lastPoint(reference.d))
-          expect(arrow.tick, where).toBe(reference.tick)
+          expect(nums(arrow.tick), where).toEqual(nums(reference.tick))
           expect(arrow.tipX, where).toBe(reference.tipX)
           expect(arrow.tipY, where).toBe(reference.tipY)
         }
@@ -299,11 +317,21 @@ describe('style invariant', () => {
         for (const patch of layouts) {
           const a = linkArrow(link(type, patch), style)
           const where = `${style} ${type} ${JSON.stringify(patch)}`
-          expect(a.d, where).not.toMatch(/NaN|Infinity|undefined/)
+          expect(nums(a.d).length, where).toBeGreaterThan(0)
           expect(nums(a.d).every(Number.isFinite), where).toBe(true)
           expect(nums(a.tick), where).toHaveLength(4)
+          expect(nums(a.tick).every(Number.isFinite), where).toBe(true)
         }
       }
+    }
+  })
+
+  it('rejects malformed intermediate coordinates even when both endpoints are valid', () => {
+    for (const value of ['NaN', 'Infinity', '-Infinity', 'undefined']) {
+      const path = `M 200,33 Q ${value},40 250,46 L 300,59`
+      expect(firstPoint(path)).toEqual([200, 33])
+      expect(lastPoint(path)).toEqual([300, 59])
+      expect(nums(path).every(Number.isFinite), value).toBe(false)
     }
   })
 

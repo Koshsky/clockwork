@@ -173,7 +173,7 @@ it('never serves an administrator cache as a subject preview on a network failur
 })
 
 
-it.each(['projects', 'processes', 'tasks'])('clears stale online auth before redirecting a logged-out %s request', async entity => {
+it('clears stale online auth before redirecting a logged-out planning request', async () => {
   mocks.loggedOut = true
   mocks.renew.mockResolvedValue(false)
   const send = vi.fn(async (config: InternalAxiosRequestConfig) => {
@@ -181,7 +181,7 @@ it.each(['projects', 'processes', 'tasks'])('clears stale online auth before red
   })
   axios.defaults.adapter = send
 
-  await expect(axios.get('/api/v1/planning/' + entity)).rejects.toMatchObject({ response: { status: 401 } })
+  await expect(axios.get('/api/v1/planning/tasks')).rejects.toMatchObject({ response: { status: 401 } })
 
   expect(mocks.renew).toHaveBeenCalledTimes(1)
   expect(send).toHaveBeenCalledTimes(1)

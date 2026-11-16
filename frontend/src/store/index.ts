@@ -645,6 +645,31 @@ export const useAppStore = defineStore('app', () => {
   /** Server-side total (from the list envelope) — drives the "load more" button */
   const resourcesTotal = ref(0)
   const resourcesError = ref<string | null>(null)
+  let resourceReads = new AbortController()
+  let resourcePages = new AbortController()
+
+  function invalidateResourcePages(): void {
+    const previous = resourcePages
+    resourcePages = new AbortController()
+    previous.abort()
+    resourcesLoadingMore.value = false
+  }
+
+  function invalidateResourceReads(): void {
+    const previous = resourceReads
+    resourceReads = new AbortController()
+    previous.abort()
+    invalidateResourcePages()
+    resourcesLoading.value = false
+  }
+
+  function clearResources(): void {
+    invalidateResourceReads()
+    resources.value = []
+    resourcesTotal.value = 0
+  }
+
+  onScopeDispose(() => { resourceReads.abort(); resourcePages.abort() })
 
   /** Whether another resources page can be requested */
   const resourcesHasMore = computed(() => resourcesTotal.value > resources.value.length)
@@ -708,21 +733,21 @@ export const useAppStore = defineStore('app', () => {
   async function refreshResources(silent = false, preferCache = false): Promise<void> {
     const rbac = useRbacStore()
     if (rbac.permsLoaded && !rbac.can('resource', 'view')) {
-      resources.value = []
-      resourcesTotal.value = 0
+      clearResources()
       resourcesError.value = null
-      resourcesLoading.value = false
       return
     }
+    const own = resourceReads
     if (!silent) {
       resourcesLoading.value = true
       resourcesError.value = null
     }
     try {
       const api = applicationServices.resources
-      const resp = await readApi('resources', [tablePageSize.value, 0], request => api.list(tablePageSize.value, undefined, 0, request), preferCache)
+      const resp = await readApi('resources', [tablePageSize.value, 0], request => api.list(tablePageSize.value, undefined, 0, request), preferCache, own.signal)
       const data = resp.data?.data
-      const items = data?.items ?? []
+      if (!Array.isArray(data?.items)) return
+      const items = data.items
       // The background PULL must not truncate pages already loaded via
       // "load more": merge the fresh first page into the existing list (dedup
       // by id, fresh page wins, extra pages kept) — the same policy the
@@ -730,17 +755,21 @@ export const useAppStore = defineStore('app', () => {
       // when the merged roster equals the current one, so dependent views do
       // not re-render on every quiet refresh cycle.
       const complete = nativeQueue?.mainSync ? await cacheGet<DtoResourceResponse[]>(userCachePrefix() + '/local/resource-header?owner_id=all') : null
+      if (own.signal.aborted) return
       const completeById = complete ? new Map(complete.map(row => [row.id, row])) : null
       const visible = completeById ? resources.value.flatMap(row => completeById.has(row.id) ? [completeById.get(row.id)!] : []) : resources.value
-      const merged = mergeResourceLists(visible, items)
+      // An authoritative empty collection must remove rows retained from older pages.
+      const merged = data.total === 0 && items.length === 0 ? [] : mergeResourceLists(visible, items)
+      // Older pages must not restore rows after a newer collection snapshot.
+      invalidateResourcePages()
       if (!sameResources(merged, resources.value)) resources.value = merged
-      resourcesTotal.value = data?.total ?? 0
+      resourcesTotal.value = data.total ?? Math.max(resourcesTotal.value, merged.length)
     } catch (e: unknown) {
-      if (isReadForbidden(e)) { resources.value = []; resourcesTotal.value = 0 }
-      if (isReadCancelled(e)) return
+      if (own.signal.aborted || isReadCancelled(e)) return
+      if (isReadForbidden(e)) clearResources()
       if (!silent) resourcesError.value = e instanceof Error ? e.message || String(e) : String(e)
     } finally {
-      if (!silent) resourcesLoading.value = readPending('resources')
+      if (!silent && own === resourceReads) resourcesLoading.value = readPending('resources')
     }
   }
 
@@ -751,7 +780,14 @@ export const useAppStore = defineStore('app', () => {
    * would hand back page 0 for any offset.
    */
   async function loadMoreResources(): Promise<boolean> {
+    const rbac = useRbacStore()
+    if (rbac.permsLoaded && !rbac.can('resource', 'view')) {
+      clearResources()
+      resourcesError.value = null
+      return false
+    }
     if (resourcesLoadingMore.value || !resourcesHasMore.value) return true
+    const own = resourcePages
     resourcesLoadingMore.value = true
     resourcesError.value = null
     try {
@@ -759,6 +795,7 @@ export const useAppStore = defineStore('app', () => {
         const pages = await cacheGetAllByPath<{ data?: { items?: DtoResourceResponse[]; offset?: number; total?: number } }>(
           apiPath('/resources'),
         )
+        if (own.signal.aborted) return false
         let merged = false
         for (const page of pages) {
           const d = page.data?.data
@@ -771,17 +808,23 @@ export const useAppStore = defineStore('app', () => {
         return merged
       }
       const api = applicationServices.resources
-      const resp = await readApi('resources.more', [tablePageSize.value, resources.value.length], request => api.list(tablePageSize.value, undefined, resources.value.length, request))
+      const resp = await readApi('resources.more', [tablePageSize.value, resources.value.length], request => api.list(tablePageSize.value, undefined, resources.value.length, request), false, own.signal)
+      if (own.signal.aborted) return false
       const data = resp.data?.data
-      mergeResources(data?.items ?? [])
-      resourcesTotal.value = data?.total ?? resourcesTotal.value
+      if (!Array.isArray(data?.items)) return false
+      if (data.total === 0 && data.items.length === 0) clearResources()
+      else {
+        mergeResources(data.items)
+        resourcesTotal.value = data.total ?? Math.max(resourcesTotal.value, resources.value.length)
+      }
       return true
     } catch (e: unknown) {
-      if (isReadCancelled(e)) return false
+      if (own.signal.aborted || isReadCancelled(e)) return false
+      if (isReadForbidden(e)) clearResources()
       resourcesError.value = e instanceof Error ? e.message || String(e) : String(e)
       return false
     } finally {
-      resourcesLoadingMore.value = readPending('resources.more')
+      if (own === resourcePages) resourcesLoadingMore.value = readPending('resources.more')
     }
   }
 
@@ -1302,6 +1345,7 @@ export const useAppStore = defineStore('app', () => {
    *  itself is per-user keyed — see offline/cache.ts). */
   function resetUserData(): void {
     invalidateApiReads()
+    invalidateResourceReads()
     projects.value = []
     projectsError.value = null
     calendar.value = []

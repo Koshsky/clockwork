@@ -23,6 +23,10 @@
  * enables `test.css` for that (see vitest.config.ts).
  */
 import { describe, expect, it } from 'vitest'
+import postcss, { type Declaration } from 'postcss'
+import { parse } from '@vue/compiler-sfc'
+import { NodeTypes, type RootNode, type TemplateChildNode } from '@vue/compiler-core'
+import ts from 'typescript'
 
 /** Every source file as raw text (Vite glob, like the i18n hardcoded-text gate). */
 const SOURCES = import.meta.glob('/src/**/*.{ts,vue,css}', {
@@ -99,23 +103,84 @@ function sourceFiles(): Map<string, string> {
 
 const FILES = sourceFiles()
 
-/** The token block of styles/tokens.css as «token → value». */
+// Escaped literals still need parsing: their decoded value may reference a layer.
+const mayContainLayer = (source: string) => /z-index|zIndex|--z-|\\/.test(source)
+
+function declarations(file: string, source: string): Declaration[] {
+  if (!mayContainLayer(source)) return []
+  const result: Declaration[] = []
+  const css = (text: string) => {
+    if (mayContainLayer(text)) postcss.parse(text, { from: file }).walkDecls(declaration => { result.push(declaration) })
+  }
+  const script = (text: string) => {
+    if (!mayContainLayer(text)) return
+    const tree = ts.createSourceFile(file + '.ts', text, ts.ScriptTarget.Latest, true)
+    const recorded = new Set<ts.Node>()
+    const record = (node: ts.Expression) => {
+      recorded.add(node)
+      if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+        result.push(postcss.decl({ prop: 'z-index', value: node.text.trim() }))
+      } else if (ts.isNumericLiteral(node) || ts.isPrefixUnaryExpression(node)) {
+        result.push(postcss.decl({ prop: 'z-index', value: node.getText(tree) }))
+      }
+    }
+    const isLayer = (name: string) => name === 'zIndex' || name === 'z-index'
+    function visit(node: ts.Node) {
+      if (ts.isPropertyAssignment(node) && isLayer(ts.isStringLiteral(node.name) ? node.name.text : node.name.getText(tree))) record(node.initializer)
+      if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+        const target = node.left
+        if (ts.isPropertyAccessExpression(target) && isLayer(target.name.text)
+          || ts.isElementAccessExpression(target) && ts.isStringLiteral(target.argumentExpression) && isLayer(target.argumentExpression.text)) record(node.right)
+      }
+      if ((ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) && !recorded.has(node)) {
+        const value = node.text.trim()
+        if (/^var\(\s*--z-[a-z-]+(?:\s*[,)]).*$/.test(value)) {
+          result.push(postcss.decl({ prop: 'z-index', value }))
+        } else if (/^(?:z-index\s*:|[.#:@][^{}]*\{)/.test(value)) css(value)
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(tree)
+  }
+  if (file.endsWith('.css')) css(source)
+  else if (file.endsWith('.ts')) script(source)
+  else if (file.endsWith('.vue')) {
+    const { descriptor } = parse(source, { filename: file })
+    descriptor.styles.forEach(style => css(style.content))
+    if (descriptor.script) script(descriptor.script.content)
+    if (descriptor.scriptSetup) script(descriptor.scriptSetup.content)
+    function template(node: RootNode | TemplateChildNode) {
+      if (node.type === NodeTypes.ELEMENT) {
+        for (const property of node.props) {
+          if (property.type === NodeTypes.ATTRIBUTE && property.name === 'style' && property.value) css(property.value.content)
+          if (property.type === NodeTypes.DIRECTIVE && property.name === 'bind' && property.arg?.type === NodeTypes.SIMPLE_EXPRESSION && property.arg.content === 'style' && property.exp?.type === NodeTypes.SIMPLE_EXPRESSION) {
+            script('const style = (' + property.exp.content + ')')
+          }
+        }
+      }
+      if (node.type === NodeTypes.ROOT || node.type === NodeTypes.ELEMENT) node.children.forEach(template)
+    }
+    if (descriptor.template?.ast) template(descriptor.template.ast)
+  }
+  return result
+}
+
+const DECLARATIONS = new Map([...FILES].map(([file, source]) => [file, declarations(file, source)]))
+
 function declaredTokens(): Map<string, number> {
-  const css = FILES.get(TOKENS_FILE)
-  expect(css, `${TOKENS_FILE} must be readable (see test.css in vitest.config.ts)`).toBeTruthy()
   const out = new Map<string, number>()
-  for (const m of (css ?? '').matchAll(/(--z-[a-z-]+):\s*(\d+);/g)) out.set(m[1], Number(m[2]))
+  for (const declaration of DECLARATIONS.get(TOKENS_FILE) ?? []) {
+    if (!declaration.prop.startsWith('--z-')) continue
+    expect(out.has(declaration.prop), `${declaration.prop} must be declared once`).toBe(false)
+    expect(Number.isFinite(Number(declaration.value)), declaration.toString()).toBe(true)
+    out.set(declaration.prop, Number(declaration.value))
+  }
   return out
 }
 
-/** Raw `z-index: <number>` declarations of one file, with line numbers. */
-function rawNumbers(raw: string): Array<{ line: number; value: number }> {
-  const hits: Array<{ line: number; value: number }> = []
-  raw.split('\n').forEach((text, i) => {
-    const m = text.match(/z-index:\s*(\d+)\s*;/)
-    if (m) hits.push({ line: i + 1, value: Number(m[1]) })
-  })
-  return hits
+function rawNumbers(declarations: Declaration[]): Array<{ line: number; value: number }> {
+  return declarations.filter(declaration => declaration.prop === 'z-index' && /^[-+]?\d+$/.test(declaration.value))
+    .map(declaration => ({ line: declaration.source?.start?.line ?? 0, value: Number(declaration.value) }))
 }
 
 describe('z-index ladder', () => {
@@ -123,9 +188,9 @@ describe('z-index ladder', () => {
     const failures: string[] = []
     const stale: string[] = []
 
-    for (const [rel, raw] of FILES) {
+    for (const [rel, declarations] of DECLARATIONS) {
       if (rel === TOKENS_FILE) continue
-      const hits = rawNumbers(raw)
+      const hits = rawNumbers(declarations)
       const allowed = PENDING_RAW_Z_INDEX[rel] ?? []
       for (const hit of hits) {
         if (!allowed.includes(hit.value)) {
@@ -148,10 +213,12 @@ describe('z-index ladder', () => {
     const declared = declaredTokens()
     const missing = new Set<string>()
 
-    for (const [rel, raw] of FILES) {
+    for (const [rel, declarations] of DECLARATIONS) {
       if (rel === TOKENS_FILE) continue
-      for (const m of raw.matchAll(/var\((--z-[a-z-]+)/g)) {
-        if (!declared.has(m[1])) missing.add(`${rel} — ${m[1]}`)
+      for (const declaration of declarations) {
+        for (const m of declaration.value.matchAll(/var\(\s*(--z-[a-z-]+)/g)) {
+          if (!declared.has(m[1])) missing.add(`${rel} — ${m[1]}`)
+        }
       }
     }
 
@@ -173,16 +240,65 @@ describe('z-index ladder', () => {
     }
   })
 
-  it('the diagram ladder itself is complete (only floating overlays lag behind)', () => {
-    // Everything the diagram and its chrome need is tokenized; the only
-    // planner/timesheet files still allowed a number are the floating overlays
-    // (the PDF preview and the timesheet's range tip/panel/overlay).
-    const pendingHere = Object.keys(PENDING_RAW_Z_INDEX).filter(
-      (rel) => rel.startsWith('components/planner/') || rel.startsWith('components/timesheet/'),
-    )
-    expect(pendingHere).toEqual([
-      'components/planner/PdfExport/PdfExport.vue',
-      'components/timesheet/TimesheetGrid/TimesheetGrid.vue',
-    ])
+  it('parses CSS declarations rather than comments or formatting', () => {
+    expect(rawNumbers(declarations('fixture.css', `
+      /* z-index: 999; */
+      .overlay { z-index:
+        -4 !important; }
+      .token { z-index: var( --z-header ); }
+    `)).map(hit => hit.value)).toEqual([-4])
+    expect(rawNumbers(declarations('Fixture.vue', `
+      <script setup>const explanation = 'Documentation example: z-index: 999;'</script>
+      <template><div /></template>
+      <style>.overlay { z-index: 7 }</style>
+    `)).map(hit => hit.value)).toEqual([7])
   })
+
+  it('finds layers inside nested conditional and loop templates', () => {
+    const conditional = declarations('Fixture.vue', `
+      <template>
+        <template v-if="visible">
+          <div v-for="item in items" style="z-index: 999" />
+        </template>
+        <template v-else><span :style="{ zIndex: 'var(--z-missing)' }" /></template>
+      </template>
+    `)
+    expect(rawNumbers(conditional).map(hit => hit.value)).toEqual([999])
+    expect(conditional.some(declaration => declaration.value === 'var(--z-missing)')).toBe(true)
+  })
+
+  it('finds direct layer assignments and tokens inside CSS calculations', () => {
+    const assigned = declarations('fixture.ts', `
+      style.zIndex = 999
+      style['z-index'] = -3
+      style.zIndex = 'calc(var(--z-missing) + 1)'
+    `)
+    expect(rawNumbers(assigned).map(hit => hit.value)).toEqual([999, -3])
+    expect(assigned.some(declaration => declaration.value.includes('--z-missing'))).toBe(true)
+    const calculated = declarations('Fixture.vue', `
+      <template><div :style="{ zIndex: 'calc(var(--z-typo) + 1)' }" /></template>
+    `)
+    expect(calculated.some(declaration => declaration.value.includes('--z-typo'))).toBe(true)
+  })
+
+  it('finds numeric and undeclared layers in inline Vue and TypeScript styles', () => {
+    const inline = declarations('Fixture.vue', `
+      <template>
+        <div style="z-index: 999;" :style="{ zIndex: 'var(--z-typo)' }" />
+        <div :style="{ zIndex: 777 }" />
+      </template>
+      <script setup>const style = { zIndex: -3 }</script>
+    `)
+    expect(rawNumbers(inline).map(hit => hit.value)).toEqual([-3, 999, 777])
+    expect(inline.filter(declaration => declaration.value.includes('--z-typo'))).toHaveLength(1)
+    const typed = declarations('fixture.ts', `
+      // z-index: 999;
+      const explanation = 'The z-index: 999; is only an example'
+      const style = { zIndex: 123, '--other': 'text', other: 'var(--z-missing)' }
+      const css = '.layer { z-index: 456; }'
+    `)
+    expect(rawNumbers(typed).map(hit => hit.value)).toEqual([123, 456])
+    expect(typed.some(declaration => declaration.value === 'var(--z-missing)')).toBe(true)
+  })
+
 })

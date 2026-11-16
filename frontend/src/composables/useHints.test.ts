@@ -1,8 +1,12 @@
 /**
  * Tests for the global hint-panel state (src/composables/useHints.ts).
  */
-import { describe, expect, it } from 'vitest'
-import { closeHints, hintOpen, hintPageContent, openHintPage } from './useHints'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { closeHints, hintOpen, hintPageContent, hintPageRef, openHintPage } from './useHints'
+
+const resetPanel = () => { closeHints(); hintPageRef.value = null }
+beforeEach(resetPanel)
+afterEach(resetPanel)
 
 describe('useHints', () => {
   it('opens a known page and exposes its content', () => {
@@ -22,5 +26,13 @@ describe('useHints', () => {
   it('ignores unknown pages', () => {
     openHintPage('no-such-page')
     expect(hintOpen.value).toBe(false)
+    expect(hintPageContent.value).toBeNull()
+  })
+
+  it('keeps the current panel when an unknown page is requested', () => {
+    openHintPage('scope-expressions')
+    openHintPage('no-such-page')
+    expect(hintOpen.value).toBe(true)
+    expect(hintPageContent.value?.id).toBe('scope-expressions')
   })
 })

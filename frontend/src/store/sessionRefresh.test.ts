@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createPinia, setActivePinia } from 'pinia'
+import { createPinia, disposePinia, setActivePinia } from 'pinia'
 import { watch } from 'vue'
 
 const fake = vi.hoisted(() => ({
@@ -19,6 +19,7 @@ vi.mock('@/offline/session', () => ({ loadRefreshToken: vi.fn(async () => 'saved
 vi.mock('@/api', async original => ({
   ...await original<typeof import('@/api')>(),
   AuthApi: class { authRefreshPost(...args: unknown[]) { return fake.refresh(...args) } authLoginPost(...args: unknown[]) { return fake.login(...args) } },
+  PermissionsApi: class { async permissionsMeGet() { return { data: { data: [] } } } },
 }))
 import { useAuthStore, usePlanningStore } from './index'
 import { getAccessToken, setAccessToken } from '@/token'
@@ -27,10 +28,15 @@ import { setLoggedOut } from '@/loggedOut'
 import { saveRefreshToken, clearRefreshToken, loadRefreshToken } from '@/offline/session'
 
 const jwt = (offset: number) => `e30.${btoa(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + offset }))}.signature`
+let pinia: ReturnType<typeof createPinia>
 
 beforeEach(() => {
   vi.useFakeTimers()
   vi.clearAllMocks()
+  fake.locked.mockReset()
+  fake.refresh.mockReset()
+  fake.login.mockReset()
+  vi.mocked(loadRefreshToken).mockReset().mockResolvedValue('saved')
   fake.listeners.clear()
   fake.sessions.clear()
   fake.loggedOut.mockReturnValue(false)
@@ -43,11 +49,21 @@ beforeEach(() => {
     clearTimeout: (id: ReturnType<typeof setTimeout>) => clearTimeout(id),
   })
   vi.stubGlobal('document', { addEventListener: vi.fn(), removeEventListener: vi.fn() })
-  setActivePinia(createPinia())
+  pinia = createPinia()
+  setActivePinia(pinia)
   isOffline.value = false
   setAccessToken(jwt(-60))
 })
-afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); setAccessToken(null) })
+afterEach(() => {
+  disposePinia(pinia)
+  const remaining = { sessions: fake.sessions.size, listeners: fake.listeners.size, timers: vi.getTimerCount() }
+  setAccessToken(null)
+  isOffline.value = false
+  vi.clearAllTimers()
+  vi.useRealTimers()
+  vi.unstubAllGlobals()
+  expect(remaining).toEqual({ sessions: 0, listeners: 0, timers: 0 })
+})
 
 describe('waiting for a sibling session', () => {
   it('lets explicit recovery wait for a pending startup renewal', async () => {
