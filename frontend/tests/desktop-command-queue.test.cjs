@@ -403,3 +403,21 @@ test('a year offline preserves old commands, their projection and their stable o
   assert.equal(f.calls.length, 1); assert.equal(f.calls[0].operationId, operationId)
   assert.equal((await f.queue.control({ action: 'list' })).length, 0)
 })
+
+test('backend release notes survive offline restart and never leak across accounts', async t => {
+  const f = await fixture(t)
+  const request = { operation: 'GET /about', path: {}, query: {} }
+  const metadata = { version: '9.7.3', changelog_ru: 'Backend RU', changelog_en: 'Backend EN' }
+  const response = { status: 200, data: { data: metadata, error: {} } }
+  await f.queue.api(request, async () => response)
+  await f.restart()
+  const snapshot = await f.queue.api(request, async () => { throw new Error('Offline') })
+  assert.deepEqual(snapshot.data, response.data)
+  assert.equal(snapshot.localSnapshot, true)
+  const local = await f.queue.api({ ...request, snapshotOnly: true }, () => assert.fail('Snapshot reads must not send HTTP'))
+  assert.deepEqual(local.data, response.data)
+  f.switchAccount()
+  const missing = await f.queue.api({ ...request, snapshotOnly: true }, () => assert.fail('Snapshot reads must not send HTTP'))
+  assert.equal(missing.status, 503)
+  assert.equal(missing.data.error.code, 'LOCAL_SNAPSHOT_MISSING')
+})

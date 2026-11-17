@@ -6,6 +6,8 @@ Dockerfile
 .dockerignore
 README.md
 *.md
+!Changelog_ENG.md
+!Changelog_RU.md
 .continue
 .vscode
 # Historical deployment data must never enter a shared image.

@@ -1,5 +1,12 @@
 [
   {
+    "operation": "GET /about",
+    "method": "GET",
+    "path": "/about",
+    "pathTypes": {},
+    "query": []
+  },
+  {
     "operation": "GET /assignment",
     "method": "GET",
     "path": "/assignment",

@@ -8,6 +8,10 @@ The web app and the desktop wrapper are versioned together.
 
 ## [Unreleased]
 
+### Added
+
+- The About page shows frontend and backend versions with separate changelog buttons.
+
 ### Fixed
 
 - Resource lists clear forbidden or deleted rows, reject stale pages and preserve pagination after incomplete responses or network errors.

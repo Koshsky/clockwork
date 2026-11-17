@@ -24,6 +24,40 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/about": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Application"
+                ],
+                "summary": "Get backend version and release notes",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.SuccessResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/release.Info"
+                                        },
+                                        "error": {
+                                            "type": "object"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/assignment": {
             "get": {
                 "security": [
@@ -9734,6 +9768,20 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "state": {
+                    "type": "string"
+                }
+            }
+        },
+        "release.Info": {
+            "type": "object",
+            "properties": {
+                "changelog_en": {
+                    "type": "string"
+                },
+                "changelog_ru": {
+                    "type": "string"
+                },
+                "version": {
                     "type": "string"
                 }
             }

@@ -85,3 +85,18 @@ test('IPC accepts loaded revision metadata but rejects malformed or extra transp
   assert.equal(validate(request), true)
   for (const patch of [{ preconditions: { 'task:1': 'revision' } }, { preconditions: { 'process:1': '' } }, { temporaryId: 1 }, { locale: 'other' }, { url: 'https://attacker.test' }]) assert.equal(validate({ ...request, ...patch }), false)
 })
+
+test('backend release metadata uses the selected server snapshot through typed IPC', async () => {
+  const f = fixture()
+  const metadata = { version: '9.7.3', changelog_ru: 'Backend RU', changelog_en: 'Backend EN' }
+  f.result({ status: 200, data: { data: metadata, error: {} }, localSnapshot: true })
+  assert.deepEqual(await f.reads['application.info'](undefined, f.context), { status: 'ok', data: metadata, source: 'snapshot' })
+  assert.equal(f.requests[0].operation, 'GET /about')
+  assert.equal(f.requests[0].snapshotOnly, true)
+  assert.equal(f.requests[0].contextId, 'session-a')
+  const request = { protocol: 1, kind: 'read', requestId: 'about', contextId: 'session-a', operation: 'application.info', source: 'snapshot', locale: 'ru' }
+  assert.equal(validate(request), true)
+  assert.equal(validate({ ...request, input: { url: 'https://other-server.test' } }), false)
+  f.result({ status: 503, data: { error: { code: 'LOCAL_SNAPSHOT_MISSING' } } })
+  assert.equal((await f.reads['application.info'](undefined, f.context)).status, 'missing')
+})

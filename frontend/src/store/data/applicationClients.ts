@@ -107,6 +107,9 @@ export function createApplicationServices(configuration?: () => Configuration, r
   audit: {
     events(limit?: number, offset?: number, userId?: number, user?: string, entity?: string, action?: string, status?: string, from?: string, to?: string, search?: string, id?: string, ip?: string, options?: RawAxiosRequestConfig) { return readResponse('audit.events', { limit, offset, userId, user, entity, action, status, from, to, search, id, ip }, options) },
   },
+  application: {
+    info(options?: RawAxiosRequestConfig) { return readResponse('application.info', undefined, options) },
+  },
   }
 }
 export const applicationServices = createApplicationServices()

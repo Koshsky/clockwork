@@ -40,6 +40,7 @@ const (
 )
 
 type App struct {
+	version     string
 	cfg         *config.Config
 	logger      *slog.Logger
 	pool        *pgxpool.Pool

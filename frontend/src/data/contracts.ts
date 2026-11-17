@@ -14,7 +14,7 @@ import type {
   DtoUpdateProcessRequest, DtoUpdateProjectRequest, DtoUpdateResourceRequest,
   DtoUpdateStateRequest, DtoUpdateTaskRequest, DtoUpdateUserRequest,
   DtoUserInfo, DtoUserPermissionsInput, DtoUserPermissionsView, DtoUserResponse,
-  DtoUserStatesResponse, DtoUserStateResponse, EngineKindInfo,
+  DtoUserStatesResponse, DtoUserStateResponse, EngineKindInfo, ReleaseInfo,
 } from '@/api'
 
 export interface DataFailure {
@@ -89,6 +89,7 @@ interface Operation<Input, Output> {
 // Generated DTOs remain the shared business shapes; HTTP envelopes and client
 // classes are deliberately absent from these ports.
 export interface ReadOperations {
+  'application.info': Operation<void, ReleaseInfo>
   'project.list': Operation<PageQuery & { ownerId?: number }, Page<DtoProject>>
   'planning.projects': Operation<void, DtoProjectPlanning>
   'planning.processes': Operation<void, DtoProcessPlanning>

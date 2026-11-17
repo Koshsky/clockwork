@@ -31,7 +31,8 @@
     "rbac.matrix": true,
     "rbac.policies": true,
     "rbac.kinds": true,
-    "resource.header": true
+    "resource.header": true,
+    "application.info": true
   },
   "command": {
     "project.create": true,

@@ -61,6 +61,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	application.SetVersion(version)
 	application.Logger().Info("service configuration loaded", "version", version)
 
 	// create a context that is canceled on SIGINT or SIGTERM

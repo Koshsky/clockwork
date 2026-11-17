@@ -34,7 +34,7 @@ const read = {
   'assignment.list': shape({ taskId: id }),
   'audit.events': shape({ ...page, ...optionalFields({ userId: positive, user: shortText, entity: shortText, action: shortText, status: shortText, from: shortText, to: shortText, id: shortText, ip: shortText }) }),
 }
-for (const name of ['planning.projects', 'planning.processes', 'planning.tasks', 'timesheet.states', 'permissions.current', 'account.structure', 'rbac.configuration', 'template.configuration', 'sync.queue']) read[name] = voidInput
+for (const name of ['application.info', 'planning.projects', 'planning.processes', 'planning.tasks', 'timesheet.states', 'permissions.current', 'account.structure', 'rbac.configuration', 'template.configuration', 'sync.queue']) read[name] = voidInput
 read['account.profile'] = value => voidInput(value) || shape({ userId: optional(positive) })(value)
 read['account.detail'] = shape({ userId: positive })
 read['users.directory'] = voidInput
