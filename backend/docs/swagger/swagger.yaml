@@ -1716,7 +1716,7 @@ info:
     url: http://www.apache.org/licenses/LICENSE-2.0.html
   termsOfService: http://swagger.io/terms/
   title: Enterprise Resource Planning
-  version: 1.5.1
+  version: 1.6.0
 paths:
   /about:
     get:
