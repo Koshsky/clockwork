@@ -18,9 +18,18 @@ export async function loadAppManifest(): Promise<{ version?: string } | null> {
 
 export async function loadBackendInfo(signal?: AbortSignal): Promise<ReleaseInfo | null> {
   const applicationServices = createApplicationServices()
-  const response = await readApi('application.info', undefined,
-    request => applicationServices.application.info(request), isOffline.value, signal)
-  return response.data?.data ?? null
+  const deadline = new AbortController()
+  // An unresponsive native bridge must not retain the page's read indefinitely.
+  const timer = setTimeout(() => deadline.abort(new DOMException('Backend metadata request timed out', 'TimeoutError')), 10000)
+  try {
+    const response = await readApi('application.info', undefined,
+      request => applicationServices.application.info(request), isOffline.value,
+      signal ? AbortSignal.any([signal, deadline.signal]) : deadline.signal)
+    return response.data?.data ?? null
+  } catch (error) {
+    if (deadline.signal.aborted && !signal?.aborted) throw deadline.signal.reason
+    throw error
+  } finally { clearTimeout(timer) }
 }
 
 export async function probeServerLogin(base: string | undefined): Promise<boolean> {

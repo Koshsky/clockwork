@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import axios from 'axios'
 import { useAuthStore, useRbacStore } from '../store'
 import { isOffline } from '@/store/data/uiServices'
 import { loadBackendInfo } from '@/store/data/pageReads'
+import { isReadCancelled } from '@/store/data/apiReads'
 import { AppIcon } from '@/components/common/AppIcon'
 import { ChangelogDialog } from '@/components/common/ChangelogDialog'
 import type { ReleaseInfo } from '@/api'
@@ -45,8 +47,12 @@ const changelogAvailable = computed(() => Boolean(backendChangelog.value))
 async function refreshAppInfo() {
   try {
     backendInfo.value = await loadBackendInfo(request.signal)
-  } catch {
-    // Account settings remain usable when the connected backend is unavailable.
+  } catch (error) {
+    const status = axios.isAxiosError(error) ? error.response?.status : undefined
+    if (!request.signal.aborted && !isReadCancelled(error) && !isOffline.value && status !== 404) {
+      // Backend failures need diagnostics without recording response bodies or credentials.
+      console.warn('[about] backend-metadata-unavailable', { status, timeout: error instanceof DOMException && error.name === 'TimeoutError' })
+    }
   }
 }
 

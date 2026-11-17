@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createApp, nextTick } from 'vue'
+import { AxiosError, CanceledError, type AxiosResponse } from 'axios'
+import { isOffline } from '@/store/data/uiServices'
 import ProfilePage from './ProfilePage.vue'
 import { appLocale, setAppLocale, t } from '@/i18n'
 
@@ -30,10 +32,11 @@ function changelogButton(service: 'frontend' | 'backend') {
 const dialog = () => document.querySelector<HTMLElement>('[role="dialog"]')
 
 beforeEach(() => {
-  vi.clearAllMocks(); setAppLocale('ru')
+  vi.clearAllMocks(); setAppLocale('ru'); isOffline.value = false
+  vi.spyOn(console, 'warn').mockImplementation(() => {})
   fake.info.mockResolvedValue(info)
 })
-afterEach(() => { unmount(); document.body.replaceChildren(); setAppLocale('ru') })
+afterEach(() => { unmount(); document.body.replaceChildren(); setAppLocale('ru'); vi.restoreAllMocks() })
 
 it('shows both service versions without a build version or account ID', async () => {
   await mount()
@@ -79,10 +82,39 @@ it.each(['unavailable', 'missing', 'version-only'] as const)('keeps frontend not
 })
 
 it('aborts the metadata read when leaving the page', async () => {
-  fake.info.mockImplementation(() => new Promise(() => {}))
+  fake.info.mockImplementation((signal: AbortSignal) => new Promise((_, reject) => {
+    signal.addEventListener('abort', () => reject(new CanceledError()), { once: true })
+  }))
   await mount()
   const signal = fake.info.mock.calls[0][0] as AbortSignal
   expect(signal.aborted).toBe(false)
   unmount(); unmount = () => {}
+  await nextTick(); await nextTick()
   expect(signal.aborted).toBe(true)
+  expect(console.warn).not.toHaveBeenCalled()
+})
+
+
+it.each([
+  { status: 500, offline: false, warn: true },
+  { status: 404, offline: false, warn: false },
+  { status: 503, offline: true, warn: false },
+])('reports HTTP $status with offline=$offline without leaking response contents', async ({ status, offline, warn }) => {
+  isOffline.value = offline
+  const error = new AxiosError('private diagnostic body', 'ERR_BAD_RESPONSE', undefined, undefined, { status, data: { secret: 'never-log-this' } } as AxiosResponse)
+  fake.info.mockRejectedValue(error)
+  await mount()
+  expect(changelogButton('backend').disabled).toBe(true)
+  if (warn) expect(console.warn).toHaveBeenCalledExactlyOnceWith('[about] backend-metadata-unavailable', { status, timeout: false })
+  else expect(console.warn).not.toHaveBeenCalled()
+})
+
+it.each([
+  { error: new DOMException('Timed out', 'TimeoutError'), warn: true },
+  { error: new CanceledError(), warn: false },
+])('distinguishes a metadata deadline from ordinary cancellation: $error.name', async ({ error, warn }) => {
+  fake.info.mockRejectedValue(error)
+  await mount()
+  if (warn) expect(console.warn).toHaveBeenCalledExactlyOnceWith('[about] backend-metadata-unavailable', { status: undefined, timeout: true })
+  else expect(console.warn).not.toHaveBeenCalled()
 })
