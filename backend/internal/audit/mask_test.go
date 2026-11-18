@@ -39,8 +39,8 @@ func TestMaskJSONRedactsSensitiveKeys(t *testing.T) {
 func TestMaskJSONNonJSONPassthrough(t *testing.T) {
 	t.Parallel()
 	raw := []byte("not json at all")
-	if out := MaskJSON(raw); string(out) != string(raw) {
-		t.Fatalf("non-JSON must pass through unchanged, got %s", out)
+	if out := MaskJSON(raw); string(out) != `"***"` {
+		t.Fatalf("unknown content must be redacted, got %s", out)
 	}
 }
 
@@ -100,6 +100,37 @@ func TestClassify(t *testing.T) {
 				if rc.entity != tc.wantEntity || rc.action != tc.wantAction {
 					t.Fatalf("expected %s/%s, got %s/%s", tc.wantEntity, tc.wantAction, rc.entity, rc.action)
 				}
+			}
+		})
+	}
+}
+
+func TestAuditMasksKeyVariantsWithoutRemovingBusinessContent(t *testing.T) {
+	t.Parallel()
+	for _, key := range []string{"PASSWORD", "OldPassword", "new-password", "Access.Token", "Refresh_Token", "AUTHORIZATION", "Set-Cookie", "ClientSecret", "jwt_secret_key", "PRIVATE_KEY", "DATABASE_URL", "credentials"} {
+		t.Run(key, func(t *testing.T) {
+			t.Parallel()
+			raw, err := json.Marshal(
+				map[string]any{"name": "business value", "nested": []any{map[string]any{key: "canary-secret"}}},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			masked := string(MaskJSON(raw))
+			if strings.Contains(masked, "canary-secret") || !strings.Contains(masked, "business value") {
+				t.Fatalf("incorrect audit masking: %s", masked)
+			}
+		})
+	}
+}
+
+func TestAuditUnknownBodiesFailClosed(t *testing.T) {
+	t.Parallel()
+	for _, raw := range []string{`"canary-token"`, `{"password":"canary-truncated`, `null`, `42`} {
+		t.Run(raw, func(t *testing.T) {
+			t.Parallel()
+			if got := string(MaskJSON([]byte(raw))); got != `"***"` {
+				t.Fatalf("unknown content persisted: %s", got)
 			}
 		})
 	}

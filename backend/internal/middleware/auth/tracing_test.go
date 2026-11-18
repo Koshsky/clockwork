@@ -68,11 +68,14 @@ func assertRootPrincipal(t *testing.T, span sdktrace.ReadOnlySpan, wantID int64)
 
 	found := false
 	for _, attr := range span.Attributes() {
-		if attr.Key != tracingpkg.AttrUserID {
+		if attr.Key == tracingpkg.AttrUserID || attr.Key == tracingpkg.AttrUserRole {
+			t.Fatal("principal identity leaked into diagnostics")
+		}
+		if attr.Key != "user.authenticated" {
 			continue
 		}
 		found = true
-		if wantID == 0 || attr.Value.AsInt64() != wantID {
+		if wantID == 0 || !attr.Value.AsBool() {
 			t.Fatalf("wrong root principal attribute: %v", attr)
 		}
 	}

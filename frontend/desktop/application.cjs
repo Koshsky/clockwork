@@ -1,5 +1,7 @@
 'use strict'
 
+const { diagnosticEvent } = require('./command-diagnostics.cjs')
+
 const { createBusinessAdapters } = require('./business-adapters.cjs')
 const { createSyncService } = require('./sync-service.cjs')
 const { createCommandQueue } = require('./command-queue.cjs')
@@ -137,7 +139,7 @@ function startDesktop({ app, BrowserWindow, ipcMain, dialog, shell, safeStorage,
       await storage?.close()
       server?.close()
       const copy = shellText()
-      dialog.showErrorBox(copy.errorTitle, copy.startFailed(error instanceof Error ? error.message : String(error)))
+      dialog.showErrorBox(copy.errorTitle, copy.startFailed(diagnosticEvent('desktop-start', error).error_code))
       app.quit()
       return null
     }

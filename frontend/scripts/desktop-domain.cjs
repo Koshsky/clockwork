@@ -4,7 +4,7 @@ const path = require('node:path')
 const ts = require('typescript')
 const root = path.join(__dirname, '..')
 let stale = false
-for (const name of ['cacheProjection', 'planning', 'timesheet', 'periodAvailability', 'calendar', 'date', 'clamp', 'branding']) {
+for (const name of ['cacheProjection', 'planning', 'timesheet', 'periodAvailability', 'calendar', 'date', 'clamp', 'branding', 'diagnostics']) {
   const input = path.join(root, ['date', 'clamp'].includes(name) ? 'src/utils' : 'src/domain', name + '.ts')
   const source = fs.readFileSync(input, 'utf8')
   const result = ts.transpileModule(source, { fileName: input, compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, removeComments: false, newLine: ts.NewLineKind.LineFeed } })

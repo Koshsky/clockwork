@@ -1,3 +1,4 @@
+import { diagnosticEvent } from '@/domain/diagnostics'
 import { beginMutation, readStamp, mayApplyRead } from './offline/mutationGuard'
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios'
 import { offlineFailFastAdapter } from './offline/failFast'
@@ -158,7 +159,7 @@ export function setupHttp() {
           if (read.prefix !== userCachePrefix()) return Promise.reject(error)
           if (cached != null) {
             isOffline.value = true
-            console.log(`[offline] served cache: ${key}`)
+            console.log('[offline]', diagnosticEvent('cache-hit'))
             return {
               __erpLocalSnapshot: true,
               data: cached,
@@ -170,21 +171,10 @@ export function setupHttp() {
             }
           }
           ;(error as AxiosError & { message: string }).message = t('offline.noCachedData')
-          console.log(`[offline] cache miss: ${key}`)
+          console.log('[offline]', diagnosticEvent('cache-miss'))
         }
         if (platformCapabilities.kind === 'web') { isOffline.value = true; backendReachability.value = 'unreachable' }
-        // Network error diagnostics (timeout/drop/CORS/abort) — detailed output to the console.
-        const ax = error as AxiosError & { code?: string; timeout?: number }
-        console.error(
-          // i18n-allow: developer console diagnostics, never rendered in the UI
-          `[http] network error (no HTTP response): ${(config.method || 'get').toUpperCase()} ${config.url ?? ''}`,
-          {
-            kind: 'network',
-            code: ax.code,
-            timeout_ms: ax.timeout,
-            message: ax.message,
-          },
-        )
+        console.error('[http]', diagnosticEvent('http-network', error))
         return Promise.reject(error)
       }
 

@@ -207,3 +207,5 @@ local diagnostic change can be accepted.
 O01 remains under review in Doing. All other statuses are preserved. Implementation,
 GitHub changes, notification tests, release and demo deployment need separate
 instructions; no part of revising the plan performs them.
+
+O02 implementation contracts are documented in [Diagnostic data](diagnostic-data.md).

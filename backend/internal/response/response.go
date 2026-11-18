@@ -60,7 +60,7 @@ func (r Response) MarshalJSON() ([]byte, error) {
 
 // internalErrorMessage is the stable client-facing message for 5xx responses.
 // It is authored in English and rendered through the catalogs (Russian for RU
-// clients); internal details never reach the client, they go to the logs only.
+// clients); internal details never reach clients or technical logs.
 const internalErrorMessage = "internal server error"
 
 // errorBody builds an error envelope with the given code, message and now,
@@ -123,10 +123,10 @@ func Unauthorized(c *gin.Context, code errors.Code, msg string) {
 }
 
 // InternalError sends a 500 error response and logs the internal error. The
-// client always receives the generic localized internalErrorMessage; msg and
-// err (which may contain internal details) are only written to the logs.
-func InternalError(c *gin.Context, logger *slog.Logger, msg string, err error) {
-	logger.ErrorContext(c.Request.Context(), msg, "error", err)
+// client receives internalErrorMessage; logs retain only the classified error,
+// because both the legacy message argument and error text can contain secrets.
+func InternalError(c *gin.Context, logger *slog.Logger, _ string, err error) {
+	logger.ErrorContext(c.Request.Context(), "request failed", "error", err)
 	c.JSON(http.StatusInternalServerError, Response{Error: errorBody(c, errors.CodeInternal, internalErrorMessage)})
 }
 
@@ -153,9 +153,8 @@ func TooManyRequests(c *gin.Context, msg string) {
 // not found → 404/NOT_FOUND, validation → 400/VALIDATION_ERROR) are honored,
 // otherwise the error is classified by cause. Internal errors (500) are logged.
 // For 4xx, DB-origin details (constraint names, trigger messages) carried by
-// the error never reach the client — they are written to the server-side logs
-// here, at the single choke point every error response passes through. The
-// message is rendered in the request's locale.
+// the error never reach the client or technical logs. A controlled diagnostic
+// code is emitted instead. The message is rendered in the request's locale.
 func Error(c *gin.Context, logger *slog.Logger, err error) {
 	status := errors.StatusCode(err)
 	code := errors.CodeOf(err, status)
@@ -166,7 +165,7 @@ func Error(c *gin.Context, logger *slog.Logger, err error) {
 	}
 	var de *errors.DomainError
 	if stderrors.As(err, &de) && de.Details != "" {
-		logger.WarnContext(c.Request.Context(), "client error details", "detail", de.Details)
+		logger.WarnContext(c.Request.Context(), "client error details", "error", err)
 	}
 	c.JSON(status, Response{Error: errorBody(c, code, renderErrorText(err, locale.FromGin(c)))})
 }

@@ -51,7 +51,7 @@ var version = "dev"
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "migrate" {
 		if err := migrationCommand(os.Args[2:]); err != nil {
-			log.Fatal(err)
+			log.Fatal("MIGRATION_FAILED")
 		}
 		return
 	}
@@ -59,7 +59,7 @@ func main() {
 	// build the application dependency graph
 	application, err := server.InitializeApp()
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("INITIALIZATION_FAILED")
 	}
 	application.SetVersion(version)
 	application.Logger().Info("service configuration loaded", "version", version)

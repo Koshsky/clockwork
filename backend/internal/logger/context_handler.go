@@ -33,6 +33,14 @@ func (h *ContextHandler) Enabled(ctx context.Context, level slog.Level) bool {
 // span context) and request_id (from the request context) when present, then
 // delegates to the wrapped handler.
 func (h *ContextHandler) Handle(ctx context.Context, r slog.Record) error {
+	clean := slog.NewRecord(r.Time, r.Level, r.Message, r.PC)
+	r.Attrs(func(attr slog.Attr) bool {
+		if !reservedAttribute(attr.Key) {
+			clean.AddAttrs(attr)
+		}
+		return true
+	})
+	r = clean
 	if sc := trace.SpanContextFromContext(ctx); sc.IsValid() {
 		r.AddAttrs(
 			slog.String("trace_id", sc.TraceID().String()),
@@ -47,7 +55,13 @@ func (h *ContextHandler) Handle(ctx context.Context, r slog.Record) error {
 
 // WithAttrs delegates and keeps the enrichment in front of the new handler.
 func (h *ContextHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	return &ContextHandler{next: h.next.WithAttrs(attrs)}
+	clean := make([]slog.Attr, 0, len(attrs))
+	for _, attr := range attrs {
+		if !reservedAttribute(attr.Key) {
+			clean = append(clean, attr)
+		}
+	}
+	return &ContextHandler{next: h.next.WithAttrs(clean)}
 }
 
 // WithGroup delegates and keeps the enrichment in front of the new handler.

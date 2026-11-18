@@ -51,13 +51,13 @@ func TestStartRecordsOperationError(t *testing.T) {
 		t.Fatalf("completed spans: %d", len(spans))
 	}
 	span := spans[0]
-	if span.Status().Code != codes.Error || span.Status().Description != failure.Error() {
+	if span.Status().Code != codes.Error || span.Status().Description != "INTERNAL_ERROR" {
 		t.Fatalf("failure status lost: %v", span.Status())
 	}
 	if len(span.Events()) != 1 || span.Events()[0].Name != "exception" {
 		t.Fatalf("exception event lost: %v", span.Events())
 	}
-	if len(span.Attributes()) != 1 || span.Attributes()[0] != attribute.String(AttrErrorMessage, failure.Error()) {
+	if len(span.Attributes()) != 1 || span.Attributes()[0] != attribute.String(AttrErrorMessage, "INTERNAL_ERROR") {
 		t.Fatalf("error attribute lost: %v", span.Attributes())
 	}
 }
@@ -104,5 +104,22 @@ func TestRequestIDContextIsolation(t *testing.T) {
 	child := WithRequestID(parent, "second")
 	if RequestIDFrom(t.Context()) != "" || RequestIDFrom(parent) != "first" || RequestIDFrom(child) != "second" {
 		t.Fatal("request ids leak across context boundaries")
+	}
+}
+
+func TestTraceResourceIgnoresAmbientIdentity(t *testing.T) {
+	t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "user.name=canary-user,process.command_line=canary-token")
+	for _, name := range []string{"", "clockwork"} {
+		attrs := traceResource(name).Attributes()
+		if len(attrs) != 1 || string(attrs[0].Key) != "service.name" {
+			t.Fatalf("ambient data escaped resource boundary: %v", attrs)
+		}
+		want := name
+		if want == "" {
+			want = "erp-backend"
+		}
+		if attrs[0].Value.AsString() != want {
+			t.Fatalf("service identity lost: %v", attrs)
+		}
 	}
 }

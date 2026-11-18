@@ -46,10 +46,7 @@ func Setup(cfg Config) (*sdktrace.TracerProvider, func(context.Context) error, e
 		return nil, nil, fmt.Errorf("create OTLP trace exporter: %w", err)
 	}
 
-	res := resource.Default()
-	if cfg.ServiceName != "" {
-		res = resource.NewSchemaless(semconv.ServiceName(cfg.ServiceName))
-	}
+	res := traceResource(cfg.ServiceName)
 
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exp, sdktrace.WithBatchTimeout(defaultBatchTimeout)),
@@ -62,4 +59,11 @@ func Setup(cfg Config) (*sdktrace.TracerProvider, func(context.Context) error, e
 	return tp, func(ctx context.Context) error {
 		return tp.Shutdown(ctx)
 	}, nil
+}
+
+func traceResource(serviceName string) *resource.Resource {
+	if serviceName == "" {
+		serviceName = "erp-backend"
+	}
+	return resource.NewSchemaless(semconv.ServiceName(serviceName))
 }

@@ -9,6 +9,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/Koshsky/erp-backend/internal/diagnostics"
 	tracingpkg "github.com/Koshsky/erp-backend/internal/tracing"
 )
 
@@ -28,16 +29,22 @@ func FromGin(c *gin.Context) (trace.Span, bool) {
 // HTTPRootSpan records the completed HTTP result without coupling the core to Gin.
 func HTTPRootSpan(t *tracingpkg.Tracer) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		ctx, span := t.Unwrap().Start(c.Request.Context(), "HTTP "+c.Request.Method+" "+c.Request.URL.Path)
+		method := diagnostics.HTTPMethod(c.Request.Method)
+		ctx, span := t.Unwrap().Start(c.Request.Context(), "HTTP "+method)
 		c.Request = c.Request.WithContext(ctx)
 		c.Set(ginSpanKey, span)
 
 		c.Next()
 
+		route := c.FullPath()
+		if route == "" {
+			route = "unmatched"
+		}
+		span.SetName("HTTP " + method + " " + route)
 		status := c.Writer.Status()
 		span.SetAttributes(
-			attribute.String(tracingpkg.AttrHTTPMethod, c.Request.Method),
-			attribute.String(tracingpkg.AttrHTTPPath, c.Request.RequestURI),
+			attribute.String(tracingpkg.AttrHTTPMethod, method),
+			attribute.String(tracingpkg.AttrHTTPPath, route),
 			attribute.Int(tracingpkg.AttrHTTPStatusCode, status),
 			attribute.String(tracingpkg.AttrRequestID, c.GetString(tracingpkg.RequestIDKey)),
 		)
@@ -59,13 +66,12 @@ func GinSpan(t *tracingpkg.Tracer, name string) gin.HandlerFunc {
 }
 
 // SetUserOnSpan enriches the root even when authentication runs inside a child span.
-func SetUserOnSpan(c *gin.Context, userID int64, preset string) {
+func SetUserOnSpan(c *gin.Context, _ int64, _ string) {
 	span, ok := FromGin(c)
 	if !ok {
 		return
 	}
 	span.SetAttributes(
-		attribute.Int64(tracingpkg.AttrUserID, userID),
-		attribute.String(tracingpkg.AttrUserRole, preset),
+		attribute.Bool("user.authenticated", true),
 	)
 }

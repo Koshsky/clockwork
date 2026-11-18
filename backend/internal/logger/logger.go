@@ -2,6 +2,7 @@ package logger
 
 import (
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"strings"
@@ -18,14 +19,18 @@ func New(levelValue, formatValue string) (*slog.Logger, error) {
 		return nil, err
 	}
 
-	options := &slog.HandlerOptions{Level: level}
+	return newLogger(level, formatValue, os.Stdout)
+}
+
+func newLogger(level slog.Level, formatValue string, output io.Writer) (*slog.Logger, error) {
+	options := &slog.HandlerOptions{Level: level, ReplaceAttr: technicalAttribute}
 
 	var handler slog.Handler
 	switch normalizeFormat(formatValue) {
 	case FormatJSON:
-		handler = slog.NewJSONHandler(os.Stdout, options)
+		handler = slog.NewJSONHandler(output, options)
 	case FormatText:
-		handler = slog.NewTextHandler(os.Stdout, options)
+		handler = slog.NewTextHandler(output, options)
 	default:
 		return nil, fmt.Errorf("unsupported log format: %s", formatValue)
 	}

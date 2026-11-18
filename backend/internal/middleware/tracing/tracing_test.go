@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -74,7 +76,7 @@ func assertHTTPResult(t *testing.T, span sdktrace.ReadOnlySpan, parent trace.Spa
 	}
 	attrs := spanAttributes(span)
 	if attrs[tracingpkg.AttrHTTPMethod].AsString() != http.MethodGet ||
-		attrs[tracingpkg.AttrHTTPPath].AsString() != "/task?offset=2" ||
+		attrs[tracingpkg.AttrHTTPPath].AsString() != "/task" ||
 		attrs[tracingpkg.AttrHTTPStatusCode].AsInt64() != int64(status) ||
 		attrs[tracingpkg.AttrRequestID].AsString() != "req-42" {
 		t.Fatalf("HTTP attributes changed: %v", attrs)
@@ -125,7 +127,8 @@ func TestGinSpanRetainsRootActorAndLogCorrelation(t *testing.T) {
 		t.Fatal("middleware/service span hierarchy changed")
 	}
 	attrs := spanAttributes(root)
-	if attrs[tracingpkg.AttrUserID].AsInt64() != 42 || attrs[tracingpkg.AttrUserRole].AsString() != "vp" {
+	if !attrs["user.authenticated"].AsBool() || attrs[tracingpkg.AttrUserID].Type() != attribute.INVALID ||
+		attrs[tracingpkg.AttrUserRole].Type() != attribute.INVALID {
 		t.Fatalf("authenticated actor missing from root: %v", attrs)
 	}
 	if _, ok := spanAttributes(service)[tracingpkg.AttrUserID]; ok {
@@ -179,4 +182,30 @@ func spanAttributes(span sdktrace.ReadOnlySpan) map[attribute.Key]attribute.Valu
 		attributes[attr.Key] = attr.Value
 	}
 	return attributes
+}
+
+func TestHTTPSpansRejectUnmatchedPathsQueriesAndMethods(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ method, target, route string }{
+		{"GET", "/task/canary-object?password=canary-query", "/task/:id"},
+		{"GET", "/canary-unmatched?token=canary-token", "unmatched"},
+		{"canary-method", "/canary-unmatched", "unmatched"},
+	} {
+		t.Run(tc.method+tc.target, func(t *testing.T) {
+			t.Parallel()
+			tracer, recorder := recordingTracer(t)
+			router := gin.New()
+			router.Use(tracingmw.HTTPRootSpan(tracer))
+			router.GET("/task/:id", func(c *gin.Context) { c.Status(http.StatusForbidden) })
+			router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(tc.method, tc.target, nil))
+			spans := recorder.Ended()
+			if len(spans) != 1 {
+				t.Fatalf("expected one HTTP outcome, got %d", len(spans))
+			}
+			if strings.Contains(fmt.Sprint(spans[0].Name(), spans[0].Attributes()), "canary-") ||
+				spanAttributes(spans[0])[tracingpkg.AttrHTTPPath].AsString() != tc.route {
+				t.Fatalf("request content leaked: %v", spans[0].Attributes())
+			}
+		})
+	}
 }

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -156,17 +157,17 @@ func (a *App) Start() error {
 	// their neighbors.
 	router.Use(locale.Middleware())
 	router.Use(cors.FromConfig(a.cfg.CORS))
-	router.Use(gin.Recovery())
-	// L6: assign/carry a request id for log and trace correlation (first).
+	// Assign a server-owned request id before diagnostic middleware.
 	router.Use(a.requestID())
 	// H3: bound the request body size and the per-request context lifetime
 	// before anything (audit/tracing/handlers) reads the body or starts work.
 	router.Use(a.bodyLimit())
 	router.Use(a.requestTimeout())
-	// Root request span (trace): method/path/status/duration + user_id.
+	// Keep route-level correlation without exporting object or account identities.
 	router.Use(tracingmw.HTTPRootSpan(a.tracer))
 	// Fallback text request logging (independent of tracing).
 	router.Use(a.requestLog())
+	router.Use(a.recovery())
 	// Register routes
 	a.registerRoutes(router)
 
@@ -254,29 +255,24 @@ func (a *App) Stop(ctx context.Context) error {
 	return nil
 }
 
-// requestID assigns or carries over a request id (L6): an inbound
-// X-Request-ID is honored, otherwise a 128-bit hex id is generated. The id is
-// stored on the gin context (read by requestLog and the root span) and echoed
-// in the response header so clients can correlate logs with their requests.
+// requestID is server-owned so arbitrary inbound headers cannot become log data.
 func (a *App) requestID() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		reqID := c.GetHeader("X-Request-ID")
-		if reqID == "" {
-			reqID = newRequestID()
-		} else if len(reqID) > maxRequestIDLen {
-			reqID = reqID[:maxRequestIDLen]
-		}
+		reqID := newRequestID()
 		c.Set(tracingpkg.RequestIDKey, reqID)
 		c.Header("X-Request-ID", reqID)
-		// Carry the request id in the request context too, so context-aware
-		// slog logging attaches request_id to every record of this request.
 		c.Request = c.Request.WithContext(tracingpkg.WithRequestID(c.Request.Context(), reqID))
 		c.Next()
 	}
 }
 
-// maxRequestIDLen bounds inbound request ids (header abuse protection).
-const maxRequestIDLen = 128
+func (a *App) recovery() gin.HandlerFunc {
+	// Gin's default writer includes headers, panic text and source paths.
+	return gin.CustomRecoveryWithWriter(io.Discard, func(c *gin.Context, _ any) {
+		a.logger.ErrorContext(c.Request.Context(), "request panic")
+		c.AbortWithStatus(http.StatusInternalServerError)
+	})
+}
 
 // newRequestID generates a 128-bit random hex id (crypto/rand; the same
 // pattern as the JWT token id, avoiding a UUID dependency).
@@ -291,8 +287,8 @@ func newRequestID() string {
 }
 
 // requestLog writes a summary of every HTTP request (method, path, status,
-// duration) to the log — a tracing-independent fallback for text logs. The
-// path is logged without the query string (L4: RequestURI could leak PII).
+// duration) to the log using only registered route templates. Unknown paths
+// and query strings are untrusted data, including when routing fails.
 // Context-aware logging attaches the request id and the trace ids.
 func (a *App) requestLog() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -300,7 +296,7 @@ func (a *App) requestLog() gin.HandlerFunc {
 		c.Next()
 		a.logger.InfoContext(c.Request.Context(), "request",
 			"method", c.Request.Method,
-			"path", c.Request.URL.Path,
+			"route", c.FullPath(),
 			"status", c.Writer.Status(),
 			"duration_ms", time.Since(start).Milliseconds(),
 			"request_id", c.GetString(tracingpkg.RequestIDKey),

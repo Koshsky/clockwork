@@ -67,7 +67,8 @@
       "command-clamp.cjs",
       "business-adapters.cjs",
       "business-request.cjs",
-      "business-bindings.json"
+      "business-bindings.json",
+      "command-diagnostics.cjs"
     ],
     "extraResources": [
       {
@@ -140,7 +141,8 @@
       "command-clamp.cjs",
       "business-adapters.cjs",
       "business-request.cjs",
-      "business-bindings.json"
+      "business-bindings.json",
+      "command-diagnostics.cjs"
     ]
   }
 }
