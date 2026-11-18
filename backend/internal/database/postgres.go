@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Koshsky/erp-backend/internal/config"
+	apperrors "github.com/Koshsky/erp-backend/internal/errors"
 	"github.com/Koshsky/erp-backend/internal/migration"
 	tracingpkg "github.com/Koshsky/erp-backend/internal/tracing"
 )
@@ -21,7 +22,7 @@ func InitDBPool(pgCfg config.PostgresConfig, logger *slog.Logger, tracer *tracin
 
 	cfg, err := pgxpool.ParseConfig(pgCfg.URL)
 	if err != nil {
-		return nil, fmt.Errorf("%s: parse config: %w", op, err)
+		return nil, fmt.Errorf("%s: parse config: %w: %w", op, apperrors.ErrConfiguration, err)
 	}
 
 	cfg.MaxConns = pgCfg.MaxConns

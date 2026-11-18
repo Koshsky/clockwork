@@ -1,7 +1,19 @@
 package config
 
+import (
+	"fmt"
+
+	apperrors "github.com/Koshsky/erp-backend/internal/errors"
+)
+
 // ProvideConfig loads the application configuration.
-func ProvideConfig() (*Config, error) { return Load() }
+func ProvideConfig() (*Config, error) {
+	cfg, err := Load()
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", apperrors.ErrConfiguration, err)
+	}
+	return cfg, nil
+}
 
 // ProvidePostgresConfig extracts the postgres settings.
 func ProvidePostgresConfig(cfg *Config) PostgresConfig { return cfg.Postgres }

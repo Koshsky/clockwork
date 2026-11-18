@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+
+	release "github.com/Koshsky/erp-backend"
 )
 
 const (
@@ -14,12 +16,17 @@ const (
 )
 
 func New(levelValue, formatValue string) (*slog.Logger, error) {
+	return NewWithWriter(levelValue, formatValue, os.Stdout)
+}
+
+// NewWithWriter keeps tests and embedded consumers on the production privacy boundary.
+func NewWithWriter(levelValue, formatValue string, output io.Writer) (*slog.Logger, error) {
 	level, err := parseLevel(levelValue)
 	if err != nil {
 		return nil, err
 	}
 
-	return newLogger(level, formatValue, os.Stdout)
+	return newLogger(level, formatValue, output)
 }
 
 func newLogger(level slog.Level, formatValue string, output io.Writer) (*slog.Logger, error) {
@@ -68,4 +75,15 @@ func normalizeFormat(raw string) string {
 	}
 
 	return format
+}
+
+// WithRelease binds identity before repositories and migrations emit their first logs.
+func WithRelease(base *slog.Logger, version string) *slog.Logger {
+	return base.With("service", "erp-backend", "version", release.NewInfo(version).Version)
+}
+
+// Bootstrap remains available before configuration loading can succeed.
+func Bootstrap(version string, output io.Writer) *slog.Logger {
+	handler := slog.NewJSONHandler(output, &slog.HandlerOptions{ReplaceAttr: technicalAttribute})
+	return WithRelease(slog.New(NewContextHandler(handler)), version)
 }

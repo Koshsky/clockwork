@@ -14,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/Koshsky/erp-backend/internal/config"
+	"github.com/Koshsky/erp-backend/internal/logger"
 	tracingpkg "github.com/Koshsky/erp-backend/internal/tracing"
 )
 
@@ -212,7 +213,7 @@ func TestRequestIDCarriesInbound(t *testing.T) {
 func TestRequestLogIncludesRequestID(t *testing.T) {
 	t.Parallel()
 	var logBuf bytes.Buffer
-	a := &App{logger: slog.New(slog.NewTextHandler(&logBuf, nil))}
+	a := &App{logger: slog.New(logger.NewContextHandler(slog.NewTextHandler(&logBuf, nil)))}
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()

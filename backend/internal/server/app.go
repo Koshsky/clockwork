@@ -19,6 +19,7 @@ import (
 	"github.com/Koshsky/erp-backend/internal/audit"
 	authzService "github.com/Koshsky/erp-backend/internal/authz/service"
 	"github.com/Koshsky/erp-backend/internal/config"
+	"github.com/Koshsky/erp-backend/internal/diagnostics"
 	idempotencypkg "github.com/Koshsky/erp-backend/internal/idempotency"
 	"github.com/Koshsky/erp-backend/internal/middleware/auth"
 	"github.com/Koshsky/erp-backend/internal/middleware/cors"
@@ -29,6 +30,7 @@ import (
 	"github.com/Koshsky/erp-backend/internal/server/swagger"
 	tracingpkg "github.com/Koshsky/erp-backend/internal/tracing"
 	userservice "github.com/Koshsky/erp-backend/internal/user/service"
+	apierrors "github.com/Koshsky/erp-backend/pkg/errors"
 )
 
 const (
@@ -183,10 +185,7 @@ func (a *App) Start() error {
 
 	go func() {
 		a.logger.Info("starting HTTP server",
-			"addr", a.httpServer.Addr,
-			"read_timeout", srvCfg.ReadTimeout,
-			"write_timeout", srvCfg.WriteTimeout,
-			"idle_timeout", srvCfg.IdleTimeout,
+			"port", srvCfg.Port,
 		)
 		if err := a.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			a.logger.Error("HTTP server error", "error", err)
@@ -196,6 +195,7 @@ func (a *App) Start() error {
 	if err := a.waitForServer(defaultServerStartTimeout); err != nil {
 		return fmt.Errorf("server failed to start: %w", err)
 	}
+	a.logger.Info("HTTP server ready", "port", srvCfg.Port)
 	return nil
 }
 
@@ -269,7 +269,7 @@ func (a *App) requestID() gin.HandlerFunc {
 func (a *App) recovery() gin.HandlerFunc {
 	// Gin's default writer includes headers, panic text and source paths.
 	return gin.CustomRecoveryWithWriter(io.Discard, func(c *gin.Context, _ any) {
-		a.logger.ErrorContext(c.Request.Context(), "request panic")
+		a.logger.ErrorContext(c.Request.Context(), "request panic", "error_code", apierrors.CodeInternal)
 		c.AbortWithStatus(http.StatusInternalServerError)
 	})
 }
@@ -294,13 +294,29 @@ func (a *App) requestLog() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
 		c.Next()
-		a.logger.InfoContext(c.Request.Context(), "request",
-			"method", c.Request.Method,
-			"route", c.FullPath(),
-			"status", c.Writer.Status(),
-			"duration_ms", time.Since(start).Milliseconds(),
-			"request_id", c.GetString(tracingpkg.RequestIDKey),
-		)
+		ctx := c.Request.Context()
+		status := c.Writer.Status()
+		level := slog.LevelInfo
+		switch {
+		case status >= http.StatusInternalServerError:
+			level = slog.LevelError
+		case ctx.Err() == context.DeadlineExceeded || status == http.StatusTooManyRequests:
+			level = slog.LevelWarn
+		case c.FullPath() == "/api/v1/health" && status < http.StatusBadRequest:
+			level = slog.LevelDebug
+		}
+		attrs := []slog.Attr{
+			slog.String("method", diagnostics.HTTPMethod(c.Request.Method)),
+			slog.String("route", c.FullPath()),
+			slog.Int("status", status),
+			slog.Int64("duration_ms", time.Since(start).Milliseconds()),
+		}
+		if ctx.Err() != nil {
+			attrs = append(attrs, slog.Any("error", ctx.Err()))
+		} else if status >= http.StatusBadRequest {
+			attrs = append(attrs, slog.Any("error_code", apierrors.CodeFor(status)))
+		}
+		a.logger.LogAttrs(ctx, level, "request", attrs...)
 	}
 }
 

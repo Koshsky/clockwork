@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Technical diagnostics omit credentials, business payloads and raw error details.
 
+- Server logs include release context and clear failure levels; Docker examples use bounded log rotation.
+
 ## [1.6.0] - 2026-11-17
 
 ### Added

@@ -33,7 +33,7 @@ import (
 )
 
 // InitializeApp builds the whole application dependency graph.
-func InitializeApp() (*App, error) {
+func InitializeApp(version string) (*App, error) {
 	wire.Build(
 		config.ProvideConfig,
 		logger.ProvideLogger,

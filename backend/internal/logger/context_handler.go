@@ -33,7 +33,14 @@ func (h *ContextHandler) Enabled(ctx context.Context, level slog.Level) bool {
 // span context) and request_id (from the request context) when present, then
 // delegates to the wrapped handler.
 func (h *ContextHandler) Handle(ctx context.Context, r slog.Record) error {
-	clean := slog.NewRecord(r.Time, r.Level, r.Message, r.PC)
+	message := r.Message
+	if !safeMessage(message) {
+		message = "diagnostic message omitted"
+	}
+	clean := slog.NewRecord(r.Time, r.Level, message, r.PC)
+	if message != r.Message {
+		clean.AddAttrs(slog.Bool("message_rejected", true))
+	}
 	r.Attrs(func(attr slog.Attr) bool {
 		if !reservedAttribute(attr.Key) {
 			clean.AddAttrs(attr)

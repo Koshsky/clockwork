@@ -91,3 +91,5 @@ that safe outcome codes/correlation survive, original input is unchanged, record
 do not share account state and the client constructor performs no upload.
 Existing application tests retain coverage of auth, RBAC, replay and offline
 behavior; new diagnostic functionality is tested incrementally in later stages.
+
+O03 operating instructions and size/level rules: [Server logs](server-logs.md).

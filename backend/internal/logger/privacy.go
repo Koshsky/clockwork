@@ -3,13 +3,22 @@ package logger
 import (
 	"log/slog"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/Koshsky/erp-backend/internal/diagnostics"
+	apierrors "github.com/Koshsky/erp-backend/pkg/errors"
 )
 
 // technicalAttribute is deliberately closed: new fields need a privacy review.
 func technicalAttribute(groups []string, attr slog.Attr) slog.Attr {
 	if len(groups) != 0 {
+		return slog.Attr{}
+	}
+	if attr.Key == "error_code" {
+		if code, ok := attr.Value.Any().(apierrors.Code); ok {
+			return slog.String("error_code", code.String())
+		}
 		return slog.Attr{}
 	}
 	if attr.Key == "error" {
@@ -36,9 +45,9 @@ func technicalValueAllowed(attr slog.Attr) bool {
 		const maxRouteLength = 256
 		return attr.Value.Kind() == slog.KindString && len(attr.Value.String()) <= maxRouteLength &&
 			strings.HasPrefix(attr.Value.String(), "/") && !strings.ContainsAny(attr.Value.String(), "?\r\n")
-	case "status", "duration_ms", "max_conns", "min_conns", "acquired_conns", "total_conns", "dropped_total":
+	case "status", "duration_ms", "port", "max_conns", "min_conns", "acquired_conns", "total_conns", "dropped_total":
 		return attr.Value.Kind() == slog.KindInt64 || attr.Value.Kind() == slog.KindUint64
-	case "critical":
+	case "critical", "message_rejected":
 		return attr.Value.Kind() == slog.KindBool
 	default:
 		return false
@@ -61,5 +70,12 @@ func safeLabel(value string) bool {
 
 // reservedAttribute prevents metadata from impersonating built-in record fields.
 func reservedAttribute(key string) bool {
-	return key == slog.TimeKey || key == slog.LevelKey || key == slog.MessageKey
+	return key == slog.TimeKey || key == slog.LevelKey || key == slog.MessageKey || key == "message_rejected"
+}
+
+// Messages are authored constants; invalid dynamic values must not become a log dump.
+func safeMessage(message string) bool {
+	const maxMessageBytes = 512
+	return len(message) <= maxMessageBytes && utf8.ValidString(message) &&
+		strings.IndexFunc(message, unicode.IsControl) < 0
 }

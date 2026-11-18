@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -12,6 +11,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	apperrors "github.com/Koshsky/erp-backend/internal/errors"
+	"github.com/Koshsky/erp-backend/internal/logger"
 	"github.com/Koshsky/erp-backend/internal/migration"
 )
 
@@ -37,14 +38,17 @@ func migrationCommand(args []string) error {
 	case "status":
 		report, err = migration.Status(ctx, pool)
 	case "up":
-		err = migration.Run(ctx, pool, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+		err = migration.Run(ctx, pool, logger.Bootstrap(version, os.Stderr))
 		if err == nil {
 			report, err = migration.Status(ctx, pool)
 		}
 	case adoptFlywayCommand:
 		report, err = migration.AdoptFlyway(ctx, pool, len(args) == adoptionPreviewArguments)
 	default:
-		return fmt.Errorf("usage: service migrate {status|up|adopt-flyway [--dry-run]}")
+		return fmt.Errorf(
+			"%w: usage: service migrate {status|up|adopt-flyway [--dry-run]}",
+			apperrors.ErrCommandArguments,
+		)
 	}
 	if err != nil {
 		return err
@@ -65,7 +69,7 @@ func validateMigrationArguments(args []string) error {
 	if len(args) == adoptionPreviewArguments && args[0] == adoptFlywayCommand && args[1] == "--dry-run" {
 		return nil
 	}
-	return fmt.Errorf("usage: service migrate {status|up|adopt-flyway [--dry-run]}")
+	return fmt.Errorf("%w: usage: service migrate {status|up|adopt-flyway [--dry-run]}", apperrors.ErrCommandArguments)
 }
 
 const adoptFlywayCommand = "adopt-flyway"

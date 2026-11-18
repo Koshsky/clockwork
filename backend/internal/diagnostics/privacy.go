@@ -4,11 +4,13 @@ package diagnostics
 import (
 	"context"
 	"errors"
+	"net"
 	"strings"
 	"unicode"
 
 	"github.com/jackc/pgx/v5/pgconn"
 
+	apperrors "github.com/Koshsky/erp-backend/internal/errors"
 	apierrors "github.com/Koshsky/erp-backend/pkg/errors"
 )
 
@@ -21,6 +23,23 @@ func ErrorCode(err error) string {
 		return "CANCELLED"
 	case errors.Is(err, context.DeadlineExceeded):
 		return "TIMEOUT"
+	case errors.Is(err, apperrors.ErrConfiguration):
+		return "CONFIGURATION_ERROR"
+	case errors.Is(err, apperrors.ErrCommandArguments):
+		return "INVALID_ARGUMENTS"
+	case errors.Is(err, apperrors.ErrMigrationValidation):
+		return "MIGRATION_VALIDATION"
+	case errors.Is(err, apperrors.ErrMigrationExecution):
+		return "MIGRATION_EXECUTION"
+	}
+	if _, ok := errors.AsType[*pgconn.ConnectError](err); ok {
+		return "DATABASE_CONNECTION_ERROR"
+	}
+	if network, ok := errors.AsType[net.Error](err); ok {
+		if network.Timeout() {
+			return "TIMEOUT"
+		}
+		return "NETWORK_ERROR"
 	}
 	if _, ok := errors.AsType[*pgconn.PgError](err); ok {
 		return "DATABASE_ERROR"

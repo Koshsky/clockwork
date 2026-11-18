@@ -209,3 +209,5 @@ GitHub changes, notification tests, release and demo deployment need separate
 instructions; no part of revising the plan performs them.
 
 O02 implementation contracts are documented in [Diagnostic data](diagnostic-data.md).
+
+O03 server logging and rotation: [Operator guide](server-logs.md).

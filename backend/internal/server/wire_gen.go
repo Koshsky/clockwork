@@ -78,12 +78,12 @@ import (
 // Injectors from wire.go:
 
 // InitializeApp builds the whole application dependency graph.
-func InitializeApp() (*App, error) {
+func InitializeApp(version string) (*App, error) {
 	configConfig, err := config.ProvideConfig()
 	if err != nil {
 		return nil, err
 	}
-	slogLogger, err := logger.ProvideLogger(configConfig)
+	slogLogger, err := logger.ProvideLogger(configConfig, version)
 	if err != nil {
 		return nil, err
 	}

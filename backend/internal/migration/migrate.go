@@ -103,6 +103,15 @@ func closeEngine(runner *migrate.Migrate) error {
 }
 
 func Run(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger) (result error) {
+	logger = logger.With("component", "migration")
+	started := time.Now()
+	logger.InfoContext(ctx, "checking database migrations")
+	defer func() {
+		if result != nil {
+			logger.ErrorContext(ctx, "migration check failed", "error", result,
+				"duration_ms", time.Since(started).Milliseconds())
+		}
+	}()
 	state, err := Status(ctx, pool)
 	if err != nil {
 		return err
