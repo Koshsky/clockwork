@@ -1,4 +1,8 @@
 :80 {
+  # Metrics use a separate private listener, never the public gateway.
+  handle /metrics* {
+    respond 404
+  }
   handle /api/* {
     reverse_proxy backend:8080
   }

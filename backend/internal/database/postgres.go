@@ -10,11 +10,17 @@ import (
 
 	"github.com/Koshsky/erp-backend/internal/config"
 	apperrors "github.com/Koshsky/erp-backend/internal/errors"
+	"github.com/Koshsky/erp-backend/internal/metrics"
 	"github.com/Koshsky/erp-backend/internal/migration"
 	tracingpkg "github.com/Koshsky/erp-backend/internal/tracing"
 )
 
-func InitDBPool(pgCfg config.PostgresConfig, logger *slog.Logger, tracer *tracingpkg.Tracer) (*pgxpool.Pool, error) {
+func InitDBPool(
+	pgCfg config.PostgresConfig,
+	logger *slog.Logger,
+	tracer *tracingpkg.Tracer,
+	observer *metrics.Metrics,
+) (*pgxpool.Pool, error) {
 	const op = "initDBPool"
 
 	migrationLogger := logger
@@ -34,9 +40,7 @@ func InitDBPool(pgCfg config.PostgresConfig, logger *slog.Logger, tracer *tracin
 
 	// Instrument every SQL query (Exec/Query/QueryRow across all repositories)
 	// with an OpenTelemetry span. The tracer is a no-op when tracing is off.
-	if tracer != nil {
-		cfg.ConnConfig.Tracer = tracingpkg.NewQueryTracer(tracer.Unwrap())
-	}
+	cfg.ConnConfig.Tracer = newPoolTracer(tracer, observer)
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(pgCfg.ConnectTimeout))
 	defer cancel()
@@ -45,6 +49,8 @@ func InitDBPool(pgCfg config.PostgresConfig, logger *slog.Logger, tracer *tracin
 	if err != nil {
 		return nil, fmt.Errorf("%s: create pool: %w", op, err)
 	}
+
+	observer.AttachPool(pool)
 
 	if err = pool.Ping(ctx); err != nil {
 		pool.Close()

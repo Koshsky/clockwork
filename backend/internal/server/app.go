@@ -21,6 +21,7 @@ import (
 	"github.com/Koshsky/erp-backend/internal/config"
 	"github.com/Koshsky/erp-backend/internal/diagnostics"
 	idempotencypkg "github.com/Koshsky/erp-backend/internal/idempotency"
+	"github.com/Koshsky/erp-backend/internal/metrics"
 	"github.com/Koshsky/erp-backend/internal/middleware/auth"
 	"github.com/Koshsky/erp-backend/internal/middleware/cors"
 	"github.com/Koshsky/erp-backend/internal/middleware/locale"
@@ -34,6 +35,7 @@ import (
 )
 
 const (
+	requestPanicKey           = "server.request_panicked"
 	defaultServerStartTimeout = 5 * time.Second
 	defaultDialTimeout        = 1 * time.Second
 	defaultPollInterval       = 100 * time.Millisecond
@@ -51,6 +53,7 @@ type App struct {
 	redisClient *redis.Client
 	rateLimiter *ratelimit.Provider
 	profiler    *profiler.Profiler
+	metrics     *metrics.Metrics
 	authMw      *auth.Middleware
 	tracer      *tracingpkg.Tracer
 	idemMw      *idempotencypkg.Middleware
@@ -67,6 +70,7 @@ func New(
 	pool *pgxpool.Pool,
 	authMw *auth.Middleware,
 	profiler *profiler.Profiler,
+	metrics *metrics.Metrics,
 	tracer *tracingpkg.Tracer,
 	idemMw *idempotencypkg.Middleware,
 	auditMw *audit.Middleware,
@@ -82,6 +86,7 @@ func New(
 		pool:        pool,
 		authMw:      authMw,
 		profiler:    profiler,
+		metrics:     metrics,
 		redisClient: redisClient,
 		rateLimiter: rateLimiter,
 		tracer:      tracer,
@@ -158,7 +163,6 @@ func (a *App) Start() error {
 	// user behind a shared NAT does not drain a common IP bucket and block
 	// their neighbors.
 	router.Use(locale.Middleware())
-	router.Use(cors.FromConfig(a.cfg.CORS))
 	// Assign a server-owned request id before diagnostic middleware.
 	router.Use(a.requestID())
 	// H3: bound the request body size and the per-request context lifetime
@@ -170,8 +174,11 @@ func (a *App) Start() error {
 	// Fallback text request logging (independent of tracing).
 	router.Use(a.requestLog())
 	router.Use(a.recovery())
+	// Count CORS rejections and preflights through the same access-summary path.
+	router.Use(cors.FromConfig(a.cfg.CORS))
 	// Register routes
 	a.registerRoutes(router)
+	a.prepareMetrics(router)
 
 	// Create HTTP server with configurable settings
 	srvCfg := a.cfg.HTTPServer
@@ -195,8 +202,26 @@ func (a *App) Start() error {
 	if err := a.waitForServer(defaultServerStartTimeout); err != nil {
 		return fmt.Errorf("server failed to start: %w", err)
 	}
+	// Bind diagnostics only after the business API owns its port.
+	a.startMetrics()
 	a.logger.Info("HTTP server ready", "port", srvCfg.Port)
 	return nil
+}
+
+func (a *App) prepareMetrics(router *gin.Engine) {
+	if a.metrics.Enabled() {
+		routes := make([]string, 0, len(router.Routes()))
+		for _, route := range router.Routes() {
+			routes = append(routes, route.Path)
+		}
+		a.metrics.SetRoutes(routes)
+	}
+}
+
+func (a *App) startMetrics() {
+	if err := a.metrics.Start(); err != nil {
+		a.logger.WarnContext(context.Background(), "metrics listener unavailable", "error", err)
+	}
 }
 
 func (a *App) waitForServer(timeout time.Duration) error {
@@ -227,6 +252,9 @@ func (a *App) waitForServer(timeout time.Duration) error {
 }
 
 func (a *App) Stop(ctx context.Context) error {
+	if err := a.metrics.Stop(ctx); err != nil {
+		a.logger.WarnContext(ctx, "metrics shutdown failed", "error", err)
+	}
 	if a.policyStore != nil {
 		a.policyStore.Stop()
 	}
@@ -269,6 +297,7 @@ func (a *App) requestID() gin.HandlerFunc {
 func (a *App) recovery() gin.HandlerFunc {
 	// Gin's default writer includes headers, panic text and source paths.
 	return gin.CustomRecoveryWithWriter(io.Discard, func(c *gin.Context, _ any) {
+		c.Set(requestPanicKey, true)
 		a.logger.ErrorContext(c.Request.Context(), "request panic", "error_code", apierrors.CodeInternal)
 		c.AbortWithStatus(http.StatusInternalServerError)
 	})
@@ -293,12 +322,26 @@ func newRequestID() string {
 func (a *App) requestLog() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
+		measured := a.metrics.Begin(c.FullPath())
 		c.Next()
+		elapsed := time.Since(start)
+		if measured {
+			a.metrics.Complete(
+				c.Request.Context(),
+				metrics.Request{
+					Route:    c.FullPath(),
+					Method:   c.Request.Method,
+					Status:   c.Writer.Status(),
+					Duration: elapsed,
+					Panicked: c.GetBool(requestPanicKey),
+				},
+			)
+		}
 		ctx := c.Request.Context()
 		status := c.Writer.Status()
 		level := slog.LevelInfo
 		switch {
-		case status >= http.StatusInternalServerError:
+		case c.GetBool(requestPanicKey) || status >= http.StatusInternalServerError:
 			level = slog.LevelError
 		case ctx.Err() == context.DeadlineExceeded || status == http.StatusTooManyRequests:
 			level = slog.LevelWarn
@@ -309,11 +352,14 @@ func (a *App) requestLog() gin.HandlerFunc {
 			slog.String("method", diagnostics.HTTPMethod(c.Request.Method)),
 			slog.String("route", c.FullPath()),
 			slog.Int("status", status),
-			slog.Int64("duration_ms", time.Since(start).Milliseconds()),
+			slog.Int64("duration_ms", elapsed.Milliseconds()),
 		}
-		if ctx.Err() != nil {
+		switch {
+		case c.GetBool(requestPanicKey):
+			attrs = append(attrs, slog.Any("error_code", apierrors.CodeInternal))
+		case ctx.Err() != nil:
 			attrs = append(attrs, slog.Any("error", ctx.Err()))
-		} else if status >= http.StatusBadRequest {
+		case status >= http.StatusBadRequest:
 			attrs = append(attrs, slog.Any("error_code", apierrors.CodeFor(status)))
 		}
 		a.logger.LogAttrs(ctx, level, "request", attrs...)

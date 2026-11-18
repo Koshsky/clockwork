@@ -213,3 +213,5 @@ O02 implementation contracts are documented in [Diagnostic data](diagnostic-data
 O03 server logging and rotation: [Operator guide](server-logs.md).
 
 O04 optional tracing, trust boundaries and resource limits: [Operator guide](tracing.md).
+
+O05 optional private backend metrics and interpretation: [Operator guide](metrics.md).

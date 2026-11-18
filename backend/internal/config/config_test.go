@@ -170,3 +170,20 @@ func TestSuppliedConfigurationsDisableTracingByDefault(t *testing.T) {
 		})
 	}
 }
+
+func TestSuppliedConfigurationsDisableMetricsByDefault(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://test")
+	t.Setenv("JWT_SECRET_KEY", "12345678901234567890123456789012")
+	for _, path := range []string{filepath.Join("..", "..", "config.yaml"), filepath.Join("..", "..", "..", "deploy", "production", "backend.yaml")} {
+		t.Run(path, func(t *testing.T) {
+			t.Setenv("CONFIG_PATH", path)
+			cfg, err := config.Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.Metrics.Enabled || cfg.Metrics.Address != "127.0.0.1:9091" {
+				t.Fatal("supplied metrics listener is enabled or not loopback by default")
+			}
+		})
+	}
+}

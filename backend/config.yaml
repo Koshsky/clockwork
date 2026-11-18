@@ -104,6 +104,11 @@ profiling:
   # pprof on loopback only (AD-13): even when enabled it is not exposed.
   address: "127.0.0.1:6060"
 
+# Optional private Prometheus endpoint; never proxy or publish this port.
+metrics:
+  enabled: false
+  address: "127.0.0.1:9091"
+
 tracing:
   enabled: false
   # Optional OTLP/gRPC receiver; see docs/tracing.md. TLS is the default.

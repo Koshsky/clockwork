@@ -41,6 +41,7 @@ type Config struct {
 	Redis         RedisConfig     `yaml:"redis"`
 	Profiling     ProfilingConfig `yaml:"profiling"`
 	Tracing       TracingConfig   `yaml:"tracing"`
+	Metrics       MetricsConfig   `yaml:"metrics"`
 	RBAC          RBACConfig      `yaml:"rbac"`
 	Audit         AuditConfig     `yaml:"audit"`
 	Security      SecurityConfig  `yaml:"security"`
@@ -154,6 +155,12 @@ type CORSConfig struct {
 
 // ProfilingConfig is the pprof server settings.
 type ProfilingConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Address string `yaml:"address"`
+}
+
+// MetricsConfig opts into a separate private Prometheus listener.
+type MetricsConfig struct {
 	Enabled bool   `yaml:"enabled"`
 	Address string `yaml:"address"`
 }

@@ -41,3 +41,6 @@ func ProvideRedisConfig(cfg *Config) RedisConfig { return cfg.Redis }
 
 // ProvideSecurityConfig extracts the password-policy security settings.
 func ProvideSecurityConfig(cfg *Config) SecurityConfig { return cfg.Security }
+
+// ProvideMetricsConfig extracts optional private metric settings.
+func ProvideMetricsConfig(cfg *Config) MetricsConfig { return cfg.Metrics }

@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Optional private Prometheus metrics expose bounded HTTP, runtime and PostgreSQL pool statistics.
+
 - Optional OTLP tracing supports TLS, bearer authentication and bounded export with safe request correlation.
 
 ### Fixed

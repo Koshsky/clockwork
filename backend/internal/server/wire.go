@@ -18,6 +18,7 @@ import (
 	"github.com/Koshsky/erp-backend/internal/database"
 	"github.com/Koshsky/erp-backend/internal/idempotency"
 	"github.com/Koshsky/erp-backend/internal/logger"
+	"github.com/Koshsky/erp-backend/internal/metrics"
 	authMw "github.com/Koshsky/erp-backend/internal/middleware/auth"
 	"github.com/Koshsky/erp-backend/internal/middleware/ratelimit"
 	rbacMW "github.com/Koshsky/erp-backend/internal/middleware/rbac"
@@ -37,6 +38,8 @@ func InitializeApp(version string) (*App, error) {
 	wire.Build(
 		config.ProvideConfig,
 		logger.ProvideLogger,
+		config.ProvideMetricsConfig,
+		metrics.New,
 		tracingpkg.ProvideTracer,
 		config.ProvideTracingConfig,
 		database.ProvidePostgresDB,

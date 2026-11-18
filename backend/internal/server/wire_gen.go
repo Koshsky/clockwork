@@ -26,6 +26,7 @@ import (
 	"github.com/Koshsky/erp-backend/internal/database"
 	"github.com/Koshsky/erp-backend/internal/idempotency"
 	"github.com/Koshsky/erp-backend/internal/logger"
+	"github.com/Koshsky/erp-backend/internal/metrics"
 	"github.com/Koshsky/erp-backend/internal/middleware/auth"
 	"github.com/Koshsky/erp-backend/internal/middleware/ratelimit"
 	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
@@ -93,7 +94,12 @@ func InitializeApp(version string) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	pool, err := database.ProvidePostgresDB(postgresConfig, slogLogger, tracer)
+	metricsConfig := config.ProvideMetricsConfig(configConfig)
+	metricsMetrics, err := metrics.New(metricsConfig, slogLogger)
+	if err != nil {
+		return nil, err
+	}
+	pool, err := database.ProvidePostgresDB(postgresConfig, slogLogger, tracer, metricsMetrics)
 	if err != nil {
 		return nil, err
 	}
@@ -177,7 +183,7 @@ func InitializeApp(version string) (*App, error) {
 	auditHandler := delivery16.NewAuditHandler(slogLogger, client, middleware)
 	auditModule := audit.ProvideModule(auditHandler, auditConfig)
 	v2 := ProvideModules(module, userModule, planningModule, projectmgmtModule, timesheetModule, autocreateModule, authzModule, auditModule)
-	app, err := New(configConfig, slogLogger, pool, authMiddleware, profilerProfiler, tracer, idempotencyMiddleware, auditMiddleware, policyStore, userService, redisClient, provider, v2)
+	app, err := New(configConfig, slogLogger, pool, authMiddleware, profilerProfiler, metricsMetrics, tracer, idempotencyMiddleware, auditMiddleware, policyStore, userService, redisClient, provider, v2)
 	if err != nil {
 		return nil, err
 	}
