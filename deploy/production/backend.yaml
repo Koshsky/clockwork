@@ -103,8 +103,11 @@ profiling:
 
 tracing:
   enabled: false
-  # OTLP/gRPC endpoint — in-stack Jaeger collector (see docker-compose.yml).
-  exporter_endpoint: "jaeger:4317"
+  # Optional OTLP/gRPC receiver; see docs/tracing.md. TLS is the default.
+  exporter_endpoint: "localhost:4317"
+  insecure: false
+  ca_file: ""
+  # Bearer authentication is read only from TRACING_AUTH_TOKEN.
   service_name: "erp-backend"
   sampler_ratio: 1.0
 

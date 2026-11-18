@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Optional OTLP tracing supports TLS, bearer authentication and bounded export with safe request correlation.
+
 ### Fixed
 
 - Technical diagnostics omit credentials, business payloads and raw error details.

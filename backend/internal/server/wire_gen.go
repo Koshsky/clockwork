@@ -89,7 +89,7 @@ func InitializeApp(version string) (*App, error) {
 	}
 	postgresConfig := config.ProvidePostgresConfig(configConfig)
 	tracingConfig := config.ProvideTracingConfig(configConfig)
-	tracer, err := tracing.ProvideTracer(tracingConfig)
+	tracer, err := tracing.ProvideTracer(tracingConfig, version, slogLogger)
 	if err != nil {
 		return nil, err
 	}

@@ -39,10 +39,10 @@ backend 1.6.0 / frontend 2.2.0.
 - [Structured logging](../backend/internal/logger/context_handler.go) already
   attaches request/trace IDs. [Request logs](../backend/internal/server/app.go)
   provide status and duration. Extend the existing logger instead of adding one.
-- [Tracing setup](../backend/internal/tracing/setup.go) already has batched OTLP
-  and head sampling. [HTTP spans](../backend/internal/middleware/tracing/tracing.go)
-  and [pgx spans](../backend/internal/tracing/pgx_tracer.go) need query/SQL/error
-  sanitization before export; production tracing is disabled.
+- [Tracing setup](../backend/internal/tracing/setup.go) has optional batched OTLP
+  and head sampling. O02 sanitizes [HTTP spans](../backend/internal/middleware/tracing/tracing.go)
+  and [pgx spans](../backend/internal/tracing/pgx_tracer.go); O04 adds explicit TLS/auth,
+  public W3C links and fixed export limits. Both supplied configurations disable tracing.
 - [Audit sender](../backend/internal/audit/sender.go) has two 1,024-event in-memory
   queues and bounded retries. `Dropped()` does not cover all failure paths. Even
   synchronous `Enqueue` logs/ignores send errors; instrumentation is not durability.
@@ -211,3 +211,5 @@ instructions; no part of revising the plan performs them.
 O02 implementation contracts are documented in [Diagnostic data](diagnostic-data.md).
 
 O03 server logging and rotation: [Operator guide](server-logs.md).
+
+O04 optional tracing, trust boundaries and resource limits: [Operator guide](tracing.md).

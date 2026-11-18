@@ -131,3 +131,42 @@ func TestLoadEnvEndpointOverrides(t *testing.T) {
 		}
 	})
 }
+
+func TestTracingAuthenticationComesOnlyFromEnvironment(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://test")
+	t.Setenv("JWT_SECRET_KEY", "12345678901234567890123456789012")
+	t.Setenv(
+		"CONFIG_PATH",
+		writeConfig(t, "tracing:\n  auth_token: canary-yaml-token\n  insecure: false\n  ca_file: receiver-ca.pem\n"),
+	)
+	for _, token := range []string{"", "fixture-environment-token"} {
+		t.Run(token, func(t *testing.T) {
+			t.Setenv("TRACING_AUTH_TOKEN", token)
+			cfg, err := config.Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.Tracing.AuthToken != token || cfg.Tracing.Enabled || cfg.Tracing.Insecure ||
+				cfg.Tracing.CAFile != "receiver-ca.pem" {
+				t.Fatal("tracing secret source, explicit TLS configuration or opt-in default changed")
+			}
+		})
+	}
+}
+
+func TestSuppliedConfigurationsDisableTracingByDefault(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://test")
+	t.Setenv("JWT_SECRET_KEY", "12345678901234567890123456789012")
+	for _, path := range []string{filepath.Join("..", "..", "config.yaml"), filepath.Join("..", "..", "..", "deploy", "production", "backend.yaml")} {
+		t.Run(path, func(t *testing.T) {
+			t.Setenv("CONFIG_PATH", path)
+			cfg, err := config.Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.Tracing.Enabled || cfg.Tracing.Insecure {
+				t.Fatal("supplied configuration enables export or plaintext by default")
+			}
+		})
+	}
+}

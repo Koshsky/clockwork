@@ -108,10 +108,12 @@ func TestRequestIDContextIsolation(t *testing.T) {
 }
 
 func TestTraceResourceIgnoresAmbientIdentity(t *testing.T) {
+	t.Setenv("OTEL_SERVICE_NAME", "canary-ambient-service")
 	t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "user.name=canary-user,process.command_line=canary-token")
 	for _, name := range []string{"", "clockwork"} {
-		attrs := traceResource(name).Attributes()
-		if len(attrs) != 1 || string(attrs[0].Key) != "service.name" {
+		attrs := traceResource(name, "1.6.0").Attributes()
+		if len(attrs) != 2 || string(attrs[0].Key) != "service.name" ||
+			string(attrs[1].Key) != "service.version" || attrs[1].Value.AsString() != "1.6.0" {
 			t.Fatalf("ambient data escaped resource boundary: %v", attrs)
 		}
 		want := name

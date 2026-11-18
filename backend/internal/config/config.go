@@ -158,13 +158,15 @@ type ProfilingConfig struct {
 	Address string `yaml:"address"`
 }
 
-// TracingConfig — OpenTelemetry distributed tracing settings (OTLP/gRPC
-// exporter, by default the in-stack Jaeger collector).
+// TracingConfig explicitly enables optional OTLP/gRPC export.
 type TracingConfig struct {
 	Enabled          bool    `yaml:"enabled"`
 	ExporterEndpoint string  `yaml:"exporter_endpoint"`
 	ServiceName      string  `yaml:"service_name"`
 	SamplerRatio     float64 `yaml:"sampler_ratio"`
+	Insecure         bool    `yaml:"insecure"`
+	CAFile           string  `yaml:"ca_file"`
+	AuthToken        string  `yaml:"-"`
 }
 
 // AuditConfig — audit-log capture settings. Events are pushed to Grafana Loki
@@ -288,9 +290,10 @@ func applyEnv(cfg *Config) error {
 	// missing account with a missing password is an error.
 	cfg.Admin.Password = getEnv("ADMIN_PASSWORD", "")
 
-	// TRACING_ENDPOINT overrides the OTLP exporter endpoint (dev: host-run air
-	// reaches the in-docker Jaeger collector via its published port; kept empty
-	// in the full-stack docker run, which uses the in-network "jaeger:4317").
+	cfg.Tracing.AuthToken = getEnv("TRACING_AUTH_TOKEN", "")
+
+	// TRACING_ENDPOINT overrides an explicitly selected OTLP receiver, for
+	// example a published localhost port for a host-run development backend.
 	if endpoint := getEnv("TRACING_ENDPOINT", ""); endpoint != "" {
 		cfg.Tracing.ExporterEndpoint = endpoint
 	}

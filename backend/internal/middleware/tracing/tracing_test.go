@@ -209,3 +209,67 @@ func TestHTTPSpansRejectUnmatchedPathsQueriesAndMethods(t *testing.T) {
 		})
 	}
 }
+
+func TestPublicTraceContextLinksWithoutTrustingSamplingOrBaggage(t *testing.T) {
+	t.Parallel()
+	const parent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+	for _, tc := range []struct {
+		name    string
+		parents []string
+		linked  bool
+	}{
+		{name: "valid sampled", parents: []string{parent}, linked: true},
+		{name: "valid unsampled", parents: []string{strings.TrimSuffix(parent, "01") + "00"}, linked: true},
+		{name: "missing"},
+		{name: "malformed", parents: []string{"canary-token"}},
+		{name: "zero trace", parents: []string{"00-00000000000000000000000000000000-00f067aa0ba902b7-01"}},
+		{name: "duplicate", parents: []string{parent, parent}},
+		{name: "oversized", parents: []string{strings.Repeat("a", 513)}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			tracer, recorder := recordingTracer(t)
+			router := gin.New()
+			router.Use(tracingmw.HTTPRootSpan(tracer))
+			router.GET("/task", func(c *gin.Context) {
+				_, end := tracer.Start(c.Request.Context(), "service")
+				end(nil)
+				c.Status(http.StatusOK)
+			})
+			request := httptest.NewRequest(http.MethodGet, "/task", nil)
+			for _, value := range tc.parents {
+				request.Header.Add("Traceparent", value)
+			}
+			request.Header.Set("Tracestate", "vendor=canary-token")
+			request.Header.Set("Baggage", "user.email=canary-email")
+			router.ServeHTTP(httptest.NewRecorder(), request)
+			spans := recorder.Ended()
+			if len(spans) != 2 {
+				t.Fatalf("missing request/service spans: %d", len(spans))
+			}
+			child, root := spans[0], spans[1]
+			if root.Parent().IsValid() || child.Parent().SpanID() != root.SpanContext().SpanID() ||
+				root.SpanKind() != trace.SpanKindServer {
+				t.Fatal("untrusted parent replaced the server-owned root or internal hierarchy")
+			}
+			assertPublicLink(t, root, tc.linked)
+			if strings.Contains(fmt.Sprint(root.Attributes(), root.Links(), child.Attributes()), "canary") {
+				t.Fatal("untrusted metadata escaped")
+			}
+		})
+	}
+}
+
+func assertPublicLink(t *testing.T, root sdktrace.ReadOnlySpan, linked bool) {
+	t.Helper()
+	if linked {
+		links := root.Links()
+		if len(links) != 1 || links[0].SpanContext.TraceID().String() != "4bf92f3577b34da6a3ce929d0e0e4736" ||
+			links[0].SpanContext.IsSampled() || links[0].SpanContext.TraceState().Len() != 0 ||
+			root.SpanContext().TraceID() == links[0].SpanContext.TraceID() {
+			t.Fatal("unsafe or missing W3C correlation link")
+		}
+	} else if len(root.Links()) != 0 {
+		t.Fatal("malformed traceparent was accepted")
+	}
+}

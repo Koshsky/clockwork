@@ -30,7 +30,9 @@ func FromGin(c *gin.Context) (trace.Span, bool) {
 func HTTPRootSpan(t *tracingpkg.Tracer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		method := diagnostics.HTTPMethod(c.Request.Method)
-		ctx, span := t.Unwrap().Start(c.Request.Context(), "HTTP "+method)
+		ctx, links := tracingpkg.RequestContext(c.Request.Context(), c.Request.Header.Values("Traceparent"))
+		ctx, span := t.Unwrap().Start(ctx, "HTTP "+method,
+			trace.WithSpanKind(trace.SpanKindServer), trace.WithLinks(links...))
 		c.Request = c.Request.WithContext(ctx)
 		c.Set(ginSpanKey, span)
 
