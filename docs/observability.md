@@ -219,3 +219,5 @@ O05 optional private backend metrics and interpretation: [Operator guide](metric
 O06 local operation outcomes and best-effort audit delivery: [Operator guide](operation-diagnostics.md).
 
 O07 optional local demo resource/deploy/backup checks: [Operator guide](demo-operations.md).
+
+O08 local web error history and explicit report copying: [User/operator guide](web-diagnostics.md).

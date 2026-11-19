@@ -8,6 +8,10 @@ The web app and the desktop wrapper are versioned together.
 
 ## [Unreleased]
 
+### Added
+
+- Added local web error diagnostics with bounded history and a safe report to copy.
+
 ### Fixed
 
 - Technical diagnostics omit credentials, business payloads and raw error details.

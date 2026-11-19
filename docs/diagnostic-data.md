@@ -47,8 +47,8 @@ existing generator. It is included in the package and unpacked-payload check.
 
 Current network/cache/outbox/runtime console diagnostics use this constructor.
 An Electron startup dialog uses a controlled error code instead of raw exception
-text. No history, persistence, context buffer or diagnostic network transport is
-introduced. Every record is a disposable value, so diagnostics cannot retain a
+text. O02 itself introduced no history, persistence, context buffer or diagnostic
+network transport; O08 adds the bounded web-only memory history described below. Every record is a disposable value, so diagnostics cannot retain a
 previous account's context or mutate a queued command.
 
 O08/O09 must build history/support reports from these safe records, not attach
@@ -93,3 +93,5 @@ Existing application tests retain coverage of auth, RBAC, replay and offline
 behavior; new diagnostic functionality is tested incrementally in later stages.
 
 O03 operating instructions and size/level rules: [Server logs](server-logs.md).
+
+O08 web history, session isolation and manual copying: [Local web diagnostics](web-diagnostics.md).
