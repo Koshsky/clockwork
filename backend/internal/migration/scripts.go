@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	apperrors "github.com/Koshsky/erp-backend/internal/errors"
+	"github.com/Koshsky/erp-backend/migrations"
 )
 
 type script struct {
@@ -100,4 +101,16 @@ func flywayChecksum(body []byte) int64 {
 		value -= 1 << checksumBits
 	}
 	return value
+}
+
+// CoreVersion returns the latest immutable embedded core version for readiness.
+func CoreVersion() (int64, error) {
+	scripts, err := loadScripts([]fs.FS{migrations.Files()})
+	if err != nil {
+		return 0, err
+	}
+	if len(scripts) == 0 {
+		return 0, apperrors.ErrMigrationValidation
+	}
+	return scripts[len(scripts)-1].version, nil
 }

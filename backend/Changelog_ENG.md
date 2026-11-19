@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added bounded database/schema readiness independently of application liveness.
+
+### Added
+
 - Local operation and audit-delivery diagnostics distinguish commits, retries, conflicts and unconfirmed outcomes.
 
 - Optional private Prometheus metrics expose bounded HTTP, runtime and PostgreSQL pool statistics.

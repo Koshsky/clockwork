@@ -46,6 +46,7 @@ import (
 // bucket and block its neighbors. Instead every authenticated user gets its
 // own token bucket keyed by user id.
 func (a *App) registerRoutes(router *gin.Engine) {
+	a.registerProbes(router)
 	api := router.Group("/api/v1")
 	api.Use(tracingmw.GinSpan(a.tracer, "middleware.ratelimit.public"))
 	api.Use(a.rateLimiter.FromConfig(a.cfg.RateLimit))
@@ -57,7 +58,6 @@ func (a *App) registerRoutes(router *gin.Engine) {
 
 	// Health: liveness probe without authorization. The frontend uses it to
 	// check backend availability before offline sync (instead of static files).
-	api.GET("/health", a.health)
 	api.GET("/about", a.applicationInfo)
 
 	for _, m := range a.modules {

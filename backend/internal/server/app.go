@@ -45,6 +45,7 @@ const (
 )
 
 type App struct {
+	readiness   *readinessProbe
 	version     string
 	cfg         *config.Config
 	logger      *slog.Logger
@@ -86,7 +87,12 @@ func New(
 	if auditMw != nil {
 		metrics.AttachAudit(auditMw.Status)
 	}
+	var readiness *readinessProbe
+	if pool != nil {
+		readiness = newReadiness(pool)
+	}
 	return &App{
+		readiness:   readiness,
 		cfg:         cfg,
 		logger:      logger.With("component", "server"),
 		pool:        pool,
