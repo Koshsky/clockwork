@@ -31,9 +31,9 @@ class MonitoringDockerTest(unittest.TestCase):
             env = dict(os.environ, CLOCKWORK_BACKEND_CONTAINER=project, CLOCKWORK_GRAFANA_BIND='127.0.0.1', CLOCKWORK_GRAFANA_PASSWORD_FILE=str(password))
             override = root / 'override.json'
             override.write_text(json.dumps({'services': {'prometheus': {'volumes': [str(config) + ':/etc/prometheus/prometheus.yml:ro']}}}))
-            def compose(*args, check=True):
+            def compose(*args, check=True, profile=True):
                 result = subprocess.run(['docker', 'compose', '-p', project, '-f', str(ROOT / 'deploy/observability/compose.yml'),
-                                       '-f', str(override), '--profile', 'monitoring', *args], env=env, capture_output=True,
+                                       '-f', str(override), *(['--profile', 'monitoring'] if profile else []), *args], env=env, capture_output=True,
                                       text=True, check=False, timeout=120)
                 if check and result.returncode:
                     raise RuntimeError('Isolated compose failed: ' + result.stderr)
@@ -51,6 +51,9 @@ class MonitoringDockerTest(unittest.TestCase):
                        'node:22-alpine', 'node', '-e', fixture)
                 model = json.loads(compose('config', '--format', 'json').stdout)
                 self.assertEqual(monitoring.validate(model)['memory_limit_bytes'], 896 * 1024 ** 2)
+                no_profile = compose('up', '-d', '--no-build', '--pull', 'never', profile=False, check=False)
+                self.assertNotEqual(no_profile.returncode, 0)
+                self.assertIn('no service selected', no_profile.stderr.lower())
                 compose('up', '-d', '--no-build', '--pull', 'never')
                 for _ in range(100):
                     result = docker('exec', project, 'node', '-e', "fetch('http://127.0.0.1:3001/api/health').then(r=>process.exit(r.status===200?0:1)).catch(()=>process.exit(1))", check=False)
@@ -71,6 +74,12 @@ class MonitoringDockerTest(unittest.TestCase):
                     time.sleep(.25)
                 else: self.fail('Fixture metrics were not scraped')
                 self.assertTrue(query('clockwork_http_requests_total'))
+                for filename in sorted((ROOT / 'deploy/observability/grafana/dashboards').glob('*.json')):
+                    dashboard = json.loads(filename.read_text())
+                    loaded = request('http://127.0.0.1:3001/api/dashboards/uid/' + dashboard['uid'], True)
+                    self.assertEqual(loaded['status'], 200)
+                    for panel in dashboard['panels']:
+                        query(panel['targets'][0]['expr'])
                 self.assertEqual(query('absent(nonexistent_clockwork_metric)')[0]['value'][1], '1')
                 names = [compose('ps', '-q', service).stdout.strip() for service in ('prometheus', 'grafana')]
                 stats = [json.loads(line) for line in docker('stats', '--no-stream', '--format', '{{json .}}', *names).stdout.splitlines()]

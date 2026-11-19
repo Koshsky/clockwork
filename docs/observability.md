@@ -225,3 +225,7 @@ O08 local web error history and explicit report copying: [User/operator guide](w
 O13 compatible liveness, bounded schema readiness and external checks: [Operator guide](readiness.md).
 
 O12 prepared, disabled demo alert evaluation and delivery boundary: [Operator guide](demo-alerts.md).
+
+O10 optional private monitoring example: [Operator guide](optional-monitoring.md).
+
+O11 two optional dashboards and log-first diagnosis: [Troubleshooting](troubleshooting.md).

@@ -57,6 +57,7 @@ response compression is disabled. Collection failures never alter business data.
 | `clockwork_http_request_duration_seconds` | Handler-chain duration in seconds |
 | `clockwork_http_requests_in_flight` | Current application attempts, all routes combined |
 | `clockwork_http_label_overflow_total` | Attempts aggregated after the detailed-label budget was exhausted |
+| `clockwork_build_info{version}` | One canonical backend release label; frontend versions remain local to About/Diagnostics |
 | `clockwork_process_start_time_seconds` | Instrumentation start time, Unix seconds |
 | `go_*` | Standard Go collector: memory, goroutines and GC statistics |
 | `clockwork_db_pool_available` | A pool is attached; **not database readiness** |
@@ -162,3 +163,5 @@ an application p95/CPU/RAM guarantee; full workload acceptance belongs to O14.
 
 References: [Prometheus instrumentation](https://prometheus.io/docs/practices/instrumentation/),
 [Go client](https://pkg.go.dev/github.com/prometheus/client_golang/prometheus).
+
+O11 adds one bounded build-info sample to the earlier O05/O06 counts (1502/1637 on the same toolchain); registries still stay below the 1900-sample scrape cap.

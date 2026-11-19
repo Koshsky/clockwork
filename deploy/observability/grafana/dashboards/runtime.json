@@ -1,0 +1,263 @@
+{
+  "uid": "clockwork-runtime",
+  "title": "Clockwork — runtime and delivery",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "tags": [
+    "clockwork",
+    "optional"
+  ],
+  "description": "Process counters reset on restart; rate/increase account for resets. DB pool presence is not readiness. Known audit counters do not prove durable delivery or detect crash losses. Audit disabled/no data is distinct from zero failures. No business audit or user/device registry is queried.",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Allocated Go memory",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "clockwork-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "go_memstats_alloc_bytes{job=\"clockwork\"}",
+          "legendFormat": "",
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Go goroutines",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "clockwork-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "go_goroutines{job=\"clockwork\"}",
+          "legendFormat": "",
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Pool connections",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "clockwork-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{job=\"clockwork\",__name__=~\"clockwork_db_pool_(acquired|idle|total|max)_connections\"}",
+          "legendFormat": "{{__name__}}",
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Pool waited acquisitions / second",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "clockwork-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(clockwork_db_pool_waits_total{job=\"clockwork\"}[5m])",
+          "legendFormat": "",
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Observed logical outcomes / second",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "clockwork-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(stage,outcome)(rate(clockwork_outcomes_total{job=\"clockwork\"}[5m]))",
+          "legendFormat": "{{stage}} · {{outcome}}",
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Audit enabled (0 = disabled)",
+      "type": "stat",
+      "gridPos": {
+        "x": 12,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "clockwork-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "clockwork_audit_enabled{job=\"clockwork\"}",
+          "legendFormat": "",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Audit pending",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "clockwork-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "clockwork_audit_pending{job=\"clockwork\"}",
+          "legendFormat": "{{queue}}",
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Known audit delivery failures / second",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "clockwork-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(queue)(rate(clockwork_audit_overflow_total{job=\"clockwork\"}[5m]) + rate(clockwork_audit_exhausted_total{job=\"clockwork\"}[5m]) + rate(clockwork_audit_inline_failures_total{job=\"clockwork\"}[5m]))",
+          "legendFormat": "{{queue}}",
+          "instant": false
+        }
+      ]
+    }
+  ],
+  "templating": {
+    "list": []
+  }
+}

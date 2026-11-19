@@ -54,6 +54,7 @@ type Metrics struct {
 	registry     *prometheus.Registry
 	requests     *prometheus.CounterVec
 	duration     *prometheus.HistogramVec
+	build        *prometheus.GaugeVec
 	inflight     prometheus.Gauge
 	overflow     prometheus.Counter
 	acquisitions *prometheus.CounterVec
@@ -121,6 +122,8 @@ func New(cfg config.MetricsConfig, logger *slog.Logger) (*Metrics, error) {
 	for _, outcome := range []string{outcomeSuccess, outcomeTimeout, outcomeCanceled, "error"} {
 		m.acquisitions.WithLabelValues(outcome)
 	}
+	m.build = newBuildInfo()
+	m.SetVersion("unknown")
 	started := prometheus.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "clockwork_process_start_time_seconds",
@@ -129,6 +132,7 @@ func New(cfg config.MetricsConfig, logger *slog.Logger) (*Metrics, error) {
 	)
 	started.Set(float64(time.Now().Unix()))
 	m.registry.MustRegister(
+		m.build,
 		m.requests,
 		m.duration,
 		m.inflight,

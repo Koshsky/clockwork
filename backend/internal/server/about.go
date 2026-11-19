@@ -10,6 +10,7 @@ import (
 // SetVersion binds release metadata before the HTTP server accepts requests.
 func (a *App) SetVersion(version string) {
 	a.version = version
+	a.metrics.SetVersion(release.NewInfo(version).Version)
 }
 
 // applicationInfo returns the release notes embedded in this service.
