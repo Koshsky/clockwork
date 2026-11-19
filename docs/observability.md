@@ -181,7 +181,7 @@ or synthetic login using bootstrap admin credentials is not required.
 | [O13](http://localhost:3456/tasks/106) | Compatible liveness, separate readiness, demo probe configuration | O02 |
 | [O08](http://localhost:3456/tasks/101) | Compact local web error report | O02/O03/O06 |
 | [O09](http://localhost:3456/tasks/102) | Local Electron logs, queue diagnostics and sanitized bundle | O02/O06 |
-| [O07](http://localhost:3456/tasks/100) | Lightweight demo resource/deploy/backup checks | O01/O02/O13 |
+| [O07](http://localhost:3456/tasks/100) | Lightweight demo resource/deploy/backup checks | O01/O02; readiness integration O13 |
 | [O12](http://localhost:3456/tasks/105) | A few demo notifications and response notes | O07/O13; owner selects actual channel |
 | [O05](http://localhost:3456/tasks/98) | Small optional private metrics endpoint | O02; expose O06 signals as available |
 | [O04](http://localhost:3456/tasks/97) | Safe optional OTLP integration, no bundled production trace store | O02/O03 |
@@ -217,3 +217,5 @@ O04 optional tracing, trust boundaries and resource limits: [Operator guide](tra
 O05 optional private backend metrics and interpretation: [Operator guide](metrics.md).
 
 O06 local operation outcomes and best-effort audit delivery: [Operator guide](operation-diagnostics.md).
+
+O07 optional local demo resource/deploy/backup checks: [Operator guide](demo-operations.md).
