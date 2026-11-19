@@ -153,6 +153,28 @@ async function openStorage(directory, { readOnly = false, onCommit = () => {}, c
       requireValue(open, 'STORAGE_CLOSED')
       return { driver: 'node:sqlite', sqlite: statement('SELECT sqlite_version() AS version').version, schemaVersion: statement('PRAGMA user_version').user_version, journalMode: statement('PRAGMA journal_mode').journal_mode, synchronous: statement('PRAGMA synchronous').synchronous, readOnly }
     },
+    queueStats(scope) {
+      const id = scopeId(scope), now = Date.now()
+      const rows = db.prepare(`SELECT c.status, count(*) AS count, min(c.created_at) AS oldest,
+        sum(max(c.attempts-1,0)) AS retries,
+        sum(CASE WHEN c.status IN ('queued','unknown') AND coalesce(h.retry_at,0)<=? AND NOT EXISTS
+          (SELECT 1 FROM dependencies d JOIN commands p ON p.scope_id=d.scope_id AND p.operation_id=d.depends_on
+           WHERE d.scope_id=c.scope_id AND d.operation_id=c.operation_id AND p.status!='confirmed') THEN 1 ELSE 0 END) AS ready,
+        sum(CASE WHEN c.status IN ('queued','unknown') AND EXISTS
+          (SELECT 1 FROM dependencies d JOIN commands p ON p.scope_id=d.scope_id AND p.operation_id=d.depends_on
+           WHERE d.scope_id=c.scope_id AND d.operation_id=c.operation_id AND p.status!='confirmed') THEN 1 ELSE 0 END) AS blocked
+        FROM commands c LEFT JOIN command_http h ON h.scope_id=c.scope_id AND h.operation_id=c.operation_id
+        WHERE c.scope_id=? AND c.status!='confirmed' AND coalesce(h.discarded,0)=0 GROUP BY c.status`).all(now, id)
+      const result = { total: 0, pending: 0, ready: 0, blocked: 0, retry_waiting: 0, unknown: 0, conflict: 0, rejected: 0, retries: 0, oldest_created_at: null }
+      for (const row of rows) {
+        result.total += row.count; result.ready += row.ready; result.blocked += row.blocked; result.retries += row.retries
+        if (['queued', 'unknown'].includes(row.status)) result.pending += row.count
+        if (['unknown', 'conflict', 'rejected'].includes(row.status)) result[row.status] += row.count
+        result.oldest_created_at = result.oldest_created_at == null ? row.oldest : Math.min(result.oldest_created_at, row.oldest)
+      }
+      result.retry_waiting = result.pending - result.ready - result.blocked
+      return result
+    },
     snapshot(scope, { domain, key = 'default' }) {
       snapshotKey(domain, key)
       const row = statement('SELECT revision,data,updated_at FROM snapshots WHERE scope_id=? AND domain=? AND key=?', scopeId(scope), domain, key)

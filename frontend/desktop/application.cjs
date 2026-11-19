@@ -1,5 +1,6 @@
 'use strict'
 
+const { createDiagnostics } = require('./diagnostics.cjs')
 const { diagnosticEvent } = require('./command-diagnostics.cjs')
 
 const { createBusinessAdapters } = require('./business-adapters.cjs')
@@ -43,7 +44,7 @@ function startDesktop({ app, BrowserWindow, ipcMain, dialog, shell, safeStorage,
     return { ready: Promise.resolve(null) }
   }
   let server = null, service = null, ipc = null, quitting = false, shutdown = null
-  let storage = null
+  let storage = null, diagnostics = null, stopDiagnosticState = null, suspendDiagnostics = null, resumeDiagnostics = null
   let auth = null, authTimer = null, resumeAuth = null
   const windows = new Set()
   const branding = net && createBrandingProvider({ directory: app.getPath('userData'), server: () => auth?.status().server, fetch: (url, options) => net.fetch(url, options) })
@@ -111,10 +112,12 @@ function startDesktop({ app, BrowserWindow, ipcMain, dialog, shell, safeStorage,
     // Backend credentials require normal Chromium/OS certificate verification.
     // Private deployments can trust their CA in the OS store, never a blanket bypass.
     try {
-      const profileId = await loadProfile(app.getPath('userData'))
-      storage = await createStorage({ directory: app.getPath('userData') })
-      const adapters = createPorts ? await createPorts({ storage }) : ports
       const version = app.isPackaged ? app.getVersion() : require('../package.json').version
+      diagnostics = createDiagnostics({ directory: app.getPath('userData'), version })
+      diagnostics.record('main', 'desktop-start', null, null, 'observed')
+      const profileId = await loadProfile(app.getPath('userData'))
+      storage = await createStorage({ directory: app.getPath('userData'), diagnostics })
+      const adapters = createPorts ? await createPorts({ storage }) : ports
       service = createDesktopService({ profileId, version, electron: process.versions.electron, ...adapters, storage })
       server = await startServer()
       origin = `http://127.0.0.1:${server.address().port}`
@@ -122,8 +125,8 @@ function startDesktop({ app, BrowserWindow, ipcMain, dialog, shell, safeStorage,
       if (safeStorage && net) {
         const vault = createSessionVault(app.getPath('userData'), safeStorage)
         await vault.load()
-        auth = createSessionService({ vault, interceptApi: (request, send) => commandQueue.api(request, send), fetch: (url, options) => net.fetch(url, options), onIdentity: state => service.setScope(state.user && state.mode !== 'signedOut' ? { server: state.server, accountId: state.user.id } : null) })
-        commandQueue = createCommandQueue({ storage, session: auth })
+        auth = createSessionService({ vault, diagnostics, interceptApi: (request, send) => commandQueue.api(request, send), fetch: (url, options) => net.fetch(url, options), onIdentity: state => { diagnostics.setContext(state); service.setScope(state.user && state.mode !== 'signedOut' ? { server: state.server, accountId: state.user.id } : null) } })
+        commandQueue = createCommandQueue({ storage, session: auth, diagnostics })
         service.installQueue(commandQueue)
         service.installAdapters(createBusinessAdapters({ session: auth, queue: commandQueue }))
         service.installSync(createSyncService({ storage, session: auth, queue: commandQueue, powerMonitor }))
@@ -131,11 +134,31 @@ function startDesktop({ app, BrowserWindow, ipcMain, dialog, shell, safeStorage,
         resumeAuth = () => { void auth.tick().catch(() => {}) }
         powerMonitor?.on('resume', resumeAuth)
       }
-      ipc = createDesktopIpc({ ipcMain, service, origin, session: auth, queue: commandQueue })
+      let previousDiagnosticState
+      stopDiagnosticState = service.subscribe(() => {
+        const state = service.status(), sync = state.sync || {}
+        const key = JSON.stringify([state.phase, sync.reachable, sync.code])
+        if (key !== previousDiagnosticState) {
+          previousDiagnosticState = key
+          diagnostics.record('sync', 'runtime-start', sync.code ? { code: sync.code } : null, null, sync.reachable === true ? 'ready' : sync.reachable === false ? 'unknown' : 'observed')
+        }
+      })
+      suspendDiagnostics = () => diagnostics.suspend(); resumeDiagnostics = () => diagnostics.resume()
+      powerMonitor?.on('suspend', suspendDiagnostics); powerMonitor?.on('resume', resumeDiagnostics)
+      ipc = createDesktopIpc({ ipcMain, service, origin, session: auth, queue: commandQueue, diagnostics: {
+        storage, journal: diagnostics, version,
+        showSaveDialog: (contents, defaultPath) => {
+          const options = { defaultPath, filters: [{ name: 'JSON', extensions: ['json'] }] }
+          const parent = BrowserWindow.fromWebContents?.(contents)
+          return parent ? dialog.showSaveDialog(parent, options) : dialog.showSaveDialog(options)
+        },
+      } })
       service.start()
       createWindow()
       return { service, storage, createWindow, origin }
     } catch (error) {
+      diagnostics?.record('main', 'desktop-start', error, null, 'failed')
+      await diagnostics?.close()
       await storage?.close()
       server?.close()
       const copy = shellText()
@@ -150,10 +173,15 @@ function startDesktop({ app, BrowserWindow, ipcMain, dialog, shell, safeStorage,
     event.preventDefault()
     if (shutdown) return
     if (authTimer) clearInterval(authTimer)
+    stopDiagnosticState?.()
+    if (suspendDiagnostics) powerMonitor?.removeListener('suspend', suspendDiagnostics)
+    if (resumeDiagnostics) powerMonitor?.removeListener('resume', resumeDiagnostics)
     if (resumeAuth) powerMonitor?.removeListener('resume', resumeAuth)
     auth?.stop()
     shutdown = service.stop().finally(async () => {
       await storage?.close()
+      diagnostics?.record('main', 'runtime-cleanup', null, null, 'stopped')
+      await diagnostics?.close()
       ipc?.dispose()
       server?.close()
       quitting = true

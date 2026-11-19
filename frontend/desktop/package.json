@@ -31,6 +31,8 @@
     },
     "files": [
       "main.js",
+      "diagnostics.cjs",
+      "diagnostics-ipc.cjs",
       "storage.cjs",
       "storage-worker.cjs",
       "storage-db.cjs",

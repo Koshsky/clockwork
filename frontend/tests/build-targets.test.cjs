@@ -184,3 +184,10 @@ test('acceptance packaging rejects an output symlink and resolves nonexistent ch
     await assert.rejects(fs.access(path.join(f.directory, 'new')), { code: 'ENOENT' })
   } finally { if (before === undefined) delete process.env.ERP_TEST_ISOLATED; else process.env.ERP_TEST_ISOLATED = before }
 })
+
+test('web composition substitutes native diagnostics and rejects an accidental native renderer dependency', async () => {
+  const { rendererReplacement, inspectRendererModules } = await composition
+  assert.equal(rendererReplacement('web', root, './native', root + '/src/diagnostics/entry.ts'), root + '/src/platform/build/web/nativeDiagnostics.ts')
+  assert.equal(rendererReplacement('desktop', root, './native', root + '/src/diagnostics/entry.ts'), null)
+  assert.throws(() => inspectRendererModules('web', root, [root + '/src/diagnostics/native.ts']), /Wrong web/)
+})

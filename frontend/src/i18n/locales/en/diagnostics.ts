@@ -11,6 +11,15 @@ export default {
   clear: 'Clear history',
   copied: 'Report copied. You can send it to your administrator.',
   copyFailed: 'Automatic copying failed. Select and copy the report text manually.',
+  native: {
+    privacy: "The bundle contains only safe codes, versions and queue status. It excludes object contents, accounts and databases. Review the preview before saving; nothing is uploaded.",
+    queue: "Pending: {pending} · Ready: {ready} · Blocked: {blocked} · Conflicts: {conflict} · Rejected: {rejected}",
+    loading: "Preparing the local report…",
+    failed: "The report could not be prepared or saved. Application data and the queue are unchanged. Refresh the report and choose a new file.",
+    saved: "Diagnostic bundle saved.",
+    refresh: "Refresh report",
+    save: "Save bundle",
+  },
   failure: {
     component: 'Interface error', window: 'Runtime error', promise: 'Unhandled error',
     chunk: 'Module could not load', navigation: 'Page could not open', pdf: 'PDF or printing error',

@@ -5,7 +5,7 @@ const sessionIpc = require('./session-ipc.cjs')
 const { isApplicationDocument } = require('./security.cjs')
 const REQUEST = 'erp:service-request', EVENT = 'erp:service-state'
 
-function createDesktopIpc({ ipcMain, service, origin, session, queue }) {
+function createDesktopIpc({ ipcMain, service, origin, session, queue, diagnostics }) {
   const windows = new Map()
   let disposed = false
   const trusted = event => {
@@ -13,6 +13,7 @@ function createDesktopIpc({ ipcMain, service, origin, session, queue }) {
     if (!window || event.sender !== window.contents || event.sender.isDestroyed() || !event.senderFrame || event.senderFrame !== event.sender.mainFrame) return null
     return isApplicationDocument(event.senderFrame.url, origin) ? window : null
   }
+  const diagnosticIpc = diagnostics ? require('./diagnostics-ipc.cjs').createDiagnosticsIpc({ ipcMain, trusted, session, service, ...diagnostics }) : null
   const send = window => {
     if (!window.subscription || window.awaiting != null || window.contents.isDestroyed()) return
     const state = service.status()
@@ -89,6 +90,7 @@ function createDesktopIpc({ ipcMain, service, origin, session, queue }) {
     const window = { contents, document: 0, subscription: null, awaiting: null, dirty: false, sessionAwaiting: null, sessionDirty: false }
     windows.set(contents.id, window)
     const leaveDocument = () => {
+      diagnosticIpc?.detach(contents.id)
       session?.detach(contents.id + ':' + window.document)
       service.detach(contents.id + ':' + window.document)
       window.sessionAwaiting = null; window.sessionDirty = false
@@ -110,6 +112,7 @@ function createDesktopIpc({ ipcMain, service, origin, session, queue }) {
   return { attach, dispose() {
     if (disposed) return
     disposed = true
+    diagnosticIpc?.dispose()
     unsubscribeService()
     unsubscribeSession?.()
     if (session) ipcMain.removeHandler(sessionIpc.CHANNEL)

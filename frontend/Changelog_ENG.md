@@ -10,6 +10,8 @@ The web app and the desktop wrapper are versioned together.
 
 ### Added
 
+- Electron provides bounded local journals and a safe diagnostic bundle with preview.
+
 - Added local web error diagnostics with bounded history and a safe report to copy.
 
 ### Fixed

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reportWebError } from '@/diagnostics/web'
+import { reportDiagnosticError as reportWebError } from '@/diagnostics/record'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { preloadPdfPreview, renderPdfPreview } from './previewPdf'
 import type { PdfPreviewHandle } from './previewPdf'

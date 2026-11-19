@@ -1,3 +1,4 @@
+import { captureNativeError, closeNativeDiagnostics } from './diagnostics/native'
 import { installWebDiagnostics } from './diagnostics/install'
 import { diagnosticsOpen, reportWebError, resetWebDiagnostics, webDiagnostics } from './diagnostics/web'
 import { subscribeEpoch } from './sessionSync'
@@ -76,6 +77,9 @@ if (platformCapabilities.kind === 'web') {
     void loadBackendInfo(metadata.signal).then(info => webDiagnostics.rememberBackendVersion(info?.version, scope)).catch(() => {})
   })
   stopDiagnostics = () => { stopHooks(); stopEpoch(); stopIdentity(); stopPanel(); metadata?.abort(); resetWebDiagnostics() }
+} else {
+  const stopHooks = installWebDiagnostics(app, router, window, captureNativeError)
+  stopDiagnostics = () => { stopHooks(); closeNativeDiagnostics() }
 }
 
 app.use(pinia)

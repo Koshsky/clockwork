@@ -16,7 +16,7 @@ const clone = value => structuredClone(value)
 const problem = code => ({ code, message: code })
 const delay = ms => new Promise(resolve => { const timer = setTimeout(resolve, ms); timer.unref?.() })
 
-function createCommandQueue({ storage, session, now = Date.now, retryMs = 60000, rateMs = 100, acknowledgementMs = 250 }) {
+function createCommandQueue({ storage, session, diagnostics, now = Date.now, retryMs = 60000, rateMs = 100, acknowledgementMs = 250 }) {
   let acceptingBytes = 0
   let tail = Promise.resolve(), flight = null, stopped = false, revision = 0, timer = null, running = false
   let identity = session.status().contextId
@@ -234,9 +234,18 @@ function createCommandQueue({ storage, session, now = Date.now, retryMs = 60000,
     }
     const native = async request => {
       if (!current(own)) throw new Error('SESSION_CONTEXT_CHANGED')
-      return session.api('command-queue', { contextId: own, requestId: randomUUID(), ...request }, { bypassQueue: true, revisionProtocol: true })
+      let finish = () => {}
+      try { finish = diagnostics?.beginDelivery() || finish } catch { /* Optional diagnostics. */ }
+      try {
+        const result = await session.api('command-queue', { contextId: own, requestId: randomUUID(), ...request }, { bypassQueue: true, revisionProtocol: true })
+        try { finish('observed', { response: { status: result.status } }) } catch { /* Optional diagnostics. */ }
+        return result
+      } catch (error) {
+        try { finish('unknown', error) } catch { /* Optional diagnostics. */ }
+        throw error
+      }
     }
-    let response
+    let response, fromReceipt = false
     if (entry.attempts > 0) {
       const check = await native({ operation: 'GET /operations/{operation_id}', path: { operation_id: entry.operationId } })
       if (check.status !== 200 || !check.data?.data) throw new Error('COMMAND_STATUS_UNAVAILABLE')
@@ -245,7 +254,7 @@ function createCommandQueue({ storage, session, now = Date.now, retryMs = 60000,
       if (receipt.state === 'confirmed') {
         const method = wire.route.split(' ')[0], path = requestPath({ route: wire.route, path: wire.path, query: wire.query, body: wire.body })
         if (receipt.method !== method || receipt.path !== path || receipt.request_hash !== requestHash(wire.body) || receipt.response_status < 200 || receipt.response_status >= 300) throw new Error('COMMAND_RECEIPT_MISMATCH')
-        response = { status: receipt.response_status, data: receipt.response }
+        response = { status: receipt.response_status, data: receipt.response }; fromReceipt = true
       } else if (receipt.state !== 'not_found') throw new Error('COMMAND_STATUS_UNAVAILABLE')
     }
     if (!response) {
@@ -322,6 +331,7 @@ function createCommandQueue({ storage, session, now = Date.now, retryMs = 60000,
       await repository.settle({ operationId: entry.operationId, status, result: { ...unwrapped.result, operationId: entry.operationId, data: accepted ? { ...unwrapped.result.data, data: decorateSnapshot(dto, unwrapped.revisions, entry.input.route) } : unwrapped.result.data, baseline: unwrapped.revisions, revisions: unwrapped.revisions, previousRevisions: wire.body?._preconditions || {}, sequence: entry.sequence }, mappings, cacheChanges })
       mutationRevision++; snapshotsChanged(cacheChanges, true)
     })
+    try { if (current(own)) diagnostics?.record('queue', 'outbox-send', { response: { status: response.status } }, null, fromReceipt && accepted ? 'receipt_confirmed' : status) } catch { /* Optional diagnostics. */ }
     return true
   }
   async function drain(force = false, requested = new Set()) {

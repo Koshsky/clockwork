@@ -1,13 +1,12 @@
 <script setup lang="ts">
-import { openDiagnostics } from '@/diagnostics/web'
-import { platformCapabilities } from '@/platform/context'
+import { openDiagnostics } from '@/diagnostics/entry'
 import { t } from '@/i18n'
 </script>
 
 <template>
   <div class="al">
     <RouterView />
-    <button v-if="platformCapabilities.kind === 'web'" class="al-diagnostics" type="button" @click="openDiagnostics">{{ t('diagnostics.title') }}</button>
+    <button class="al-diagnostics" type="button" @click="openDiagnostics">{{ t('diagnostics.title') }}</button>
   </div>
 </template>
 

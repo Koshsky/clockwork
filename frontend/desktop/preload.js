@@ -71,6 +71,14 @@ contextBridge.exposeInMainWorld('erpDesktop', {
       return () => sessionListeners.delete(listener)
     },
   },
+  diagnostics: {
+    request: async request => {
+      if (!bounded(request, 4096)) throw new Error('DIAGNOSTICS_INVALID')
+      const result = await ipcRenderer.invoke('erp:diagnostics', request)
+      if (!result?.ok) throw new Error(result?.error || 'DIAGNOSTICS_UNAVAILABLE')
+      return result.value
+    },
+  },
   queue: {
     mainSync: true,
     request: async request => {

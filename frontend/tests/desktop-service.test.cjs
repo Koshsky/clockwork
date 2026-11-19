@@ -271,7 +271,8 @@ function preloadFixture() {
 }
 test('preload exposes only narrow bridge methods, never Electron events or raw invocation', () => {
   const f = preloadFixture()
-  assert.deepEqual(Object.keys(f.context.bridge).sort(), ['appVersion', 'isElectron', 'queue', 'service', 'session'])
+  assert.deepEqual(Object.keys(f.context.bridge).sort(), ['appVersion', 'diagnostics', 'isElectron', 'queue', 'service', 'session'])
+  assert.deepEqual(Object.keys(f.context.bridge.diagnostics), ['request'])
   assert.deepEqual(Object.keys(f.context.bridge.service).sort(), ['businessProtocol', 'cancel', 'execute', 'read', 'status', 'subscribe'])
 })
 test('preload rejects oversized trees before serializing IPC to main', async () => {

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import NativeDiagnosticsPanel from './diagnostics/NativeDiagnosticsPanel.vue'
 import DiagnosticsPanel from './diagnostics/DiagnosticsPanel.vue'
 import { branding } from './branding'
 import { ref, onBeforeUnmount } from 'vue'
@@ -45,6 +46,7 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(splashTimer) })
   <HintPanel />
   <RouterView />
   <DiagnosticsPanel v-if="platformCapabilities.kind === 'web'" />
+  <NativeDiagnosticsPanel v-else />
 </template>
 
 <style>

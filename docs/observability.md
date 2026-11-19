@@ -229,3 +229,5 @@ O12 prepared, disabled demo alert evaluation and delivery boundary: [Operator gu
 O10 optional private monitoring example: [Operator guide](optional-monitoring.md).
 
 O11 two optional dashboards and log-first diagnosis: [Troubleshooting](troubleshooting.md).
+
+Implementation reference: [Electron diagnostics](desktop-diagnostics.md).

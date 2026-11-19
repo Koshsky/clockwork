@@ -12,7 +12,7 @@ function normalizeServer(value) {
 function expiresAt(token) {
   try { return JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()).exp * 1000 || 0 } catch { return 0 }
 }
-function createSessionService({ vault, fetch: fetchRequest, onIdentity = () => {}, interceptApi, now = Date.now }) {
+function createSessionService({ vault, fetch: fetchRequest, onIdentity = () => {}, interceptApi, now = Date.now, diagnostics }) {
   let server = null, user = null, access = null, refresh = null, mode = 'signedOut', persistent = false
   let contextId = randomUUID(), revision = 0, epoch = 0, pending = null, stopped = false
   let offlineAvailable = false, needsLogin = false, activeRequests = 0
@@ -32,6 +32,8 @@ function createSessionService({ vault, fetch: fetchRequest, onIdentity = () => {
   async function wire(base, route, method, body, headers = {}, signal) {
     if (activeRequests >= 64) throw new Error('SESSION_BUSY')
     activeRequests++
+    let observe = () => {}, diagnosticScope
+    try { observe = diagnostics?.bind('main', 'http-network') || observe; diagnosticScope = diagnostics?.contextToken() } catch { /* Optional diagnostics. */ }
     const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 10000)
     const abort = () => controller.abort()
     signal?.addEventListener('abort', abort, { once: true })
@@ -43,7 +45,14 @@ function createSessionService({ vault, fetch: fetchRequest, onIdentity = () => {
       if (text.length > 8 * 1024 * 1024) throw new Error('SESSION_RESPONSE_LIMIT')
       const data = text ? JSON.parse(text) : null
       if (!bounded(data, 8 * 1024 * 1024)) throw new Error('SESSION_RESPONSE_LIMIT')
+      try {
+        if (response.status >= 400) observe({ response: { status: response.status, data: { error: { code: data?.error?.code } } } }, { request_id: response.headers?.get('X-Request-ID') }, 'observed')
+        if (route === '/about' && response.status === 200) diagnostics?.rememberBackendVersion(data?.data?.version, diagnosticScope)
+      } catch { /* Never alter an HTTP result because diagnostics failed. */ }
       return { status: response.status, data, ...(response.headers?.get('Operation-Status') ? { operationStatus: response.headers.get('Operation-Status') } : {}), ...(response.headers?.get('Retry-After') ? { retryAfter: Number(response.headers.get('Retry-After')) || 0 } : {}) }
+    } catch (error) {
+      try { if (!signal?.aborted) observe(error, null, 'failed') } catch { /* Optional diagnostics. */ }
+      throw error
     } finally { activeRequests--; clearTimeout(timer); signal?.removeEventListener('abort', abort) }
   }
   async function revoke(base, token) {

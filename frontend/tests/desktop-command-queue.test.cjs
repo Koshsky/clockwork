@@ -9,7 +9,7 @@ const { requestHash, requestPath, kinds, validMutation } = require('../desktop/c
 const base = 'https://queue.example/api/v1'
 const planning = { ts: 1, data: { data: { processes: [{ id: 10, project_id: 20, tasks: [{ id: 30, process_id: 10, title: 'Before', resources: [] }], milestones: [] }] }, error: {} } }
 const mutation = (title = 'After') => ({ route: 'PUT /task/{id}', path: { id: '30' }, query: {}, body: { title } })
-async function fixture(t) {
+async function fixture(t, diagnostics) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'clockwork-command-queue-'))
   let storage = await createStorage({ directory })
   const state = { server: base, user: { id: 7 }, mode: 'offline', needsLogin: false, contextId: 'context-1' }
@@ -32,7 +32,7 @@ async function fixture(t) {
     if (lose) { lose = false; throw new Error('Connection reset after commit') }
     return response
   } }
-  const make = () => createCommandQueue({ storage, session, now: () => tick, rateMs: 0, acknowledgementMs: 0 })
+  const make = () => createCommandQueue({ storage, session, diagnostics, now: () => tick, rateMs: 0, acknowledgementMs: 0 })
   let queue = make()
   t.after(async () => { await queue.stop(); await storage.close(); await fs.rm(directory, { recursive: true, force: true }) })
   await queue.cachePut(base + '/planning/tasks', planning, { 'process:10': token, 'project:20': 'project-v1', states: 'states-v1', 'user_days:7': 'days-v1', 'resource:40': 'resource-v1' })
@@ -420,4 +420,20 @@ test('backend release notes survive offline restart and never leak across accoun
   const missing = await f.queue.api({ ...request, snapshotOnly: true }, () => assert.fail('Snapshot reads must not send HTTP'))
   assert.equal(missing.status, 503)
   assert.equal(missing.data.error.code, 'LOCAL_SNAPSHOT_MISSING')
+})
+
+for (const outcome of ['receipt_confirmed', 'conflict', 'rejected']) test('diagnostics observe durable ' + outcome + ' without changing delivery', async t => {
+  const observed = [], f = await fixture(t, { beginDelivery: () => () => {}, record: (...args) => observed.push(args.at(-1)) })
+  await f.submit(); f.online()
+  if (outcome === 'receipt_confirmed') f.loseResponse(); else f.status(outcome === 'conflict' ? 409 : 403)
+  await f.queue.push()
+  if (outcome === 'receipt_confirmed') { f.advance(); await f.queue.push() }
+  assert.ok(observed.includes(outcome)); assert.equal(f.calls.length, 1)
+  assert.equal((await task(f)).title, outcome === 'receipt_confirmed' ? 'After' : 'Before')
+})
+test('broken diagnostic observers cannot reject a durable acknowledgement', async t => {
+  const f = await fixture(t, { beginDelivery() { throw Error('disk failed') }, record() { throw Error('disk failed') } })
+  await f.submit(); f.online(); await f.queue.push()
+  assert.equal(f.calls.length, 1); assert.equal((await f.queue.control({ action: 'list' })).length, 0)
+  assert.equal((await task(f)).title, 'After')
 })
