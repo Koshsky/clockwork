@@ -1,0 +1,76 @@
+# Explicit opt-in example; never included by the application Compose or deploy.
+name: clockwork-observability
+services:
+  prometheus:
+    profiles: [monitoring]
+    image: prom/prometheus:v3.16.0@sha256:e04987641b57704f408e31f6373ba4138ecf27cb4a165d24aabb6c38fddd0f06
+    network_mode: container:${CLOCKWORK_BACKEND_CONTAINER:?Select the existing backend container explicitly}
+    environment:
+      GOMAXPROCS: "1"
+      GOMEMLIMIT: 320MiB
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --web.listen-address=127.0.0.1:9090
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --storage.tsdb.retention.size=512MB
+      - --storage.tsdb.wal-segment-size=16MB
+      - --query.max-concurrency=2
+      - --query.max-samples=200000
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 384m
+    cpus: 0.25
+    pids_limit: 64
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - metrics:/prometheus
+    tmpfs: ["/tmp:size=16m,noexec,nosuid"]
+    logging:
+      driver: json-file
+      options: {max-size: 2m, max-file: "2"}
+  grafana:
+    profiles: [monitoring]
+    image: grafana/grafana:13.3.1@sha256:0615ec4fbd4072004b7d86b46ded63013a74b7d6eb1119273dd89e8fa25c13cf
+    network_mode: container:${CLOCKWORK_BACKEND_CONTAINER:?Select the existing backend container explicitly}
+    environment:
+      GOMAXPROCS: "1"
+      GOMEMLIMIT: 320MiB
+      GF_PLUGINS_DISABLE_PLUGINS: cloudwatch,elasticsearch,grafana-azure-monitor-datasource,graphite,influxdb,jaeger,loki,mssql,mysql,opentsdb,parca,postgres,pyroscope,tempo,testdata,zipkin
+      GF_SERVER_HTTP_ADDR: ${CLOCKWORK_GRAFANA_BIND:?Select a private address in the backend namespace}
+      GF_SERVER_HTTP_PORT: "3001"
+      GF_SECURITY_ADMIN_USER: owner
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/admin_password
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_SNAPSHOTS_EXTERNAL_ENABLED: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_PLUGINS_PLUGIN_ADMIN_ENABLED: "false"
+      GF_LOG_MODE: console
+      GF_UNIFIED_ALERTING_ENABLED: "false"
+    secrets: [admin_password]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 512m
+    cpus: 0.25
+    pids_limit: 192
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - dashboards:/var/lib/grafana
+    tmpfs: ["/tmp:size=16m,noexec,nosuid"]
+    logging:
+      driver: json-file
+      options: {max-size: 2m, max-file: "2"}
+secrets:
+  admin_password:
+    file: ${CLOCKWORK_GRAFANA_PASSWORD_FILE:?Select an external private password file}
+volumes:
+  metrics:
+  dashboards:
