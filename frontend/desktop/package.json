@@ -31,6 +31,8 @@
     },
     "files": [
       "main.js",
+      "diagnostics.cjs",
+      "diagnostics-ipc.cjs",
       "storage.cjs",
       "storage-worker.cjs",
       "storage-db.cjs",
@@ -67,7 +69,8 @@
       "command-clamp.cjs",
       "business-adapters.cjs",
       "business-request.cjs",
-      "business-bindings.json"
+      "business-bindings.json",
+      "command-diagnostics.cjs"
     ],
     "extraResources": [
       {
@@ -140,7 +143,8 @@
       "command-clamp.cjs",
       "business-adapters.cjs",
       "business-request.cjs",
-      "business-bindings.json"
+      "business-bindings.json",
+      "command-diagnostics.cjs"
     ]
   }
 }

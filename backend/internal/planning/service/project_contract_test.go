@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	access "github.com/Koshsky/erp-backend/internal/authz/domain"
+	"github.com/Koshsky/erp-backend/internal/diagnostics"
 	"github.com/Koshsky/erp-backend/internal/planning/dto"
 	"github.com/Koshsky/erp-backend/internal/planning/repository/sqlc"
 	"github.com/Koshsky/erp-backend/internal/planning/service"
@@ -101,5 +102,25 @@ func TestProjectPlanningEmptyAndReadFailure(t *testing.T) {
 		if failure != nil && response != nil {
 			t.Fatal("failed planning returned data")
 		}
+	}
+}
+
+func TestPlanningFailureIsObservableWithoutChangingReturnedError(t *testing.T) {
+	t.Parallel()
+	failure := errors.New("canary-private-project")
+	counts := diagnostics.NewOutcomes()
+	repository := &projectPlanningRepository{err: failure}
+	svc := service.NewPlanningService(slog.New(slog.DiscardHandler), tracing.New(nil), repository)
+	response, err := svc.GetProjectPlanning(
+		diagnostics.WithOutcomes(t.Context(), counts),
+		7,
+		access.ListScope{All: true},
+	)
+	if !errors.Is(err, failure) || response != nil {
+		t.Fatal("diagnostics changed planning error semantics")
+	}
+	if got := counts.Snapshot(); len(got) != 1 || got[0].Stage != diagnostics.Planning ||
+		got[0].Outcome != diagnostics.Failed {
+		t.Fatal("planning failure was not observed")
 	}
 }

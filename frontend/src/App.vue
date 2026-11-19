@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import NativeDiagnosticsPanel from './diagnostics/NativeDiagnosticsPanel.vue'
+import DiagnosticsPanel from './diagnostics/DiagnosticsPanel.vue'
 import { branding } from './branding'
 import { ref, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
@@ -43,6 +45,8 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(splashTimer) })
   <!-- Global right-side hint panel: any "?" button opens its page here -->
   <HintPanel />
   <RouterView />
+  <DiagnosticsPanel v-if="platformCapabilities.kind === 'web'" />
+  <NativeDiagnosticsPanel v-else />
 </template>
 
 <style>

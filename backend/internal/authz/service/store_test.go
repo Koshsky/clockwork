@@ -19,6 +19,7 @@ import (
 	"github.com/Koshsky/erp-backend/internal/authz/repository/sqlc"
 	"github.com/Koshsky/erp-backend/internal/authz/service"
 	"github.com/Koshsky/erp-backend/internal/config"
+	"github.com/Koshsky/erp-backend/internal/diagnostics"
 	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
 	"github.com/Koshsky/erp-backend/internal/tracing"
 	"github.com/Koshsky/erp-backend/internal/userctx"
@@ -100,7 +101,7 @@ func preserveDefaultPolicies(t *testing.T) {
 
 func newSnapshotStore(repo *snapshotRepository, interval time.Duration) (*service.PolicyStore, *rbac.Middleware) {
 	mw := rbac.ProvideMiddleware(nil, tracing.New(nil), rbac.Data{}, nil)
-	store := service.NewPolicyStore(slog.New(slog.DiscardHandler), repo, mw, config.Duration(interval))
+	store := service.NewPolicyStore(slog.New(slog.DiscardHandler), repo, mw, config.Duration(interval), nil)
 	return store, mw
 }
 
@@ -260,7 +261,7 @@ func TestPolicyStorePublicationOrder(t *testing.T) {
 			}
 		}, nil
 	})
-	store = service.NewPolicyStore(slog.New(slog.DiscardHandler), repo, publisher, config.Duration(time.Hour))
+	store = service.NewPolicyStore(slog.New(slog.DiscardHandler), repo, publisher, config.Duration(time.Hour), nil)
 	if err := store.Reload(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -305,7 +306,13 @@ func TestPolicyStoreTTLRecoversAfterStartupFailure(t *testing.T) {
 			}
 		}, nil
 	})
-	store := service.NewPolicyStore(slog.New(slog.DiscardHandler), repo, publisher, config.Duration(time.Millisecond))
+	store := service.NewPolicyStore(
+		slog.New(slog.DiscardHandler),
+		repo,
+		publisher,
+		config.Duration(time.Millisecond),
+		nil,
+	)
 	fallbackScope := engine.ViewScopeCode("rp", domain.ResourceProject)
 	store.Start()
 	defer store.Stop()
@@ -377,5 +384,38 @@ func readPolicySnapshots(t *testing.T, store *service.PolicyStore, mw *rbac.Midd
 			t.Error("matrix unavailable during replacement")
 			return
 		}
+	}
+}
+
+//nolint:paralleltest // the policy engine is a process singleton and is restored on cleanup.
+func TestPolicyReloadOutcomesPreserveLastPublishedSnapshot(t *testing.T) {
+	preserveDefaultPolicies(t)
+	repository := &snapshotRepository{}
+	repository.replace(policyFixture("diagnostic-route", "project", "worker"))
+	counts := diagnostics.NewOutcomes()
+	mw := rbac.ProvideMiddleware(nil, tracing.New(nil), rbac.Data{}, nil)
+	store := service.NewPolicyStore(slog.New(slog.DiscardHandler), repository, mw, config.Duration(time.Minute), counts)
+	ctx := diagnostics.WithOutcomes(t.Context(), counts)
+	if err := store.Reload(ctx); err != nil {
+		t.Fatal(err)
+	}
+	broken := policyFixture("replacement-route", "project", "worker")
+	broken.failCall = 1
+	broken.failure = errors.New("canary-policy-store-unavailable")
+	repository.replace(broken)
+	if err := store.Reload(ctx); err == nil {
+		t.Fatal("failed reload unexpectedly succeeded")
+	}
+	if routeStatus(mw, "diagnostic-route") != 204 {
+		t.Fatal("diagnostics replaced the last valid policy snapshot")
+	}
+	seen := map[string]uint64{}
+	for _, v := range counts.Snapshot() {
+		if v.Stage == diagnostics.RBAC {
+			seen[string(v.Outcome)] = v.Total
+		}
+	}
+	if seen[string(diagnostics.Ready)] != 1 || seen[string(diagnostics.Failed)] != 1 {
+		t.Fatalf("reload outcomes wrong: %v", seen)
 	}
 }

@@ -1,38 +1,30 @@
 package audit
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"github.com/Koshsky/erp-backend/internal/diagnostics"
+)
 
 // maskedValue replaces the value of every sensitive key.
 const maskedValue = "***"
 
-// sensitiveKeys are JSON keys whose values are replaced before an event is
-// shipped to storage (passwords and token material must not be persisted).
-//
-//nolint:gochecknoglobals // static masking key set (established pattern)
-var sensitiveKeys = map[string]struct{}{
-	"password":      {},
-	"password_hash": {},
-	"old_password":  {},
-	"new_password":  {},
-	"access_token":  {},
-	"refresh_token": {},
-	"refresh_hash":  {},
-	"token":         {},
-	"authorization": {},
-}
-
 // MaskJSON redacts sensitive values recursively in a JSON document. Non-JSON
-// input is returned unchanged (its structure is unknown, and only JSON bodies
-// of logged mutations reach this function).
+// input is redacted entirely because its contents cannot be inspected safely.
 func MaskJSON(raw []byte) []byte {
 	var v any
 	if err := json.Unmarshal(raw, &v); err != nil {
-		return raw
+		return []byte(`"***"`)
+	}
+	switch v.(type) {
+	case map[string]any, []any:
+	default:
+		return []byte(`"***"`)
 	}
 	masked := maskValue(v)
 	out, err := json.Marshal(masked)
 	if err != nil {
-		return raw
+		return []byte(`"***"`)
 	}
 	return out
 }
@@ -42,7 +34,7 @@ func maskValue(v any) any {
 	switch t := v.(type) {
 	case map[string]any:
 		for k, val := range t {
-			if _, ok := sensitiveKeys[k]; ok {
+			if diagnostics.SecretKey(k) {
 				t[k] = maskedValue
 			} else {
 				t[k] = maskValue(val)

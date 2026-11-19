@@ -139,6 +139,7 @@
   --z-side-merged: 70; /* merged group labels */
   --z-side-panel: 80; /* resource codes layer, timesheet names panel */
   --z-corner: 90; /* the corner cell (side panel + header) */
+  --z-diagnostics: 45000; /* explicit local diagnostic report above the active workspace */
 }
 
 /* OS fallback (no explicit data-scheme yet) — dark */

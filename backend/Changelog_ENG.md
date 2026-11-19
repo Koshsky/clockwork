@@ -5,6 +5,28 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Private metrics include the backend version for optional dashboards.
+
+- Added bounded database/schema readiness independently of application liveness.
+
+### Added
+
+- Local operation and audit-delivery diagnostics distinguish commits, retries, conflicts and unconfirmed outcomes.
+
+- Optional private Prometheus metrics expose bounded HTTP, runtime and PostgreSQL pool statistics.
+
+- Optional OTLP tracing supports TLS, bearer authentication and bounded export with safe request correlation.
+
+### Fixed
+
+- Technical diagnostics omit credentials, business payloads and raw error details.
+
+- Server logs include release context and clear failure levels; Docker examples use bounded log rotation.
+
 ## [1.6.0] - 2026-11-17
 
 ### Added

@@ -1,3 +1,4 @@
+import { diagnosticEvent } from '@/domain/diagnostics'
 import { ref, type Ref } from 'vue'
 
 export type Stop = () => void
@@ -24,7 +25,7 @@ export function createRuntime(
   let stopped = false
   const cleanup = () => {
     for (const stop of cleanups.splice(0).reverse()) {
-      try { stop() } catch (error) { console.error('[runtime] cleanup failed', error) }
+      try { stop() } catch (error) { console.error('[runtime]', diagnosticEvent('runtime-cleanup', error)) }
     }
   }
   const scope: RuntimeScope = {

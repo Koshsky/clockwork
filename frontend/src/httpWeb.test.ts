@@ -1,6 +1,6 @@
 import axios, { AxiosError, CanceledError, type InternalAxiosRequestConfig } from 'axios'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-const fake = vi.hoisted(() => ({ put: vi.fn(), get: vi.fn(), byPath: vi.fn(), replay: vi.fn(), offline: { value: false }, token: 'test' }))
+const fake = vi.hoisted(() => ({ put: vi.fn(), get: vi.fn(), byPath: vi.fn(), replay: vi.fn(), offline: { value: false }, token: 'test', epoch: 'initial' }))
 vi.mock('@/platform/context', () => ({ platformCapabilities: { kind: 'web', optionalStorage: true } }))
 vi.mock('./router', () => ({ default: { currentRoute: { value: { name: 'planner', fullPath: '/planner' } }, push: vi.fn() } }))
 vi.mock('./offline/cache', () => ({ cachePut: fake.put, cacheGet: fake.get, cacheGetByPath: fake.byPath, userCachePrefix: () => 'u7:' }))
@@ -9,12 +9,14 @@ vi.mock('./offline/state', () => ({ isOffline: fake.offline }))
 vi.mock('./offline/sync', () => ({ ensureAutoSession: async () => false }))
 vi.mock('./loggedOut', () => ({ isLoggedOut: () => false }))
 vi.mock('./token', () => ({ getAccessToken: () => fake.token, accessTokenExpired: () => false }))
+vi.mock('./sessionSync', () => ({ sessionEpoch: () => fake.epoch }))
+import { webDiagnostics } from './diagnostics/web'
 import { setupHttp } from './http'
 import { hasActiveMutations } from './offline/mutationGuard'
 import { legacyQueueAvailability } from './platform/state'
 const adapter = axios.defaults.adapter
 beforeEach(() => {
-  vi.resetAllMocks(); fake.offline.value = false; legacyQueueAvailability.value = 'empty'
+  vi.resetAllMocks(); fake.epoch = 'initial'; webDiagnostics.reset(); fake.offline.value = false; legacyQueueAvailability.value = 'empty'
   fake.get.mockResolvedValue(null); fake.put.mockResolvedValue(undefined)
   axios.interceptors.request.clear(); axios.interceptors.response.clear(); setupHttp()
 })
@@ -68,4 +70,32 @@ it.each(['confirmed', 'failed', 'cancelled'])('releases the HTTP mutation guard 
   if (mode === 'confirmed') await axios.put('/api/v1/user/7', {})
   else await expect(axios.put('/api/v1/user/7', {})).rejects.toThrow()
   expect(hasActiveMutations()).toBe(false)
+})
+
+it.each([401, 403, 409, 500])('records HTTP %i with its reviewed request ID while preserving rejection', async status => {
+  const id = 'a'.repeat(32)
+  axios.defaults.adapter = async config => { throw new AxiosError('private body', 'ERR_BAD_RESPONSE', config, undefined,
+    { data: { error: { code: 'INTERNAL_ERROR', message: 'private body' }, data: { title: 'private project' } }, status, statusText: 'private', headers: { 'x-request-id': id, authorization: 'private' }, config }) }
+  await expect(axios.post('/api/v1/auth/login', { username: 'private', password: 'private' })).rejects.toThrow()
+  expect(webDiagnostics.records.value[0]?.diagnostic).toMatchObject({ status, request_id: id })
+  expect(webDiagnostics.report()).not.toContain('private')
+})
+it('never records an old-session HTTP error after its delayed response arrives', async () => {
+  let reject!: (error: Error) => void
+  let config!: InternalAxiosRequestConfig
+  axios.defaults.adapter = input => { config = input; return new Promise((_, fail) => { reject = fail }) }
+  const result = axios.get('/api/v1/project').catch(error => error)
+  await new Promise(resolve => setTimeout(resolve, 0))
+  fake.epoch = 'new-account'
+  reject(new AxiosError('private', 'ERR_BAD_RESPONSE', config, undefined, { data: {}, status: 500, statusText: '', headers: { 'x-request-id': 'b'.repeat(32) }, config }))
+  expect(await result).toBeInstanceOf(CanceledError)
+  expect(webDiagnostics.snapshot().records).toEqual([])
+})
+it('remembers existing About metadata without sending another request', async () => {
+  let requests = 0
+  axios.defaults.adapter = async config => { requests++; return { data: { data: { version: '1.6.0', changelog_ru: 'private' } }, status: 200, statusText: 'OK', headers: {}, config } }
+  await axios.get('/api/v1/about')
+  expect(requests).toBe(1)
+  expect(webDiagnostics.snapshot().backend_version).toBe('1.6.0')
+  expect(webDiagnostics.report()).not.toContain('private')
 })

@@ -1,7 +1,14 @@
 # Scalars are rendered by scripts/deploy.py; secrets never enter the repository.
 name: erp
+x-logging: &bounded-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   db:
+    logging: *bounded-logging
     image: postgres@sha256:aa6cb33cf4c19c765cefcf48d96176258800870a9a1e930ad126200f9d825139
     container_name: db
     restart: unless-stopped
@@ -21,6 +28,7 @@ services:
       timeout: 5s
       retries: 5
   erp:
+    logging: *bounded-logging
     image: ${BACKEND_IMAGE}
     container_name: erp
     restart: unless-stopped
@@ -47,6 +55,7 @@ services:
       retries: 5
       start_period: 10s
   frontend:
+    logging: *bounded-logging
     image: ${FRONTEND_IMAGE}
     container_name: frontend
     restart: unless-stopped
@@ -59,6 +68,7 @@ services:
           create_host_path: false
     networks: [app-network]
   caddy:
+    logging: *bounded-logging
     image: caddy@sha256:78bd35025c7ba85961dd149ae670315129954e77abe2383ac47c89106b35ade9
     container_name: caddy
     restart: unless-stopped
@@ -77,6 +87,7 @@ services:
         ipv4_address: 172.18.0.5
     depends_on: [frontend, erp]
   loki:
+    logging: *bounded-logging
     image: grafana/loki@sha256:58a6c186ce78ba04d58bfe2a927eff296ba733a430df09645d56cdc158f3ba08
     container_name: loki
     restart: unless-stopped

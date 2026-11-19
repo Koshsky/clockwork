@@ -11,7 +11,7 @@ import (
 
 func TestPolicyStoreStopEndsRefreshLoop(t *testing.T) {
 	t.Parallel()
-	store := NewPolicyStore(slog.New(slog.DiscardHandler), nil, nil, config.Duration(time.Hour))
+	store := NewPolicyStore(slog.New(slog.DiscardHandler), nil, nil, config.Duration(time.Hour), nil)
 	done := make(chan struct{})
 	go func() {
 		store.refreshLoop()

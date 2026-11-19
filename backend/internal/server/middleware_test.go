@@ -14,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/Koshsky/erp-backend/internal/config"
+	"github.com/Koshsky/erp-backend/internal/logger"
 	tracingpkg "github.com/Koshsky/erp-backend/internal/tracing"
 )
 
@@ -158,8 +159,8 @@ func TestRequestLogLogsPathNotQuery(t *testing.T) {
 		t.Fatalf("status = %d, want 200", status)
 	}
 	logged := logBuf.String()
-	if !strings.Contains(logged, "path=/probe") {
-		t.Errorf("log = %q, want path=/probe", logged)
+	if !strings.Contains(logged, "route=/probe") {
+		t.Errorf("log = %q, want route=/probe", logged)
 	}
 	if strings.Contains(logged, "secret=abc") {
 		t.Errorf("log = %q, query string must not be logged", logged)
@@ -197,14 +198,14 @@ func TestRequestIDGeneratesMissing(t *testing.T) {
 	}
 }
 
-// TestRequestIDCarriesInbound checks that a client-supplied id is preserved.
+// TestRequestIDCarriesInbound checks that an untrusted id cannot become diagnostic data.
 func TestRequestIDCarriesInbound(t *testing.T) {
 	t.Parallel()
 	req := httptest.NewRequest(http.MethodGet, "/probe", nil)
 	req.Header.Set("X-Request-ID", "client-trace-123")
 	_, id := runRequestID(req)
-	if id != "client-trace-123" {
-		t.Errorf("request id = %q, want the inbound header value", id)
+	if id == "client-trace-123" || len(id) != 32 {
+		t.Errorf("request id = %q, want an independent server-generated id", id)
 	}
 }
 
@@ -212,7 +213,7 @@ func TestRequestIDCarriesInbound(t *testing.T) {
 func TestRequestLogIncludesRequestID(t *testing.T) {
 	t.Parallel()
 	var logBuf bytes.Buffer
-	a := &App{logger: slog.New(slog.NewTextHandler(&logBuf, nil))}
+	a := &App{logger: slog.New(logger.NewContextHandler(slog.NewTextHandler(&logBuf, nil)))}
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()

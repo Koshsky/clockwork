@@ -217,3 +217,17 @@ it.each([200, 401])('does not apply or retry a late web %s response under a diff
   expect(mocks.renew).not.toHaveBeenCalled()
   expect(mocks.put).not.toHaveBeenCalled()
 })
+
+it.each(['web', 'desktop'])('does not print URL, query, credentials or body on a %s network failure', async kind => {
+  mocks.kind = kind
+  const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+  const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {})
+  try {
+    axios.defaults.adapter = async config => { throw new AxiosError('canary-message', 'ERR_NETWORK', config) }
+    await expect(axios.get('/api/v1/task/canary-object?token=canary-query', { headers: { Authorization: 'Bearer canary-auth' } })).rejects.toBeInstanceOf(AxiosError)
+    const output = JSON.stringify([log.mock.calls, errorLog.mock.calls])
+    expect(output).not.toContain('canary-')
+    expect(output).toContain('ERR_NETWORK')
+    expect(errorLog).toHaveBeenCalledWith('[http]', { event: 'http-network', error_code: 'ERR_NETWORK' })
+  } finally { log.mockRestore(); errorLog.mockRestore() }
+})

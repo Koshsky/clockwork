@@ -1,3 +1,4 @@
+import { diagnosticEvent } from '@/domain/diagnostics'
 import { sessionRequests } from './data/adapters/sessionRequests'
 import { createApplicationServices } from './data/applicationClients'
 import { defineStore } from 'pinia'
@@ -1589,7 +1590,7 @@ export const useTimesheetStore = defineStore('timesheet', () => {
       if (status === 401 || status === 403) { setError(e); return false }
       const ok = await refreshPeriodsOneByOne(start, end, read, preferCache)
       if (!ok) setError(e)
-      else console.warn('[timesheet] batch days unavailable, fell back to per-employee:', e instanceof Error ? e.message : e)
+      else console.warn('[timesheet]', diagnosticEvent('timesheet-fallback', e))
       return ok
     }
   }

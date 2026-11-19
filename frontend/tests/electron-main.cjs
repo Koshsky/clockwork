@@ -28,11 +28,12 @@ app.whenReady().then(async () => {
   const vault = createSessionVault(app.getPath('userData'), safeStorage)
   await vault.load()
   const { createStorage } = require('../desktop/storage.cjs')
-  const storage = await createStorage({ directory: app.getPath('userData') })
+  const journal = require('../desktop/diagnostics.cjs').createDiagnostics({ directory: app.getPath('userData'), version: require('../package.json').version })
+  const storage = await createStorage({ directory: app.getPath('userData'), diagnostics: journal })
   const service = createDesktopService({ storage, profileId: 'isolated-test', version: '1.6.3', electron: process.versions.electron })
   let queue
-  const auth = createSessionService({ vault, interceptApi: (request, send) => queue.api(request, send), fetch: (url, options) => globalThis.sessionFetchOverride ? globalThis.sessionFetchOverride(url, options, net.fetch.bind(net)) : net.fetch(url, options), onIdentity: state => service.setScope(state.user && state.mode !== 'signedOut' ? { server: state.server, accountId: state.user.id } : null) })
-  queue = require('../desktop/command-queue.cjs').createCommandQueue({ storage, session: auth })
+  const auth = createSessionService({ vault, diagnostics: journal, interceptApi: (request, send) => queue.api(request, send), fetch: (url, options) => globalThis.sessionFetchOverride ? globalThis.sessionFetchOverride(url, options, net.fetch.bind(net)) : net.fetch(url, options), onIdentity: state => { journal.setContext(state); service.setScope(state.user && state.mode !== 'signedOut' ? { server: state.server, accountId: state.user.id } : null) } })
+  queue = require('../desktop/command-queue.cjs').createCommandQueue({ storage, session: auth, diagnostics: journal })
   service.installQueue(queue)
   service.installAdapters(require('../desktop/business-adapters.cjs').createBusinessAdapters({ session: auth, queue }))
   const sync = require('../desktop/sync-service.cjs').createSyncService({ storage, session: auth, queue })
@@ -41,12 +42,14 @@ app.whenReady().then(async () => {
   globalThis.syncFixture = sync
   globalThis.commandQueueFixture = queue
   globalThis.sessionFixture = auth
-  const bridge = createDesktopIpc({ ipcMain, service, session: auth, queue, origin: new URL(process.env.ERP_TEST_URL || process.env.NAV_TEST_WEB_URL || 'http://127.0.0.1:5173').origin })
+  globalThis.diagnosticJournalFixture = journal
+  globalThis.diagnosticReportPath = path.join(app.getPath('userData'), 'diagnostic-report.json')
+  const bridge = createDesktopIpc({ ipcMain, service, session: auth, queue, diagnostics: { storage, journal, version: require('../package.json').version, showSaveDialog: async () => ({ canceled: false, filePath: globalThis.diagnosticReportPath }) }, origin: new URL(process.env.ERP_TEST_URL || process.env.NAV_TEST_WEB_URL || 'http://127.0.0.1:5173').origin })
   let stopping = false
   app.on('before-quit', event => {
     if (stopping) return
     event.preventDefault(); stopping = true; auth.stop()
-    void service.stop().finally(async () => { await storage.close(); bridge.dispose(); app.quit() })
+    void service.stop().finally(async () => { await storage.close(); await journal.close(); bridge.dispose(); app.quit() })
   })
   const win = new BrowserWindow({
     width: 1440,

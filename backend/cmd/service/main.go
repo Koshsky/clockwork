@@ -2,12 +2,12 @@ package main
 
 import (
 	"context"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/Koshsky/erp-backend/internal/logger"
 	"github.com/Koshsky/erp-backend/internal/server"
 
 	_ "github.com/Koshsky/erp-backend/docs/swagger"
@@ -51,18 +51,24 @@ var version = "dev"
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "migrate" {
 		if err := migrationCommand(os.Args[2:]); err != nil {
-			log.Fatal(err)
+			logger.Bootstrap(version, os.Stderr).
+				With("component", "bootstrap").
+				Error("migration command failed", "error", err)
+			os.Exit(1)
 		}
 		return
 	}
 
 	// build the application dependency graph
-	application, err := server.InitializeApp()
+	application, err := server.InitializeApp(version)
 	if err != nil {
-		log.Fatal(err)
+		logger.Bootstrap(version, os.Stderr).
+			With("component", "bootstrap").
+			Error("application initialization failed", "error", err)
+		os.Exit(1)
 	}
 	application.SetVersion(version)
-	application.Logger().Info("service configuration loaded", "version", version)
+	application.Logger().Info("service configuration loaded")
 
 	// create a context that is canceled on SIGINT or SIGTERM
 	runCtx, _ := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

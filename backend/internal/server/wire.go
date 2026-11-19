@@ -16,8 +16,10 @@ import (
 	"github.com/Koshsky/erp-backend/internal/cache"
 	"github.com/Koshsky/erp-backend/internal/config"
 	"github.com/Koshsky/erp-backend/internal/database"
+	"github.com/Koshsky/erp-backend/internal/diagnostics"
 	"github.com/Koshsky/erp-backend/internal/idempotency"
 	"github.com/Koshsky/erp-backend/internal/logger"
+	"github.com/Koshsky/erp-backend/internal/metrics"
 	authMw "github.com/Koshsky/erp-backend/internal/middleware/auth"
 	"github.com/Koshsky/erp-backend/internal/middleware/ratelimit"
 	rbacMW "github.com/Koshsky/erp-backend/internal/middleware/rbac"
@@ -33,10 +35,13 @@ import (
 )
 
 // InitializeApp builds the whole application dependency graph.
-func InitializeApp() (*App, error) {
+func InitializeApp(version string) (*App, error) {
 	wire.Build(
 		config.ProvideConfig,
 		logger.ProvideLogger,
+		config.ProvideMetricsConfig,
+		metrics.New,
+		diagnostics.NewOutcomes,
 		tracingpkg.ProvideTracer,
 		config.ProvideTracingConfig,
 		database.ProvidePostgresDB,

@@ -1,3 +1,8 @@
+import { captureNativeError, closeNativeDiagnostics } from './diagnostics/native'
+import { installWebDiagnostics } from './diagnostics/install'
+import { diagnosticsOpen, reportWebError, resetWebDiagnostics, webDiagnostics } from './diagnostics/web'
+import { subscribeEpoch } from './sessionSync'
+import { loadBackendInfo } from './store/data/pageReads'
 import { stopApplicationPorts } from './store/data/applicationPorts'
 import { createApp, watch } from 'vue'
 import { createPinia, setActivePinia, disposePinia } from 'pinia'
@@ -57,6 +62,26 @@ console.log(`[build] ${__APP_VERSION__}`)
 
 const app = createApp(App)
 
+let stopDiagnostics: (() => void) | undefined
+if (platformCapabilities.kind === 'web') {
+  const stopHooks = installWebDiagnostics(app, router, window, reportWebError)
+  const stopEpoch = subscribeEpoch(resetWebDiagnostics)
+  const auth = useAuthStore()
+  const stopIdentity = watch(() => auth.user?.id, resetWebDiagnostics, { flush: 'sync' })
+  let metadata: AbortController | undefined
+  const stopPanel = watch(diagnosticsOpen, open => {
+    metadata?.abort()
+    if (!open) return
+    const scope = webDiagnostics.contextToken()
+    metadata = new AbortController()
+    void loadBackendInfo(metadata.signal).then(info => webDiagnostics.rememberBackendVersion(info?.version, scope)).catch(() => {})
+  })
+  stopDiagnostics = () => { stopHooks(); stopEpoch(); stopIdentity(); stopPanel(); metadata?.abort(); resetWebDiagnostics() }
+} else {
+  const stopHooks = installWebDiagnostics(app, router, window, captureNativeError)
+  stopDiagnostics = () => { stopHooks(); closeNativeDiagnostics() }
+}
+
 app.use(pinia)
 app.use(router)
 app.use(i18n)
@@ -73,6 +98,7 @@ function disposeApplication() {
   disposed = true
   runtimeHost.stop()
   stopApplicationPorts()
+  stopDiagnostics?.()
   stopBranding()
   stopUiSize()
   stopSessionRedirect?.()

@@ -1,0 +1,26 @@
+{
+  "enabled": false,
+  "root": "/opt/erp",
+  "project": "erp",
+  "containers": {
+    "db": "db",
+    "erp": "erp",
+    "frontend": "frontend",
+    "caddy": "caddy",
+    "loki": "loki"
+  },
+  "disks": {
+    "application": "/opt/erp",
+    "backups": "/opt/erp/.clockwork/backups"
+  },
+  "tls": null,
+  "limits": {
+    "min_available_memory_bytes": null,
+    "min_available_disk_bytes": null,
+    "min_available_inodes": null,
+    "min_tls_remaining_seconds": null,
+    "max_backup_age_seconds": null,
+    "max_restore_age_seconds": null,
+    "max_deploy_age_seconds": null
+  }
+}

@@ -12,6 +12,7 @@ import (
 	"github.com/Koshsky/erp-backend/internal/authz/engine"
 	"github.com/Koshsky/erp-backend/internal/authz/repository/sqlc"
 	"github.com/Koshsky/erp-backend/internal/config"
+	"github.com/Koshsky/erp-backend/internal/diagnostics"
 	userdomain "github.com/Koshsky/erp-backend/internal/user/domain"
 )
 
@@ -35,6 +36,7 @@ type RoutePublisher interface {
 // applied.
 type PolicyStore struct {
 	logger    *slog.Logger
+	outcomes  *diagnostics.Outcomes
 	repo      PolicyRepository
 	publisher RoutePublisher
 	interval  time.Duration
@@ -51,9 +53,11 @@ func NewPolicyStore(
 	repo PolicyRepository,
 	publisher RoutePublisher,
 	interval config.Duration,
+	outcomes *diagnostics.Outcomes,
 ) *PolicyStore {
 	return &PolicyStore{
 		logger:    logger.With("component", "rbacpolicy_store"),
+		outcomes:  outcomes,
 		repo:      repo,
 		publisher: publisher,
 		interval:  time.Duration(interval),
@@ -110,7 +114,15 @@ func (s *PolicyStore) Stop() {
 // the engine: the Casbin snapshot (matrix + user ACL/revoke rows + role
 // assignments) and the route checks. On any error (including an empty route
 // policy set) the published state stays unchanged.
-func (s *PolicyStore) Reload(ctx context.Context) error {
+func (s *PolicyStore) Reload(ctx context.Context) (result error) {
+	ctx = diagnostics.WithOutcomes(ctx, s.outcomes)
+	defer func() {
+		outcome := diagnostics.Ready
+		if result != nil {
+			outcome = diagnostics.Failed
+		}
+		diagnostics.Record(ctx, s.logger, diagnostics.RBAC, outcome, result)
+	}()
 	rules, err := s.repo.ListActiveRules(ctx)
 	if err != nil {
 		return fmt.Errorf("загрузка правил: %w", err)

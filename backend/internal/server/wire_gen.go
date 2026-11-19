@@ -24,8 +24,10 @@ import (
 	"github.com/Koshsky/erp-backend/internal/cache"
 	"github.com/Koshsky/erp-backend/internal/config"
 	"github.com/Koshsky/erp-backend/internal/database"
+	"github.com/Koshsky/erp-backend/internal/diagnostics"
 	"github.com/Koshsky/erp-backend/internal/idempotency"
 	"github.com/Koshsky/erp-backend/internal/logger"
+	"github.com/Koshsky/erp-backend/internal/metrics"
 	"github.com/Koshsky/erp-backend/internal/middleware/auth"
 	"github.com/Koshsky/erp-backend/internal/middleware/ratelimit"
 	"github.com/Koshsky/erp-backend/internal/middleware/rbac"
@@ -78,22 +80,28 @@ import (
 // Injectors from wire.go:
 
 // InitializeApp builds the whole application dependency graph.
-func InitializeApp() (*App, error) {
+func InitializeApp(version string) (*App, error) {
 	configConfig, err := config.ProvideConfig()
 	if err != nil {
 		return nil, err
 	}
-	slogLogger, err := logger.ProvideLogger(configConfig)
+	slogLogger, err := logger.ProvideLogger(configConfig, version)
 	if err != nil {
 		return nil, err
 	}
 	postgresConfig := config.ProvidePostgresConfig(configConfig)
 	tracingConfig := config.ProvideTracingConfig(configConfig)
-	tracer, err := tracing.ProvideTracer(tracingConfig)
+	tracer, err := tracing.ProvideTracer(tracingConfig, version, slogLogger)
 	if err != nil {
 		return nil, err
 	}
-	pool, err := database.ProvidePostgresDB(postgresConfig, slogLogger, tracer)
+	metricsConfig := config.ProvideMetricsConfig(configConfig)
+	metricsMetrics, err := metrics.New(metricsConfig, slogLogger)
+	if err != nil {
+		return nil, err
+	}
+	outcomes := diagnostics.NewOutcomes()
+	pool, err := database.ProvidePostgresDB(postgresConfig, slogLogger, tracer, metricsMetrics, outcomes)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +120,7 @@ func InitializeApp() (*App, error) {
 	v := rbac.ProvideAll()
 	middleware := rbac.ProvideMiddleware(slogLogger, tracer, data, v)
 	duration := config.ProvideRBACRefreshInterval(configConfig)
-	policyStore := service.NewPolicyStore(slogLogger, ruleRepository, middleware, duration)
+	policyStore := service.NewPolicyStore(slogLogger, ruleRepository, middleware, duration, outcomes)
 	authMiddleware := auth.ProvideAuthMiddleware(slogLogger, jwtService, policyStore)
 	profilingConfig := config.ProvideProfilingConfig(configConfig)
 	profilerProfiler := profiler.ProvideProfiler(profilingConfig, slogLogger)
@@ -177,7 +185,7 @@ func InitializeApp() (*App, error) {
 	auditHandler := delivery16.NewAuditHandler(slogLogger, client, middleware)
 	auditModule := audit.ProvideModule(auditHandler, auditConfig)
 	v2 := ProvideModules(module, userModule, planningModule, projectmgmtModule, timesheetModule, autocreateModule, authzModule, auditModule)
-	app, err := New(configConfig, slogLogger, pool, authMiddleware, profilerProfiler, tracer, idempotencyMiddleware, auditMiddleware, policyStore, userService, redisClient, provider, v2)
+	app, err := New(configConfig, slogLogger, pool, authMiddleware, profilerProfiler, metricsMetrics, outcomes, tracer, idempotencyMiddleware, auditMiddleware, policyStore, userService, redisClient, provider, v2)
 	if err != nil {
 		return nil, err
 	}

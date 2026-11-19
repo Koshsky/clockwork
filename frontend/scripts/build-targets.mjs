@@ -11,7 +11,7 @@ export function webApiPath(requested) {
   return '/api/v1'
 }
 const webReplacements = {
-  'platform/context': 'context', 'platform/select': 'select',
+  'platform/context': 'context', 'platform/select': 'select', 'diagnostics/native': 'nativeDiagnostics',
   'offline/db': 'db', 'offline/outbox': 'outbox', 'offline/desktopQueue': 'desktopQueue',
   'session/desktop': 'session', 'store/data/applicationPorts': 'applicationPorts',
   'platform/cacheStore': 'cacheStore', 'platform/legacyRead': 'legacyRead', 'offline/connection': 'connection',
@@ -30,7 +30,7 @@ export function rendererReplacement(target, root, source, importer) {
 }
 export function inspectRendererModules(target, root, ids) {
   const base = normalized(root) + '/', modules = [...new Set(ids.map(normalized).filter(id => id.startsWith(base)).map(id => id.slice(base.length)))].sort()
-  const prohibited = target === 'web' ? ['src/platform/build/desktop/', 'src/platform/desktop.ts', 'src/offline/db.ts', 'src/offline/outbox.ts', 'src/offline/desktopQueue.ts', 'src/offline/session.ts', 'src/offline/nativeEvents.ts', 'src/session/desktop.ts', 'src/store/data/applicationPorts.ts'] : ['src/platform/build/web/', 'src/platform/web.ts']
+  const prohibited = target === 'web' ? ['src/diagnostics/native.ts', 'src/platform/build/desktop/', 'src/platform/desktop.ts', 'src/offline/db.ts', 'src/offline/outbox.ts', 'src/offline/desktopQueue.ts', 'src/offline/session.ts', 'src/offline/nativeEvents.ts', 'src/session/desktop.ts', 'src/store/data/applicationPorts.ts'] : ['src/platform/build/web/', 'src/platform/web.ts']
   const invalid = modules.filter(id => prohibited.some(candidate => candidate.endsWith('/') ? id.startsWith(candidate) : id === candidate))
   if (invalid.length) throw new Error('Wrong ' + target + ' renderer composition: ' + invalid.join(', '))
   return modules

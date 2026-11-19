@@ -104,10 +104,18 @@ profiling:
   # pprof on loopback only (AD-13): even when enabled it is not exposed.
   address: "127.0.0.1:6060"
 
+# Optional private Prometheus endpoint; never proxy or publish this port.
+metrics:
+  enabled: false
+  address: "127.0.0.1:9091"
+
 tracing:
-  enabled: true
-  # OTLP/gRPC endpoint — in-stack Jaeger collector (see docker-compose.yml).
-  exporter_endpoint: "jaeger:4317"
+  enabled: false
+  # Optional OTLP/gRPC receiver; see docs/tracing.md. TLS is the default.
+  exporter_endpoint: "localhost:4317"
+  insecure: false
+  ca_file: ""
+  # Bearer authentication is read only from TRACING_AUTH_TOKEN.
   service_name: "erp-backend"
   sampler_ratio: 1.0
 

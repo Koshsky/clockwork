@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { reportDiagnosticError as reportWebError } from '@/diagnostics/record'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { preloadPdfPreview, renderPdfPreview } from './previewPdf'
 import type { PdfPreviewHandle } from './previewPdf'
@@ -330,8 +331,9 @@ async function generateOnce(force: boolean) {
       previewHandle = handle
       pageCount.value = handle.pageCount
     }
-  } catch {
+  } catch (error) {
     if (token === genToken && params === renderKey()) {
+      reportWebError('pdf', error)
       previewError.value = t('pdf.dialog.captureError')
       truncatedWarning.value = false
       pageCount.value = 0
@@ -386,7 +388,8 @@ async function openDialog() {
     if (!thicknessEdited.value) settings.value.barThickness = snapshot.barThickness
     open.value = true
     void nextTick(() => void generate(true))
-  } catch {
+  } catch (error) {
+    reportWebError('pdf', error)
     previewError.value = t('pdf.dialog.captureError')
     open.value = true
   } finally {
@@ -467,7 +470,8 @@ async function onPrint() {
   busy.value = true
   try {
     await printSnapshotPages(currentPages)
-  } catch {
+  } catch (error) {
+    reportWebError('pdf', error)
     previewError.value = t('pdf.dialog.captureError')
     return
   } finally {

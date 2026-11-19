@@ -1,3 +1,4 @@
+import { diagnosticEvent } from '@/domain/diagnostics'
 import { shallowRef } from 'vue'
 import type { ApplicationRuntime } from './lifecycle'
 
@@ -17,7 +18,7 @@ export function createRuntimeHost(load: () => Promise<ApplicationRuntime>) {
         currentRuntime.value = runtime
         return runtime.start()
       }).catch(error => {
-        if (own === generation) console.error('[boot] platform services failed, UI remains available', error)
+        if (own === generation) console.error('[runtime]', diagnosticEvent('runtime-start', error))
       })
       return flight
     },

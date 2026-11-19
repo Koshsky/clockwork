@@ -1,3 +1,5 @@
+import { reportWebApiError, webDiagnostics } from './diagnostics/web'
+import { diagnosticEvent } from '@/domain/diagnostics'
 import { beginMutation, readStamp, mayApplyRead } from './offline/mutationGuard'
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios'
 import { offlineFailFastAdapter } from './offline/failFast'
@@ -54,6 +56,7 @@ function redirectToLogin() {
  * generated API clients (src/api/base.ts: globalAxios).
  */
 export function setupHttp() {
+  const diagnosticScopes = new WeakMap<object, symbol>()
   const epochs = new WeakMap<object, string>()
   const staleSession = (config: object) => epochs.has(config) && epochs.get(config) !== sessionEpoch()
   const cancelledSession = (config: InternalAxiosRequestConfig) => new axios.CanceledError('Session context changed', config)
@@ -70,7 +73,10 @@ export function setupHttp() {
   // simply omitted; protected endpoints then return a plain 401 that flows
   // through the normal refresh/retry path below.
   axios.interceptors.request.use((config) => {
-    if (platformCapabilities.kind === 'web') epochs.set(config, sessionEpoch())
+    if (platformCapabilities.kind === 'web') {
+      epochs.set(config, sessionEpoch())
+      diagnosticScopes.set(config, webDiagnostics.contextToken())
+    }
     if ((config.method ?? 'get').toLowerCase() === 'get') {
       reads.set(config, { stamp: readStamp(), prefix: userCachePrefix(), key: cacheKey(config) })
     }
@@ -104,6 +110,9 @@ export function setupHttp() {
         isOffline.value = false
         backendReachability.value = 'reachable'
       }
+      if (platformCapabilities.kind === 'web' && config.url?.split('?')[0]?.endsWith('/about')) {
+        try { webDiagnostics.rememberBackendVersion(response.data?.data?.version, diagnosticScopes.get(config)) } catch { /* Optional metadata cannot fail a read. */ }
+      }
       const read = reads.get(config)
       if (
         platformCapabilities.kind !== 'web' &&
@@ -126,11 +135,13 @@ export function setupHttp() {
       if (axios.isCancel(error)) return Promise.reject(error)
       const { config } = error
       if (!config) {
+        reportWebApiError(undefined)
         return Promise.reject(error)
       }
       if (staleSession(config)) return Promise.reject(cancelledSession(config))
       const read = reads.get(config)
       if (read && read.prefix !== userCachePrefix()) return Promise.reject(error)
+      reportWebApiError(error, diagnosticScopes.get(config))
 
       // Server unreachable (network, timeout, abort — any request without an HTTP response):
       // serve the last saved response from the cache (same { data, error } format). Read-time
@@ -158,7 +169,7 @@ export function setupHttp() {
           if (read.prefix !== userCachePrefix()) return Promise.reject(error)
           if (cached != null) {
             isOffline.value = true
-            console.log(`[offline] served cache: ${key}`)
+            console.log('[offline]', diagnosticEvent('cache-hit'))
             return {
               __erpLocalSnapshot: true,
               data: cached,
@@ -170,21 +181,10 @@ export function setupHttp() {
             }
           }
           ;(error as AxiosError & { message: string }).message = t('offline.noCachedData')
-          console.log(`[offline] cache miss: ${key}`)
+          console.log('[offline]', diagnosticEvent('cache-miss'))
         }
         if (platformCapabilities.kind === 'web') { isOffline.value = true; backendReachability.value = 'unreachable' }
-        // Network error diagnostics (timeout/drop/CORS/abort) — detailed output to the console.
-        const ax = error as AxiosError & { code?: string; timeout?: number }
-        console.error(
-          // i18n-allow: developer console diagnostics, never rendered in the UI
-          `[http] network error (no HTTP response): ${(config.method || 'get').toUpperCase()} ${config.url ?? ''}`,
-          {
-            kind: 'network',
-            code: ax.code,
-            timeout_ms: ax.timeout,
-            message: ax.message,
-          },
-        )
+        console.error('[http]', diagnosticEvent('http-network', error))
         return Promise.reject(error)
       }
 

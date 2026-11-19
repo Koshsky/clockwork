@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { openDiagnostics } from '@/diagnostics/entry'
 import { computed, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { applicationData } from '@/store/data/uiServices'
@@ -105,6 +106,9 @@ const burgerLabel = computed(() => (isNavOpen.value ? t('header.menuClose') : t(
         @click="changelogOpen = true"
       >
         <AppIcon name="scroll" :size="18" />
+      </button>
+      <button type="button" class="ah-act ah-act--icon" :title="t('diagnostics.title')" :aria-label="t('diagnostics.title')" @click="openDiagnostics">
+        <AppIcon name="cpu" :size="18" />
       </button>
       <button
         type="button"

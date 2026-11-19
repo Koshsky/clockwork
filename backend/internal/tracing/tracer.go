@@ -6,11 +6,14 @@ package tracing
 
 import (
 	"context"
+	"errors"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
+
+	"github.com/Koshsky/erp-backend/internal/diagnostics"
 )
 
 // Span attribute names shared across the request trace.
@@ -101,9 +104,10 @@ func (t *Tracer) Start(
 	ctx, span := t.tracer.Start(ctx, name, opts...)
 	return ctx, func(err error) {
 		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
-			span.SetAttributes(attribute.String(AttrErrorMessage, err.Error()))
+			code := diagnostics.ErrorCode(err)
+			span.RecordError(errors.New(code))
+			span.SetStatus(codes.Error, code)
+			span.SetAttributes(attribute.String(AttrErrorMessage, code))
 		}
 		span.End()
 	}

@@ -21,7 +21,7 @@ test('durable-write stress waits for the other SQLite suites without dropping co
   assert.ok(calls[1].args.includes('--test-concurrency=1'))
   assert.deepEqual(calls[1].args.filter(arg => arg.endsWith('.cjs')).map(file => path.basename(file)), ['desktop-storage-stress.test.cjs'])
   const suites = calls.flatMap(call => call.args.filter(arg => arg.endsWith('.cjs')).map(file => path.basename(file)))
-  assert.deepEqual(suites.sort(), ['desktop-storage.test.cjs', 'desktop-read-concurrency.test.cjs', 'desktop-command-queue.test.cjs', 'desktop-sync.test.cjs', 'desktop-storage-stress.test.cjs'].sort())
+  assert.deepEqual(suites.sort(), ['desktop-storage.test.cjs', 'desktop-read-concurrency.test.cjs', 'desktop-command-queue.test.cjs', 'desktop-sync.test.cjs', 'desktop-storage-stress.test.cjs', 'native-diagnostics.test.cjs', 'native-diagnostics-ipc.test.cjs'].sort())
   for (const call of calls) {
     assert.equal(call.executable, 'isolated-electron')
     assert.equal(call.env.ELECTRON_RUN_AS_NODE, '1')

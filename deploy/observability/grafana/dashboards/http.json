@@ -1,0 +1,273 @@
+{
+  "uid": "clockwork-http",
+  "title": "Clockwork — HTTP",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "tags": [
+    "clockwork",
+    "optional"
+  ],
+  "description": "Requests are transport attempts, not commits. Probes excluded. 401/403/409 are not server failures. Rate needs two samples; p95 is unreliable with little traffic; no-data is not zero. Version panel is backend only; frontend version remains in About/Diagnostics.",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Scrape available (1 = yes)",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "clockwork-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "up{job=\"clockwork\"}",
+          "legendFormat": "",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Backend release",
+      "type": "stat",
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "clockwork-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "clockwork_build_info{job=\"clockwork\"}",
+          "legendFormat": "{{version}}",
+          "instant": true
+        }
+      ],
+      "options": {
+        "textMode": "name",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Completed HTTP attempts / second",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "clockwork-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(clockwork_http_requests_total{job=\"clockwork\"}[5m])) and on() (max(up{job=\"clockwork\"}) == 1)",
+          "legendFormat": "",
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Server/panic/timeout fraction — 5m",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "clockwork-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "((sum(rate(clockwork_http_requests_total{job=\"clockwork\",outcome=~\"server_error|panic|timeout\"}[5m])) or on() (0 * sum(rate(clockwork_http_requests_total{job=\"clockwork\"}[5m])))) / sum(rate(clockwork_http_requests_total{job=\"clockwork\"}[5m]))) and on() (sum(rate(clockwork_http_requests_total{job=\"clockwork\"}[5m])) > 0) and on() (max(up{job=\"clockwork\"}) == 1)",
+          "legendFormat": "",
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "p95 latency — 5m, coarse fixed buckets",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "clockwork-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by(le)(rate(clockwork_http_request_duration_seconds_bucket{job=\"clockwork\"}[5m]))) and on() (sum(rate(clockwork_http_requests_total{job=\"clockwork\"}[5m])) > 0) and on() (max(up{job=\"clockwork\"}) == 1)",
+          "legendFormat": "",
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Attempt volume — 5m",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "clockwork-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(clockwork_http_requests_total{job=\"clockwork\"}[5m])) and on() (max(up{job=\"clockwork\"}) == 1)",
+          "legendFormat": "",
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "HTTP outcomes / second — 5m",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "clockwork-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(outcome)(rate(clockwork_http_requests_total{job=\"clockwork\"}[5m]))",
+          "legendFormat": "{{outcome}}",
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "In-flight business attempts",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "clockwork-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "clockwork_http_requests_in_flight{job=\"clockwork\"}",
+          "legendFormat": "",
+          "instant": false
+        }
+      ]
+    }
+  ],
+  "templating": {
+    "list": []
+  }
+}

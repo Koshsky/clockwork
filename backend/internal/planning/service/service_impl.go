@@ -8,6 +8,7 @@ import (
 	access "github.com/Koshsky/erp-backend/internal/authz/domain"
 	tracingpkg "github.com/Koshsky/erp-backend/internal/tracing"
 
+	"github.com/Koshsky/erp-backend/internal/diagnostics"
 	"github.com/Koshsky/erp-backend/internal/planning/dto"
 )
 
@@ -30,9 +31,9 @@ func (s *PlanningService) GetProjectPlanning(
 	ctx context.Context,
 	userID int64,
 	scope access.ListScope,
-) (*dto.ProjectPlanning, error) {
+) (_ *dto.ProjectPlanning, failure error) {
 	ctx, end := s.tracer.Start(ctx, "planning.GetProjectPlanning")
-	defer end(nil)
+	defer func() { end(failure); diagnostics.Failure(ctx, s.logger, diagnostics.Planning, failure) }()
 
 	projects, err := s.repository.ListProjects(ctx, userID, scope)
 	if err != nil {
@@ -53,9 +54,9 @@ func (s *PlanningService) GetProcessPlanning(
 	userID int64,
 	scope access.ListScope,
 	projectScope access.ListScope,
-) (*dto.ProcessPlanning, error) {
+) (_ *dto.ProcessPlanning, failure error) {
 	ctx, end := s.tracer.Start(ctx, "planning.GetProcessPlanning")
-	defer end(nil)
+	defer func() { end(failure); diagnostics.Failure(ctx, s.logger, diagnostics.Planning, failure) }()
 
 	// Scoped by process.view (ListProcesses): a caller with the right sees its
 	// processes even when it has no project.view (e.g. vp). The processes are
@@ -116,9 +117,9 @@ func (s *PlanningService) GetTaskPlanning(
 	userID int64,
 	scope access.ListScope,
 	resourceScope access.ListScope,
-) (*dto.TaskPlanning, error) {
+) (_ *dto.TaskPlanning, failure error) {
 	ctx, end := s.tracer.Start(ctx, "planning.GetTaskPlanning")
-	defer end(nil)
+	defer func() { end(failure); diagnostics.Failure(ctx, s.logger, diagnostics.Planning, failure) }()
 
 	processes, err := s.loadProcesses(ctx, userID, scope)
 	if err != nil {

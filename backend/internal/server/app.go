@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -18,7 +19,9 @@ import (
 	"github.com/Koshsky/erp-backend/internal/audit"
 	authzService "github.com/Koshsky/erp-backend/internal/authz/service"
 	"github.com/Koshsky/erp-backend/internal/config"
+	"github.com/Koshsky/erp-backend/internal/diagnostics"
 	idempotencypkg "github.com/Koshsky/erp-backend/internal/idempotency"
+	"github.com/Koshsky/erp-backend/internal/metrics"
 	"github.com/Koshsky/erp-backend/internal/middleware/auth"
 	"github.com/Koshsky/erp-backend/internal/middleware/cors"
 	"github.com/Koshsky/erp-backend/internal/middleware/locale"
@@ -28,9 +31,11 @@ import (
 	"github.com/Koshsky/erp-backend/internal/server/swagger"
 	tracingpkg "github.com/Koshsky/erp-backend/internal/tracing"
 	userservice "github.com/Koshsky/erp-backend/internal/user/service"
+	apierrors "github.com/Koshsky/erp-backend/pkg/errors"
 )
 
 const (
+	requestPanicKey           = "server.request_panicked"
 	defaultServerStartTimeout = 5 * time.Second
 	defaultDialTimeout        = 1 * time.Second
 	defaultPollInterval       = 100 * time.Millisecond
@@ -40,6 +45,7 @@ const (
 )
 
 type App struct {
+	readiness   *readinessProbe
 	version     string
 	cfg         *config.Config
 	logger      *slog.Logger
@@ -48,6 +54,8 @@ type App struct {
 	redisClient *redis.Client
 	rateLimiter *ratelimit.Provider
 	profiler    *profiler.Profiler
+	metrics     *metrics.Metrics
+	outcomes    *diagnostics.Outcomes
 	authMw      *auth.Middleware
 	tracer      *tracingpkg.Tracer
 	idemMw      *idempotencypkg.Middleware
@@ -64,6 +72,8 @@ func New(
 	pool *pgxpool.Pool,
 	authMw *auth.Middleware,
 	profiler *profiler.Profiler,
+	metrics *metrics.Metrics,
+	outcomes *diagnostics.Outcomes,
 	tracer *tracingpkg.Tracer,
 	idemMw *idempotencypkg.Middleware,
 	auditMw *audit.Middleware,
@@ -73,12 +83,23 @@ func New(
 	rateLimiter *ratelimit.Provider,
 	modules []Module,
 ) (*App, error) {
+	metrics.AttachOutcomes(outcomes)
+	if auditMw != nil {
+		metrics.AttachAudit(auditMw.Status)
+	}
+	var readiness *readinessProbe
+	if pool != nil {
+		readiness = newReadiness(pool)
+	}
 	return &App{
+		readiness:   readiness,
 		cfg:         cfg,
 		logger:      logger.With("component", "server"),
 		pool:        pool,
 		authMw:      authMw,
 		profiler:    profiler,
+		metrics:     metrics,
+		outcomes:    outcomes,
 		redisClient: redisClient,
 		rateLimiter: rateLimiter,
 		tracer:      tracer,
@@ -155,20 +176,22 @@ func (a *App) Start() error {
 	// user behind a shared NAT does not drain a common IP bucket and block
 	// their neighbors.
 	router.Use(locale.Middleware())
-	router.Use(cors.FromConfig(a.cfg.CORS))
-	router.Use(gin.Recovery())
-	// L6: assign/carry a request id for log and trace correlation (first).
+	// Assign a server-owned request id before diagnostic middleware.
 	router.Use(a.requestID())
 	// H3: bound the request body size and the per-request context lifetime
 	// before anything (audit/tracing/handlers) reads the body or starts work.
 	router.Use(a.bodyLimit())
 	router.Use(a.requestTimeout())
-	// Root request span (trace): method/path/status/duration + user_id.
+	// Keep route-level correlation without exporting object or account identities.
 	router.Use(tracingmw.HTTPRootSpan(a.tracer))
 	// Fallback text request logging (independent of tracing).
 	router.Use(a.requestLog())
+	router.Use(a.recovery())
+	// Count CORS rejections and preflights through the same access-summary path.
+	router.Use(cors.FromConfig(a.cfg.CORS))
 	// Register routes
 	a.registerRoutes(router)
+	a.prepareMetrics(router)
 
 	// Create HTTP server with configurable settings
 	srvCfg := a.cfg.HTTPServer
@@ -182,10 +205,7 @@ func (a *App) Start() error {
 
 	go func() {
 		a.logger.Info("starting HTTP server",
-			"addr", a.httpServer.Addr,
-			"read_timeout", srvCfg.ReadTimeout,
-			"write_timeout", srvCfg.WriteTimeout,
-			"idle_timeout", srvCfg.IdleTimeout,
+			"port", srvCfg.Port,
 		)
 		if err := a.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			a.logger.Error("HTTP server error", "error", err)
@@ -195,7 +215,26 @@ func (a *App) Start() error {
 	if err := a.waitForServer(defaultServerStartTimeout); err != nil {
 		return fmt.Errorf("server failed to start: %w", err)
 	}
+	// Bind diagnostics only after the business API owns its port.
+	a.startMetrics()
+	a.logger.Info("HTTP server ready", "port", srvCfg.Port)
 	return nil
+}
+
+func (a *App) prepareMetrics(router *gin.Engine) {
+	if a.metrics.Enabled() {
+		routes := make([]string, 0, len(router.Routes()))
+		for _, route := range router.Routes() {
+			routes = append(routes, route.Path)
+		}
+		a.metrics.SetRoutes(routes)
+	}
+}
+
+func (a *App) startMetrics() {
+	if err := a.metrics.Start(); err != nil {
+		a.logger.WarnContext(context.Background(), "metrics listener unavailable", "error", err)
+	}
 }
 
 func (a *App) waitForServer(timeout time.Duration) error {
@@ -226,6 +265,9 @@ func (a *App) waitForServer(timeout time.Duration) error {
 }
 
 func (a *App) Stop(ctx context.Context) error {
+	if err := a.metrics.Stop(ctx); err != nil {
+		a.logger.WarnContext(ctx, "metrics shutdown failed", "error", err)
+	}
 	if a.policyStore != nil {
 		a.policyStore.Stop()
 	}
@@ -254,29 +296,26 @@ func (a *App) Stop(ctx context.Context) error {
 	return nil
 }
 
-// requestID assigns or carries over a request id (L6): an inbound
-// X-Request-ID is honored, otherwise a 128-bit hex id is generated. The id is
-// stored on the gin context (read by requestLog and the root span) and echoed
-// in the response header so clients can correlate logs with their requests.
+// requestID is server-owned so arbitrary inbound headers cannot become log data.
 func (a *App) requestID() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		reqID := c.GetHeader("X-Request-ID")
-		if reqID == "" {
-			reqID = newRequestID()
-		} else if len(reqID) > maxRequestIDLen {
-			reqID = reqID[:maxRequestIDLen]
-		}
+		reqID := newRequestID()
 		c.Set(tracingpkg.RequestIDKey, reqID)
 		c.Header("X-Request-ID", reqID)
-		// Carry the request id in the request context too, so context-aware
-		// slog logging attaches request_id to every record of this request.
-		c.Request = c.Request.WithContext(tracingpkg.WithRequestID(c.Request.Context(), reqID))
+		ctx := tracingpkg.WithRequestID(c.Request.Context(), reqID)
+		c.Request = c.Request.WithContext(diagnostics.WithOutcomes(ctx, a.outcomes))
 		c.Next()
 	}
 }
 
-// maxRequestIDLen bounds inbound request ids (header abuse protection).
-const maxRequestIDLen = 128
+func (a *App) recovery() gin.HandlerFunc {
+	// Gin's default writer includes headers, panic text and source paths.
+	return gin.CustomRecoveryWithWriter(io.Discard, func(c *gin.Context, _ any) {
+		c.Set(requestPanicKey, true)
+		a.logger.ErrorContext(c.Request.Context(), "request panic", "error_code", apierrors.CodeInternal)
+		c.AbortWithStatus(http.StatusInternalServerError)
+	})
+}
 
 // newRequestID generates a 128-bit random hex id (crypto/rand; the same
 // pattern as the JWT token id, avoiding a UUID dependency).
@@ -291,20 +330,53 @@ func newRequestID() string {
 }
 
 // requestLog writes a summary of every HTTP request (method, path, status,
-// duration) to the log — a tracing-independent fallback for text logs. The
-// path is logged without the query string (L4: RequestURI could leak PII).
+// duration) to the log using only registered route templates. Unknown paths
+// and query strings are untrusted data, including when routing fails.
 // Context-aware logging attaches the request id and the trace ids.
 func (a *App) requestLog() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
+		measured := a.metrics.Begin(c.FullPath())
 		c.Next()
-		a.logger.InfoContext(c.Request.Context(), "request",
-			"method", c.Request.Method,
-			"path", c.Request.URL.Path,
-			"status", c.Writer.Status(),
-			"duration_ms", time.Since(start).Milliseconds(),
-			"request_id", c.GetString(tracingpkg.RequestIDKey),
-		)
+		elapsed := time.Since(start)
+		if measured {
+			a.metrics.Complete(
+				c.Request.Context(),
+				metrics.Request{
+					Route:    c.FullPath(),
+					Method:   c.Request.Method,
+					Status:   c.Writer.Status(),
+					Duration: elapsed,
+					Panicked: c.GetBool(requestPanicKey),
+				},
+			)
+		}
+		ctx := c.Request.Context()
+		status := c.Writer.Status()
+		level := slog.LevelInfo
+		switch {
+		case c.GetBool(requestPanicKey) || status >= http.StatusInternalServerError:
+			level = slog.LevelError
+		case ctx.Err() == context.DeadlineExceeded || status == http.StatusTooManyRequests:
+			level = slog.LevelWarn
+		case c.FullPath() == "/api/v1/health" && status < http.StatusBadRequest:
+			level = slog.LevelDebug
+		}
+		attrs := []slog.Attr{
+			slog.String("method", diagnostics.HTTPMethod(c.Request.Method)),
+			slog.String("route", c.FullPath()),
+			slog.Int("status", status),
+			slog.Int64("duration_ms", elapsed.Milliseconds()),
+		}
+		switch {
+		case c.GetBool(requestPanicKey):
+			attrs = append(attrs, slog.Any("error_code", apierrors.CodeInternal))
+		case ctx.Err() != nil:
+			attrs = append(attrs, slog.Any("error", ctx.Err()))
+		case status >= http.StatusBadRequest:
+			attrs = append(attrs, slog.Any("error_code", apierrors.CodeFor(status)))
+		}
+		a.logger.LogAttrs(ctx, level, "request", attrs...)
 	}
 }
 

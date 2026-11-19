@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 The web app and the desktop wrapper are versioned together.
 
+## [Unreleased]
+
+### Added
+
+- Electron provides bounded local journals and a safe diagnostic bundle with preview.
+
+- Added local web error diagnostics with bounded history and a safe report to copy.
+
+### Fixed
+
+- Technical diagnostics omit credentials, business payloads and raw error details.
+
 ## [2.2.0] - 2026-11-17
 
 ### Added

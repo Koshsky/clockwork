@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 
+	"github.com/Koshsky/erp-backend/internal/diagnostics"
 	apperrors "github.com/Koshsky/erp-backend/internal/errors"
 	"github.com/Koshsky/erp-backend/migrations"
 )
@@ -103,6 +104,20 @@ func closeEngine(runner *migrate.Migrate) error {
 }
 
 func Run(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger) (result error) {
+	logger = logger.With("component", "migration")
+	started := time.Now()
+	logger.InfoContext(ctx, "checking database migrations")
+	defer func() {
+		outcome := diagnostics.Ready
+		if result != nil {
+			outcome = diagnostics.Failed
+		}
+		diagnostics.Record(ctx, logger, diagnostics.Migration, outcome, result)
+		if result != nil {
+			logger.ErrorContext(ctx, "migration check failed", "error", result,
+				"duration_ms", time.Since(started).Milliseconds())
+		}
+	}()
 	state, err := Status(ctx, pool)
 	if err != nil {
 		return err

@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -74,7 +76,7 @@ func assertHTTPResult(t *testing.T, span sdktrace.ReadOnlySpan, parent trace.Spa
 	}
 	attrs := spanAttributes(span)
 	if attrs[tracingpkg.AttrHTTPMethod].AsString() != http.MethodGet ||
-		attrs[tracingpkg.AttrHTTPPath].AsString() != "/task?offset=2" ||
+		attrs[tracingpkg.AttrHTTPPath].AsString() != "/task" ||
 		attrs[tracingpkg.AttrHTTPStatusCode].AsInt64() != int64(status) ||
 		attrs[tracingpkg.AttrRequestID].AsString() != "req-42" {
 		t.Fatalf("HTTP attributes changed: %v", attrs)
@@ -125,7 +127,8 @@ func TestGinSpanRetainsRootActorAndLogCorrelation(t *testing.T) {
 		t.Fatal("middleware/service span hierarchy changed")
 	}
 	attrs := spanAttributes(root)
-	if attrs[tracingpkg.AttrUserID].AsInt64() != 42 || attrs[tracingpkg.AttrUserRole].AsString() != "vp" {
+	if !attrs["user.authenticated"].AsBool() || attrs[tracingpkg.AttrUserID].Type() != attribute.INVALID ||
+		attrs[tracingpkg.AttrUserRole].Type() != attribute.INVALID {
 		t.Fatalf("authenticated actor missing from root: %v", attrs)
 	}
 	if _, ok := spanAttributes(service)[tracingpkg.AttrUserID]; ok {
@@ -179,4 +182,94 @@ func spanAttributes(span sdktrace.ReadOnlySpan) map[attribute.Key]attribute.Valu
 		attributes[attr.Key] = attr.Value
 	}
 	return attributes
+}
+
+func TestHTTPSpansRejectUnmatchedPathsQueriesAndMethods(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ method, target, route string }{
+		{"GET", "/task/canary-object?password=canary-query", "/task/:id"},
+		{"GET", "/canary-unmatched?token=canary-token", "unmatched"},
+		{"canary-method", "/canary-unmatched", "unmatched"},
+	} {
+		t.Run(tc.method+tc.target, func(t *testing.T) {
+			t.Parallel()
+			tracer, recorder := recordingTracer(t)
+			router := gin.New()
+			router.Use(tracingmw.HTTPRootSpan(tracer))
+			router.GET("/task/:id", func(c *gin.Context) { c.Status(http.StatusForbidden) })
+			router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(tc.method, tc.target, nil))
+			spans := recorder.Ended()
+			if len(spans) != 1 {
+				t.Fatalf("expected one HTTP outcome, got %d", len(spans))
+			}
+			if strings.Contains(fmt.Sprint(spans[0].Name(), spans[0].Attributes()), "canary-") ||
+				spanAttributes(spans[0])[tracingpkg.AttrHTTPPath].AsString() != tc.route {
+				t.Fatalf("request content leaked: %v", spans[0].Attributes())
+			}
+		})
+	}
+}
+
+func TestPublicTraceContextLinksWithoutTrustingSamplingOrBaggage(t *testing.T) {
+	t.Parallel()
+	const parent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+	for _, tc := range []struct {
+		name    string
+		parents []string
+		linked  bool
+	}{
+		{name: "valid sampled", parents: []string{parent}, linked: true},
+		{name: "valid unsampled", parents: []string{strings.TrimSuffix(parent, "01") + "00"}, linked: true},
+		{name: "missing"},
+		{name: "malformed", parents: []string{"canary-token"}},
+		{name: "zero trace", parents: []string{"00-00000000000000000000000000000000-00f067aa0ba902b7-01"}},
+		{name: "duplicate", parents: []string{parent, parent}},
+		{name: "oversized", parents: []string{strings.Repeat("a", 513)}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			tracer, recorder := recordingTracer(t)
+			router := gin.New()
+			router.Use(tracingmw.HTTPRootSpan(tracer))
+			router.GET("/task", func(c *gin.Context) {
+				_, end := tracer.Start(c.Request.Context(), "service")
+				end(nil)
+				c.Status(http.StatusOK)
+			})
+			request := httptest.NewRequest(http.MethodGet, "/task", nil)
+			for _, value := range tc.parents {
+				request.Header.Add("Traceparent", value)
+			}
+			request.Header.Set("Tracestate", "vendor=canary-token")
+			request.Header.Set("Baggage", "user.email=canary-email")
+			router.ServeHTTP(httptest.NewRecorder(), request)
+			spans := recorder.Ended()
+			if len(spans) != 2 {
+				t.Fatalf("missing request/service spans: %d", len(spans))
+			}
+			child, root := spans[0], spans[1]
+			if root.Parent().IsValid() || child.Parent().SpanID() != root.SpanContext().SpanID() ||
+				root.SpanKind() != trace.SpanKindServer {
+				t.Fatal("untrusted parent replaced the server-owned root or internal hierarchy")
+			}
+			assertPublicLink(t, root, tc.linked)
+			if strings.Contains(fmt.Sprint(root.Attributes(), root.Links(), child.Attributes()), "canary") {
+				t.Fatal("untrusted metadata escaped")
+			}
+		})
+	}
+}
+
+func assertPublicLink(t *testing.T, root sdktrace.ReadOnlySpan, linked bool) {
+	t.Helper()
+	if linked {
+		links := root.Links()
+		if len(links) != 1 || links[0].SpanContext.TraceID().String() != "4bf92f3577b34da6a3ce929d0e0e4736" ||
+			links[0].SpanContext.IsSampled() || links[0].SpanContext.TraceState().Len() != 0 ||
+			root.SpanContext().TraceID() == links[0].SpanContext.TraceID() {
+			t.Fatal("unsafe or missing W3C correlation link")
+		}
+	} else if len(root.Links()) != 0 {
+		t.Fatal("malformed traceparent was accepted")
+	}
 }

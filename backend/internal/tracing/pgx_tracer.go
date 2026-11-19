@@ -2,6 +2,7 @@ package tracing
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"strings"
 
@@ -9,14 +10,12 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/Koshsky/erp-backend/internal/diagnostics"
 )
 
-// maxSQLLength caps how much SQL text is stored on a DB span to avoid bloating
-// trace payloads with large statement bodies.
-const maxSQLLength = 512
-
 // QueryTracer implements pgx.QueryTracer so every Exec/Query/QueryRow across
-// all repositories gets its own child span with SQL text and timing. Attached
+// all repositories gets its own child span with operation and timing. Attached
 // once to the pool, it covers every sqlc-generated query without per-repo
 // changes.
 type QueryTracer struct {
@@ -36,7 +35,7 @@ func (qt *QueryTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pg
 	ctx, _ = qt.tracer.Start(ctx, "DB "+op,
 		trace.WithAttributes(
 			attribute.String("db.system", "postgresql"),
-			attribute.String("db.statement", shortSQL(data.SQL)),
+			attribute.String("db.operation", op),
 		),
 	)
 	return ctx
@@ -46,9 +45,10 @@ func (qt *QueryTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pg
 func (qt *QueryTracer) TraceQueryEnd(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryEndData) {
 	span := trace.SpanFromContext(ctx)
 	if data.Err != nil {
-		span.RecordError(data.Err)
-		span.SetStatus(codes.Error, data.Err.Error())
-		span.SetAttributes(attribute.String(AttrErrorMessage, data.Err.Error()))
+		code := diagnostics.ErrorCode(data.Err)
+		span.RecordError(errors.New(code))
+		span.SetStatus(codes.Error, code)
+		span.SetAttributes(attribute.String(AttrErrorMessage, code))
 	}
 	if rows := data.CommandTag.RowsAffected(); rows > 0 {
 		span.SetAttributes(attribute.String("db.rows_affected", strconv.FormatInt(rows, 10)))
@@ -75,20 +75,14 @@ func (qt *QueryTracer) TraceBatchEnd(ctx context.Context, _ *pgx.Conn, _ pgx.Tra
 
 // queryOperation extracts a short span name from the leading SQL keyword.
 func queryOperation(sql string) string {
-	idx := strings.IndexByte(sql, ' ')
-	if idx <= 0 {
-		return sql
+	keyword, _, _ := strings.Cut(strings.TrimSpace(sql), " ")
+	keyword = strings.ToUpper(keyword)
+	switch keyword {
+	case "SELECT", "INSERT", "UPDATE", "DELETE", "BEGIN", "COMMIT", "ROLLBACK":
+		return keyword
+	default:
+		return "QUERY"
 	}
-	return strings.ToUpper(sql[:idx])
-}
-
-// shortSQL collapses newlines and truncates long statements.
-func shortSQL(sql string) string {
-	flat := strings.Join(strings.Fields(sql), " ")
-	if len(flat) > maxSQLLength {
-		return flat[:maxSQLLength] + "..."
-	}
-	return flat
 }
 
 var _ pgx.QueryTracer = (*QueryTracer)(nil)

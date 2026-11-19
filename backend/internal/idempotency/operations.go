@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/Koshsky/erp-backend/internal/database"
+	"github.com/Koshsky/erp-backend/internal/diagnostics"
 	"github.com/Koshsky/erp-backend/internal/idempotency/repository/sqlc"
 	"github.com/Koshsky/erp-backend/internal/response"
 	"github.com/Koshsky/erp-backend/internal/userctx"
@@ -74,23 +75,27 @@ func (m *Middleware) handleOperation(c *gin.Context) {
 	if !validOperationID(operationID) || len(c.Request.Header.Values(headerOperationID)) != 1 ||
 		len(c.Request.Header.Values(headerIdempotencyKey)) > 1 ||
 		transportKey != "" && transportKey != operationID || !supportedOperation(c) {
+		m.record(c, diagnostics.Durable, diagnostics.Rejected, nil)
 		response.BadRequest(c, errapi.CodeBadRequest, "invalid durable operation request")
 		c.Abort()
 		return
 	}
 	userID, err := userctx.GetUserID(c)
 	if err != nil || userID <= 0 {
+		m.record(c, diagnostics.Durable, diagnostics.Rejected, nil)
 		response.Unauthorized(c, errapi.CodeUnauthorized, "authentication required")
 		c.Abort()
 		return
 	}
 	if m.operations == nil {
+		m.record(c, diagnostics.Durable, diagnostics.Unknown, nil)
 		response.InternalError(c, m.logger, "durable operations unavailable", nil)
 		c.Abort()
 		return
 	}
 	hash, err := operationFingerprint(c)
 	if err != nil {
+		m.record(c, diagnostics.Durable, diagnostics.Rejected, nil)
 		response.BadRequest(c, errapi.CodeBadRequest, "invalid durable operation request")
 		c.Abort()
 		return
@@ -151,6 +156,7 @@ func durableOperations() []string {
 func (m *Middleware) claimOperation(c *gin.Context, request sqlc.CompleteOperationParams) {
 	receipt, claimed, tx, err := m.operations.ClaimOperation(c.Request.Context(), request.UserID, request.OperationID)
 	if err != nil {
+		m.record(c, diagnostics.Durable, diagnostics.Unknown, err)
 		response.InternalError(c, m.logger, "durable operation claim failed", err)
 		c.Abort()
 		return
@@ -161,13 +167,16 @@ func (m *Middleware) claimOperation(c *gin.Context, request sqlc.CompleteOperati
 	}
 	switch {
 	case receipt == nil:
+		m.record(c, diagnostics.Durable, diagnostics.InProgress, nil)
 		c.Header(headerOperationStatus, "in_progress")
 		c.Header("Retry-After", "1")
 		response.Error(c, m.logger, errapi.Conflict("operation is in progress"))
 	case receipt.Method != request.Method || receipt.Path != request.Path || receipt.RequestHash != request.RequestHash:
+		m.record(c, diagnostics.Durable, diagnostics.Conflict, nil)
 		c.Header(headerOperationStatus, "mismatch")
 		response.Error(c, m.logger, errapi.Conflict("operation id was already used for another request"))
 	default:
+		m.record(c, diagnostics.Durable, diagnostics.Replayed, nil)
 		c.Header(headerOperationStatus, "confirmed")
 		replay(c, int(receipt.ResponseStatus), receipt.ResponseBody)
 	}
@@ -179,23 +188,47 @@ func (m *Middleware) runOperation(c *gin.Context, request sqlc.CompleteOperation
 	writer := &captureWriter{ResponseWriter: original}
 	c.Writer = writer
 	c.Request = c.Request.WithContext(database.WithTx(c.Request.Context(), tx))
+	finished, committed := false, false
+	rollbackRecorded := false
 	defer func() {
 		c.Writer = original
-		_ = tx.Rollback(context.WithoutCancel(c.Request.Context()))
+		if !finished && !committed {
+			m.record(c, diagnostics.Durable, diagnostics.Unknown, nil)
+		}
+		if committed {
+			_ = tx.Rollback(context.WithoutCancel(c.Request.Context()))
+		} else {
+			m.observeRollback(
+				c.Request.Context(),
+				tx.Rollback(context.WithoutCancel(c.Request.Context())),
+				&rollbackRecorded,
+			)
+		}
 	}()
 	c.Next()
-	m.finishOperation(c, writer, request, tx)
+	m.finishOperation(c, writer, request, tx, &committed, &rollbackRecorded)
+	finished = true
 }
 
 func (m *Middleware) finishOperation(
-	c *gin.Context, writer *captureWriter, request sqlc.CompleteOperationParams, tx pgx.Tx,
+	c *gin.Context,
+	writer *captureWriter,
+	request sqlc.CompleteOperationParams,
+	tx pgx.Tx,
+	committed *bool,
+	rollbackRecorded *bool,
 ) {
 	status := writer.status
 	if status == 0 {
 		status = http.StatusOK
 	}
 	if status < http.StatusOK || status >= http.StatusMultipleChoices {
-		_ = tx.Rollback(context.WithoutCancel(c.Request.Context()))
+		m.observeRollback(
+			c.Request.Context(),
+			tx.Rollback(context.WithoutCancel(c.Request.Context())),
+			rollbackRecorded,
+		)
+		m.record(c, diagnostics.Durable, rejectedOutcome(status), nil)
 		c.Header(headerOperationStatus, "unrecorded")
 		writer.flush()
 		return
@@ -210,11 +243,14 @@ func (m *Middleware) finishOperation(
 		m.operationFailure(c, writer, err)
 		return
 	}
+	*committed = true
+	m.record(c, diagnostics.Durable, diagnostics.Accepted, nil)
 	c.Header(headerOperationStatus, "confirmed")
 	writer.flush()
 }
 
 func (m *Middleware) operationFailure(c *gin.Context, writer *captureWriter, err error) {
+	m.record(c, diagnostics.Durable, diagnostics.Unknown, err)
 	c.Header(headerOperationStatus, "unknown")
 	writer.reset()
 	response.InternalError(c, m.logger, "durable operation outcome unknown", err)

@@ -7,6 +7,7 @@ import authz from './authz'
 import changelog from './changelog'
 import common from './common'
 import dates from './dates'
+import diagnostics from './diagnostics'
 import errors from './errors'
 import header from './header'
 import nav from './nav'
@@ -33,6 +34,7 @@ export default {
   changelog,
   common,
   dates,
+  diagnostics,
   errors,
   header,
   nav,

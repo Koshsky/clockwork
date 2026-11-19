@@ -1,3 +1,4 @@
+import { diagnosticEvent } from '@/domain/diagnostics'
 import { nativeQueue, nativeCommands, nativeEntry, nativeDiscardPlan, enqueueNative, queueRequest } from './desktopQueue'
 import { desktopSession, desktopSessionState } from '@/session/desktop'
 import { ref, watch } from 'vue'
@@ -535,29 +536,8 @@ function needsIdempotencyKey(method: Method): boolean {
   return (method || 'get').toUpperCase() !== 'GET'
 }
 
-/** Logs a queue entry send error in detail (for diagnostics). */
-function logOutboxError(entry: OutboxEntry, url: string, e: unknown): void {
-  const err = e as AxiosError & { code?: string; timeout?: number }
-  const base = {
-    method: (entry.method || '').toUpperCase(),
-    url,
-    body: entry.body,
-    tempId: entry.tempId,
-    entity: entry.entity,
-    message: errorMessage(e),
-  }
-  const detail = err.response
-    ? { kind: 'http', status: err.response.status, statusText: err.response.statusText }
-    : {
-        kind: 'network',
-        code: err.code,
-        timeout_ms: err.timeout,
-        message: err.message,
-      }
-  // i18n-allow: developer console diagnostics, never rendered in the UI
-  console.error('[outbox] failed to send entry:', base, detail, {
-    config: err.config ? { method: err.config.method, url: err.config.url, data: err.config.data } : undefined,
-  })
+function logOutboxError(error: unknown): void {
+  console.error('[outbox]', diagnosticEvent('outbox-send', error))
 }
 
 /**
@@ -708,7 +688,7 @@ async function flushOwnedOutbox(): Promise<FlushResult> {
           // Backend is alive: one-off error of a single entry. Mark it failed
           // (stays in the queue) and keep sending the rest — one failed
           // entry must not break the whole sync.
-          logOutboxError(entry, url, e)
+          logOutboxError(e)
           const attempts = (entry.attempts ?? 0) + 1
           const quarantined = attempts >= MAX_FAILED_ATTEMPTS
           const message = errorMessage(e) || t('offline.queue.noResponse')
@@ -744,7 +724,7 @@ async function flushOwnedOutbox(): Promise<FlushResult> {
             // The server actually responded (400/403/409/422/500...) — a real error.
             // Deterministic 4xx (except 429) go to quarantine right away — retrying
             // won't fix; 5xx — count attempts with backoff.
-            logOutboxError(entry, url, e)
+            logOutboxError(e)
             const attempts = (entry.attempts ?? 0) + 1
             // The entry references a not-yet-synced object (a negative temporary id in
             // URL/body — e.g. PUT /user/{tempId}/days before the employee is created).

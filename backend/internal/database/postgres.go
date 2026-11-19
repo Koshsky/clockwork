@@ -9,11 +9,20 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Koshsky/erp-backend/internal/config"
+	"github.com/Koshsky/erp-backend/internal/diagnostics"
+	apperrors "github.com/Koshsky/erp-backend/internal/errors"
+	"github.com/Koshsky/erp-backend/internal/metrics"
 	"github.com/Koshsky/erp-backend/internal/migration"
 	tracingpkg "github.com/Koshsky/erp-backend/internal/tracing"
 )
 
-func InitDBPool(pgCfg config.PostgresConfig, logger *slog.Logger, tracer *tracingpkg.Tracer) (*pgxpool.Pool, error) {
+func InitDBPool(
+	pgCfg config.PostgresConfig,
+	logger *slog.Logger,
+	tracer *tracingpkg.Tracer,
+	observer *metrics.Metrics,
+	outcomes *diagnostics.Outcomes,
+) (*pgxpool.Pool, error) {
 	const op = "initDBPool"
 
 	migrationLogger := logger
@@ -21,7 +30,7 @@ func InitDBPool(pgCfg config.PostgresConfig, logger *slog.Logger, tracer *tracin
 
 	cfg, err := pgxpool.ParseConfig(pgCfg.URL)
 	if err != nil {
-		return nil, fmt.Errorf("%s: parse config: %w", op, err)
+		return nil, fmt.Errorf("%s: parse config: %w: %w", op, apperrors.ErrConfiguration, err)
 	}
 
 	cfg.MaxConns = pgCfg.MaxConns
@@ -33,9 +42,7 @@ func InitDBPool(pgCfg config.PostgresConfig, logger *slog.Logger, tracer *tracin
 
 	// Instrument every SQL query (Exec/Query/QueryRow across all repositories)
 	// with an OpenTelemetry span. The tracer is a no-op when tracing is off.
-	if tracer != nil {
-		cfg.ConnConfig.Tracer = tracingpkg.NewQueryTracer(tracer.Unwrap())
-	}
+	cfg.ConnConfig.Tracer = newPoolTracer(tracer, observer)
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(pgCfg.ConnectTimeout))
 	defer cancel()
@@ -44,6 +51,8 @@ func InitDBPool(pgCfg config.PostgresConfig, logger *slog.Logger, tracer *tracin
 	if err != nil {
 		return nil, fmt.Errorf("%s: create pool: %w", op, err)
 	}
+
+	observer.AttachPool(pool)
 
 	if err = pool.Ping(ctx); err != nil {
 		pool.Close()
@@ -54,7 +63,7 @@ func InitDBPool(pgCfg config.PostgresConfig, logger *slog.Logger, tracer *tracin
 	const migrationTimeout = 5 * time.Minute
 	migrationCtx, migrationCancel := context.WithTimeout(context.Background(), migrationTimeout)
 	defer migrationCancel()
-	if err = migration.Run(migrationCtx, pool, migrationLogger); err != nil {
+	if err = migration.Run(diagnostics.WithOutcomes(migrationCtx, outcomes), pool, migrationLogger); err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("%s: migrate: %w", op, err)
 	}
