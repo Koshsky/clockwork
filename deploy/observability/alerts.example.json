@@ -1,0 +1,7 @@
+{
+  "enabled": false,
+  "debounce_samples": null,
+  "stale_after_seconds": null,
+  "tls_min_seconds": null,
+  "disks": ["database", "audit", "backups"]
+}

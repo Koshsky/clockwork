@@ -223,3 +223,5 @@ O07 optional local demo resource/deploy/backup checks: [Operator guide](demo-ope
 O08 local web error history and explicit report copying: [User/operator guide](web-diagnostics.md).
 
 O13 compatible liveness, bounded schema readiness and external checks: [Operator guide](readiness.md).
+
+O12 prepared, disabled demo alert evaluation and delivery boundary: [Operator guide](demo-alerts.md).

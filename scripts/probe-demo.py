@@ -4,6 +4,8 @@ import argparse
 import http.client
 import ipaddress
 import json
+import os
+import stat
 import ssl
 import subprocess
 import sys
@@ -82,14 +84,23 @@ def main(argv=None):
         else:
             from pathlib import Path
             path = Path(args.config)
-            if path.is_symlink() or path.stat().st_size > 4096:
+            if any(p.is_symlink() for p in (path, *path.parents)):
                 raise ValueError('invalid_config')
-            config = json.loads(path.read_bytes())
+            fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
+            with os.fdopen(fd, 'rb') as stream:
+                if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                    raise ValueError('invalid_config')
+                raw = stream.read(4097)
+            if len(raw) > 4096:
+                raise ValueError('invalid_config')
+            config = json.loads(raw)
             if not isinstance(config, dict) or set(config) != {'enabled', 'url'} or type(config['enabled']) is not bool:
                 raise ValueError('invalid_config')
             report = bounded_probe(config['url']) if config['enabled'] else {'status': 'not_configured'}
     except (OSError, ValueError, TypeError):
         report = {'status': 'unknown'}
+    if report['status'] != 'not_configured':
+        report.setdefault('checked_at', time.time())
     print(json.dumps(report, sort_keys=True))
     # A worker reports failures as data, not subprocess errors.
     return 0 if args.worker_url or report['status'] == 'ok' else 1 if report['status'] == 'failed' else 2
