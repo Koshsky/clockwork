@@ -16,6 +16,7 @@ import (
 	"github.com/Koshsky/erp-backend/internal/cache"
 	"github.com/Koshsky/erp-backend/internal/config"
 	"github.com/Koshsky/erp-backend/internal/database"
+	"github.com/Koshsky/erp-backend/internal/diagnostics"
 	"github.com/Koshsky/erp-backend/internal/idempotency"
 	"github.com/Koshsky/erp-backend/internal/logger"
 	"github.com/Koshsky/erp-backend/internal/metrics"
@@ -40,6 +41,7 @@ func InitializeApp(version string) (*App, error) {
 		logger.ProvideLogger,
 		config.ProvideMetricsConfig,
 		metrics.New,
+		diagnostics.NewOutcomes,
 		tracingpkg.ProvideTracer,
 		config.ProvideTracingConfig,
 		database.ProvidePostgresDB,

@@ -15,6 +15,24 @@ func technicalAttribute(groups []string, attr slog.Attr) slog.Attr {
 	if len(groups) != 0 {
 		return slog.Attr{}
 	}
+	if attr.Key == "stage" {
+		if v, ok := attr.Value.Any().(diagnostics.Stage); ok && v.Valid() {
+			return slog.String("stage", string(v))
+		}
+		return slog.Attr{}
+	}
+	if attr.Key == "outcome" {
+		if v, ok := attr.Value.Any().(diagnostics.Outcome); ok && v.Valid() {
+			return slog.String("outcome", string(v))
+		}
+		return slog.Attr{}
+	}
+	if attr.Key == "queue" {
+		if v, ok := attr.Value.Any().(diagnostics.Queue); ok && v.Valid() {
+			return slog.String("queue", string(v))
+		}
+		return slog.Attr{}
+	}
 	if attr.Key == "error_code" {
 		if code, ok := attr.Value.Any().(apierrors.Code); ok {
 			return slog.String("error_code", code.String())
@@ -45,7 +63,18 @@ func technicalValueAllowed(attr slog.Attr) bool {
 		const maxRouteLength = 256
 		return attr.Value.Kind() == slog.KindString && len(attr.Value.String()) <= maxRouteLength &&
 			strings.HasPrefix(attr.Value.String(), "/") && !strings.ContainsAny(attr.Value.String(), "?\r\n")
-	case "status", "duration_ms", "port", "max_conns", "min_conns", "acquired_conns", "total_conns", "dropped_total":
+	case "status",
+		"duration_ms",
+		"port",
+		"max_conns",
+		"min_conns",
+		"acquired_conns",
+		"total_conns",
+		"dropped_total",
+		"pending",
+		"in_flight",
+		"oldest_age_ms",
+		"attempt":
 		return attr.Value.Kind() == slog.KindInt64 || attr.Value.Kind() == slog.KindUint64
 	case "critical", "message_rejected":
 		return attr.Value.Kind() == slog.KindBool

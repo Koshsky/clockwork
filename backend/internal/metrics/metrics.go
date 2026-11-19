@@ -28,6 +28,7 @@ const (
 	outcomeTimeout   = "timeout"
 	outcomeCanceled  = "canceled"
 	overflowLabel    = "other"
+	outcomeLabel     = "outcome"
 )
 
 // Request contains only the access log's safe result metadata.
@@ -57,6 +58,8 @@ type Metrics struct {
 	overflow     prometheus.Counter
 	acquisitions *prometheus.CounterVec
 	pool         atomic.Pointer[pgxpool.Pool]
+	outcomes     atomic.Pointer[diagnostics.Outcomes]
+	audit        atomic.Pointer[auditReader]
 	mu           sync.Mutex
 	routes       map[string]struct{}
 	series       map[requestLabels]requestSeries
@@ -80,7 +83,7 @@ func New(cfg config.MetricsConfig, logger *slog.Logger) (*Metrics, error) {
 	m.registry = prometheus.NewRegistry()
 	m.routes = make(map[string]struct{})
 	m.series = make(map[requestLabels]requestSeries)
-	labels := []string{"route", "method", "status", "outcome"}
+	labels := []string{"route", "method", "status", outcomeLabel}
 	m.requests = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "clockwork_http_requests_total",
@@ -113,7 +116,7 @@ func New(cfg config.MetricsConfig, logger *slog.Logger) (*Metrics, error) {
 			Name: "clockwork_db_pool_acquisitions_total",
 			Help: "Pool acquisition attempts by controlled outcome.",
 		},
-		[]string{"outcome"},
+		[]string{outcomeLabel},
 	)
 	for _, outcome := range []string{outcomeSuccess, outcomeTimeout, outcomeCanceled, "error"} {
 		m.acquisitions.WithLabelValues(outcome)
@@ -134,6 +137,7 @@ func New(cfg config.MetricsConfig, logger *slog.Logger) (*Metrics, error) {
 		started,
 		collectors.NewGoCollector(),
 		newPoolCollector(m.pool.Load),
+		newDiagnosticsCollector(m),
 	)
 	return m, nil
 }

@@ -185,7 +185,7 @@ type AuditConfig struct {
 	// auth_enabled disabled.
 	URL     string   `yaml:"url"`
 	Timeout Duration `yaml:"timeout"`
-	// Sync sends events synchronously inside the request (strict durability,
+	// Sync sends events synchronously inside the request (best-effort delivery,
 	// slower; a single attempt bounded by a short per-send budget so the
 	// request never stalls on a down Loki); the default async mode buffers
 	// events and retries off the request goroutine.

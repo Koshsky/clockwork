@@ -15,7 +15,6 @@ package idempotency
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -25,6 +24,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/Koshsky/erp-backend/internal/database"
+	"github.com/Koshsky/erp-backend/internal/diagnostics"
 	"github.com/Koshsky/erp-backend/internal/idempotency/repository"
 	"github.com/Koshsky/erp-backend/internal/response"
 	tracingpkg "github.com/Koshsky/erp-backend/internal/tracing"
@@ -95,7 +95,13 @@ func New(
 	}
 	operations, _ := repo.(OperationRepo)
 	revisions, _ := repo.(RevisionRepo)
-	return &Middleware{repo: repo, logger: logger, tracer: tracer, operations: operations, revisions: revisions}
+	return &Middleware{
+		repo:       repo,
+		logger:     logger.With("component", "idempotency"),
+		tracer:     tracer,
+		operations: operations,
+		revisions:  revisions,
+	}
 }
 
 // Handler wraps the route handler with the idempotency logic.
@@ -134,6 +140,7 @@ func (m *Middleware) Handler() gin.HandlerFunc {
 			time.Now().Add(keyTTL),
 		)
 		if err != nil {
+			m.record(c, diagnostics.Legacy, diagnostics.Unknown, err)
 			m.logger.Error("idempotency claim failed", "error", err, "key", key)
 			response.InternalError(c, m.logger, "idempotency storage failure", err)
 			c.Abort()
@@ -141,7 +148,7 @@ func (m *Middleware) Handler() gin.HandlerFunc {
 		}
 
 		if !claimed {
-			m.replayOrConflict(c, result, key)
+			m.replayOrConflict(c, result)
 			return
 		}
 
@@ -152,15 +159,16 @@ func (m *Middleware) Handler() gin.HandlerFunc {
 // replayOrConflict answers the Claim outcomes that did not win the key: a
 // finished key is replayed from its saved response; a key still in flight
 // yields a conflict — never a re-execution.
-func (m *Middleware) replayOrConflict(c *gin.Context, result *repository.StoredResult, key string) {
+func (m *Middleware) replayOrConflict(c *gin.Context, result *repository.StoredResult) {
 	if result == nil {
+		m.record(c, diagnostics.Legacy, diagnostics.InProgress, nil)
 		// The key exists but the first request is still running — do not duplicate.
 		response.Error(c, m.logger, errapi.Conflict("request already in progress"))
 		c.Abort()
 		return
 	}
 	// Replay with the same key: return the saved response.
-	m.logger.Debug("idempotency replay", "key", key)
+	m.record(c, diagnostics.Legacy, diagnostics.Replayed, nil)
 	replay(c, result.Status, result.Body)
 	// Returning without c.Next() in gin does not stop the handler chain,
 	// so we abort it explicitly to avoid executing the operation again.
@@ -178,6 +186,8 @@ func (m *Middleware) runClaimed(ctx context.Context, c *gin.Context, key string,
 	c.Writer = cw
 
 	committed := false
+	finished := false
+	rollbackRecorded := false
 	// Restore the real writer before unwinding so gin.Recovery()/aborts reach
 	// the client even when a panic skips c.Next()'s normal return; roll back
 	// the transaction unless the caller already committed it.
@@ -185,18 +195,20 @@ func (m *Middleware) runClaimed(ctx context.Context, c *gin.Context, key string,
 		if c.Writer != original {
 			c.Writer = original
 		}
+		if !finished && !committed {
+			m.record(c, diagnostics.Legacy, diagnostics.Unknown, nil)
+		}
 		if !committed {
 			// context.Background: the rollback must reach the server even
 			// when the request context is already canceled.
-			if rerr := tx.Rollback(context.Background()); rerr != nil && !errors.Is(rerr, pgx.ErrTxClosed) {
-				m.logger.ErrorContext(ctx, "idempotency transaction rollback failed", "error", rerr, "key", key)
-			}
+			m.observeRollback(c.Request.Context(), tx.Rollback(context.Background()), &rollbackRecorded)
 		}
 	}()
 
 	c.Next()
 
-	m.finalize(c, cw, key, userID, c.Request.Method, c.Request.URL.Path, tx, &committed)
+	m.finalize(c, cw, key, userID, c.Request.Method, c.Request.URL.Path, tx, &committed, &rollbackRecorded)
+	finished = true
 	c.Writer = original
 }
 
@@ -216,6 +228,7 @@ func (m *Middleware) finalize(
 	method, path string,
 	tx pgx.Tx,
 	committed *bool,
+	rollbackRecorded *bool,
 ) {
 	ctx := c.Request.Context()
 	status := cw.status
@@ -231,6 +244,7 @@ func (m *Middleware) finalize(
 		// claimLease, 2 min) expires and the key is reclaimed — re-executing an
 		// operation whose outcome is unknown could duplicate it.
 		if cerr := m.repo.Complete(ctx, key, userID, method, path, status, json.RawMessage(cw.body)); cerr != nil {
+			m.record(c, diagnostics.Legacy, diagnostics.Unknown, cerr)
 			m.logger.ErrorContext(ctx, "idempotency complete failed", "error", cerr, "key", key)
 			cw.reset()
 			response.InternalError(c, m.logger, "idempotency storage failure", cerr)
@@ -238,6 +252,7 @@ func (m *Middleware) finalize(
 			return
 		}
 		if cerr := tx.Commit(ctx); cerr != nil {
+			m.record(c, diagnostics.Legacy, diagnostics.Unknown, cerr)
 			m.logger.ErrorContext(ctx, "idempotency commit failed", "error", cerr, "key", key)
 			cw.reset()
 			response.InternalError(c, m.logger, "idempotency commit failed", cerr)
@@ -245,15 +260,15 @@ func (m *Middleware) finalize(
 			return
 		}
 		*committed = true
+		m.record(c, diagnostics.Legacy, diagnostics.Accepted, nil)
 		// Deliver the 2xx only now: the response was written by the handler,
 		// but the client sees it only once the transaction is durable.
 		cw.flush()
 		return
 	}
 	// Non-2xx: undo the request's writes and release the key for a retry.
-	if rerr := tx.Rollback(ctx); rerr != nil && !errors.Is(rerr, pgx.ErrTxClosed) {
-		m.logger.ErrorContext(ctx, "idempotency transaction rollback failed", "error", rerr, "key", key)
-	}
+	m.observeRollback(ctx, tx.Rollback(ctx), rollbackRecorded)
+	m.record(c, diagnostics.Legacy, rejectedOutcome(status), nil)
 	if rerr := m.repo.Release(context.WithoutCancel(ctx), key, userID, method, path); rerr != nil {
 		m.logger.ErrorContext(ctx, "idempotency release failed", "error", rerr, "key", key)
 	}

@@ -187,7 +187,7 @@ func (s *stubPolicyRepo) ListAllUserPermissions(_ context.Context) ([]sqlc.ListA
 // the service triggers are observable through the stub.
 func newAuthzTestService(repo *stubPolicyRepo) *Service {
 	logger := slog.New(slog.DiscardHandler)
-	store := NewPolicyStore(logger, repo, &rbac.Middleware{}, 0)
+	store := NewPolicyStore(logger, repo, &rbac.Middleware{}, 0, nil)
 	return NewRBACService(logger, repo, store, &rbac.Middleware{})
 }
 

@@ -18,6 +18,7 @@ import (
 	"github.com/prometheus/common/model"
 
 	"github.com/Koshsky/erp-backend/internal/config"
+	"github.com/Koshsky/erp-backend/internal/diagnostics"
 	"github.com/Koshsky/erp-backend/internal/metrics"
 )
 
@@ -147,21 +148,7 @@ func TestCardinalityBudgetAggregatesWithoutLosingCounts(t *testing.T) {
 		values["clockwork_http_label_overflow_total"].GetMetric()[0].GetCounter().GetValue() == 0 {
 		t.Fatal("overflow lost observations or was not visible")
 	}
-	samples := 0
-	for _, family := range values {
-		for _, metric := range family.GetMetric() {
-			switch family.GetType() {
-			case dto.MetricType_HISTOGRAM, dto.MetricType_GAUGE_HISTOGRAM:
-				samples += len(metric.GetHistogram().GetBucket()) + 2
-			case dto.MetricType_SUMMARY:
-				samples += len(metric.GetSummary().GetQuantile()) + 2
-			case dto.MetricType_COUNTER, dto.MetricType_GAUGE, dto.MetricType_UNTYPED:
-				samples++
-			default:
-				t.Fatalf("unexpected metric type %v", family.GetType())
-			}
-		}
-	}
+	samples := metricSampleCount(t, values)
 	if samples > 2000 {
 		t.Fatalf("sample budget exceeded: %d", samples)
 	}
@@ -233,4 +220,85 @@ func BenchmarkHTTPMetrics(b *testing.B) {
 			}
 		})
 	}
+}
+
+func TestLocalOutcomesAndAuditExportUseOnlyControlledBoundedLabels(t *testing.T) {
+	t.Parallel()
+	m := enabledMetrics(t)
+	counts := diagnostics.NewOutcomes()
+	ctx := diagnostics.WithOutcomes(t.Context(), counts)
+	diagnostics.Record(ctx, nil, diagnostics.Durable, diagnostics.Accepted, nil)
+	diagnostics.Record(ctx, nil, diagnostics.Durable, diagnostics.Replayed, nil)
+	diagnostics.Record(ctx, nil, diagnostics.Receipt, diagnostics.Confirmed, nil)
+	m.AttachOutcomes(counts)
+	m.AttachAudit(func() diagnostics.AuditStatus {
+		return diagnostics.AuditStatus{
+			Enabled: true,
+			Queues: [2]diagnostics.AuditQueueStatus{
+				{Queue: diagnostics.Regular, Pending: 2, Attempts: 3, Retries: 2, Delivered: 1, OldestAgeMS: 2500},
+				{Queue: diagnostics.Critical, Overflow: 1},
+			},
+		}
+	})
+	values := scrape(t, m)
+	if sumCounters(values["clockwork_outcomes_total"]) != 3 ||
+		len(values["clockwork_outcomes_total"].GetMetric()) != 3 {
+		t.Fatal("replay/receipt outcomes were lost or merged into accepted")
+	}
+	if len(values["clockwork_audit_pending"].GetMetric()) != 2 ||
+		sumCounters(values["clockwork_audit_retries_total"]) != 2 {
+		t.Fatal("safe audit status missing from optional metrics")
+	}
+}
+
+func metricSampleCount(t testing.TB, values map[string]*dto.MetricFamily) int {
+	t.Helper()
+	samples := 0
+	for _, family := range values {
+		for _, metric := range family.GetMetric() {
+			switch family.GetType() {
+			case dto.MetricType_HISTOGRAM, dto.MetricType_GAUGE_HISTOGRAM:
+				samples += len(metric.GetHistogram().GetBucket()) + 2
+			case dto.MetricType_SUMMARY:
+				samples += len(metric.GetSummary().GetQuantile()) + 2
+			case dto.MetricType_COUNTER, dto.MetricType_GAUGE, dto.MetricType_UNTYPED:
+				samples++
+			default:
+				t.Fatalf("unexpected metric type %v", family.GetType())
+			}
+		}
+	}
+	return samples
+}
+
+func TestCombinedHTTPOutcomeAndAuditBudgetStaysBelowTwoThousand(t *testing.T) {
+	t.Parallel()
+	m := enabledMetrics(t)
+	var routes []string
+	for i := range 200 {
+		routes = append(routes, fmt.Sprintf("/budget-%d", i))
+	}
+	m.SetRoutes(routes)
+	for _, route := range routes {
+		record(m, route, "GET", 200)
+	}
+	counts := diagnostics.NewOutcomes()
+	ctx := diagnostics.WithOutcomes(t.Context(), counts)
+	for _, stage := range []diagnostics.Stage{diagnostics.Durable, diagnostics.Legacy, diagnostics.Receipt, diagnostics.Revision, diagnostics.Rollback, diagnostics.Migration, diagnostics.RBAC, diagnostics.Planning, diagnostics.Calendar} {
+		for _, outcome := range []diagnostics.Outcome{diagnostics.Accepted, diagnostics.Replayed, diagnostics.Confirmed, diagnostics.InProgress, diagnostics.NotFound, diagnostics.Conflict, diagnostics.Rejected, diagnostics.Unknown, diagnostics.RolledBack, diagnostics.Failed, diagnostics.Ready, diagnostics.Canceled} {
+			diagnostics.Record(ctx, nil, stage, outcome, nil)
+		}
+	}
+	m.AttachOutcomes(counts)
+	m.AttachAudit(func() diagnostics.AuditStatus {
+		return diagnostics.AuditStatus{
+			Queues: [2]diagnostics.AuditQueueStatus{{Queue: diagnostics.Regular}, {Queue: diagnostics.Critical}},
+		}
+	})
+	values := scrape(t, m)
+	samples := metricSampleCount(t, values)
+	if samples > 2000 {
+		t.Fatalf("combined series budget exceeded: %d", samples)
+	}
+	t.Logf("combined worst-case series: %d", samples)
 }

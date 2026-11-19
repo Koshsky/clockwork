@@ -54,6 +54,7 @@ type App struct {
 	rateLimiter *ratelimit.Provider
 	profiler    *profiler.Profiler
 	metrics     *metrics.Metrics
+	outcomes    *diagnostics.Outcomes
 	authMw      *auth.Middleware
 	tracer      *tracingpkg.Tracer
 	idemMw      *idempotencypkg.Middleware
@@ -71,6 +72,7 @@ func New(
 	authMw *auth.Middleware,
 	profiler *profiler.Profiler,
 	metrics *metrics.Metrics,
+	outcomes *diagnostics.Outcomes,
 	tracer *tracingpkg.Tracer,
 	idemMw *idempotencypkg.Middleware,
 	auditMw *audit.Middleware,
@@ -80,6 +82,10 @@ func New(
 	rateLimiter *ratelimit.Provider,
 	modules []Module,
 ) (*App, error) {
+	metrics.AttachOutcomes(outcomes)
+	if auditMw != nil {
+		metrics.AttachAudit(auditMw.Status)
+	}
 	return &App{
 		cfg:         cfg,
 		logger:      logger.With("component", "server"),
@@ -87,6 +93,7 @@ func New(
 		authMw:      authMw,
 		profiler:    profiler,
 		metrics:     metrics,
+		outcomes:    outcomes,
 		redisClient: redisClient,
 		rateLimiter: rateLimiter,
 		tracer:      tracer,
@@ -289,7 +296,8 @@ func (a *App) requestID() gin.HandlerFunc {
 		reqID := newRequestID()
 		c.Set(tracingpkg.RequestIDKey, reqID)
 		c.Header("X-Request-ID", reqID)
-		c.Request = c.Request.WithContext(tracingpkg.WithRequestID(c.Request.Context(), reqID))
+		ctx := tracingpkg.WithRequestID(c.Request.Context(), reqID)
+		c.Request = c.Request.WithContext(diagnostics.WithOutcomes(ctx, a.outcomes))
 		c.Next()
 	}
 }

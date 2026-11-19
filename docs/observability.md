@@ -215,3 +215,5 @@ O03 server logging and rotation: [Operator guide](server-logs.md).
 O04 optional tracing, trust boundaries and resource limits: [Operator guide](tracing.md).
 
 O05 optional private backend metrics and interpretation: [Operator guide](metrics.md).
+
+O06 local operation outcomes and best-effort audit delivery: [Operator guide](operation-diagnostics.md).

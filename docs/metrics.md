@@ -2,9 +2,9 @@
 
 Metrics are disabled in both supplied backend configurations. No Prometheus,
 exporter process, scraper, background sender or user session is required to run
-Clockwork. Existing logs and tracing work independently. Operation/receipt/audit
-outcomes from O06 will be added after that stage is implemented; they are not
-invented as zero-valued business successes here.
+Clockwork. Existing logs and tracing work independently. Local operation/receipt/audit
+observations are available independently of metrics and are also exported when
+this endpoint is enabled; see [Operation diagnostics](operation-diagnostics.md).
 
 ## Enable locally or on a trusted private network
 
@@ -73,7 +73,7 @@ recorded once in the existing access-summary path using its single timer.
 The duration covers application middleware/handlers, not delivery of every byte
 to the client. Responses, transaction behavior and retry/idempotency rules are
 unchanged. A retry is another HTTP attempt, not another committed business
-operation. Logical-operation outcomes belong to O06.
+operation. Logical-operation observations use the separate `clockwork_outcomes_total` counter.
 
 Controlled HTTP outcomes are `success`, `redirect`, `validation`, `denied`
 (401/403), `conflict` (409), `not_found` (404), `rate_limited` (429), `timeout`,
@@ -112,7 +112,8 @@ Duration buckets are fixed at 0.01, 0.1, 0.5, 2 and 10 seconds, plus +Inf.
 Native histograms, exemplars and user-configurable buckets are not enabled.
 The saturation test exported **1501 samples** including Go/pool metrics on the
 validated toolchain, below the 2000-series example budget and leaving space for
-O06. This is not a promise for arbitrary future collectors or versions: keep the
+O06. Its combined saturation test measured **1636 samples**, including all 108
+bounded stage/outcome pairs and both audit queues. This is not a promise for arbitrary future collectors or versions: keep the
 budget test when extending instrumentation. Registries belong to application
 instances and do not register on Prometheus's global default registry.
 

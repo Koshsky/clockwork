@@ -44,34 +44,41 @@ type eventSender interface {
 // mode every event is buffered and retried off the request goroutine; critical
 // events (login/logout, M2) enqueue into a priority buffer that is drained
 // first. With sync=true each event is sent with one bounded attempt inside the
-// request (strict durability, slower, capped by senderSyncSendTimeout).
+// request (best effort, slower, capped by senderSyncSendTimeout).
 type Sender struct {
 	logger   *slog.Logger
 	client   eventSender
 	sync     bool
-	queue    chan Event
-	critical chan Event
+	queue    chan queuedEvent
+	critical chan queuedEvent
 	done     chan struct{}
 	stopped  atomic.Bool
 	dropped  atomic.Int64
 	wg       sync.WaitGroup
+	stopOnce sync.Once
+	state    senderStatus
+	enabled  bool
 }
 
 // NewSender builds the sender and, in async mode, starts its worker.
 func NewSender(logger *slog.Logger, client *Client, cfg config.AuditConfig) *Sender {
-	return newSender(logger, client, cfg.Sync)
+	s := newSender(logger, client, cfg.Sync)
+	s.enabled = cfg.Enabled
+	return s
 }
 
 // newSender builds the sender around the given event sender (test seam).
 func newSender(logger *slog.Logger, client eventSender, syncMode bool) *Sender {
 	s := &Sender{
-		logger: logger.With("component", "audit_sender"),
-		client: client,
-		sync:   syncMode,
+		logger:  logger.With("component", "audit_sender"),
+		client:  client,
+		sync:    syncMode,
+		enabled: true,
 	}
+	s.initializeStatus()
 	if !s.sync {
-		s.queue = make(chan Event, senderQueueCapacity)
-		s.critical = make(chan Event, senderCriticalQueueCapacity)
+		s.queue = make(chan queuedEvent, senderQueueCapacity)
+		s.critical = make(chan queuedEvent, senderCriticalQueueCapacity)
 		s.done = make(chan struct{})
 		s.wg.Add(1)
 		go s.run()
@@ -86,10 +93,20 @@ func newSender(logger *slog.Logger, client eventSender, syncMode bool) *Sender {
 // the request goroutine (I4).
 func (s *Sender) Enqueue(ev Event) {
 	if s.sync {
-		_ = s.sendInline(ev)
+		s.state.mu.Lock()
+		q := &s.state.queues[queueIndex(ev.Critical)]
+		q.status.Enqueued++
+		q.status.InFlight++
+		s.state.mu.Unlock()
+		err := s.sendInline(ev)
+		s.finishDelivery(ev, err, true)
 		return
 	}
 	if s.stopped.Load() {
+		s.state.mu.Lock()
+		s.state.queues[queueIndex(ev.Critical)].status.AfterStop++
+		s.state.mu.Unlock()
+		s.logQueue(context.Background(), slog.LevelWarn, "audit event rejected after stop", ev.Critical, nil)
 		return
 	}
 	if ev.Critical {
@@ -102,14 +119,31 @@ func (s *Sender) Enqueue(ev Event) {
 // enqueue pushes one event into the given buffer non-blocking: a full buffer
 // drops the event with an error log and a running counter (audit must never
 // block or fail the user request).
-func (s *Sender) enqueue(ev Event, queue chan Event) {
+func (s *Sender) enqueue(ev Event, queue chan queuedEvent) {
+	s.state.mu.Lock()
+	q := &s.state.queues[queueIndex(ev.Critical)]
+	if s.stopped.Load() {
+		q.status.AfterStop++
+		s.state.mu.Unlock()
+		s.logQueue(context.Background(), slog.LevelWarn, "audit event rejected after stop", ev.Critical, nil)
+		return
+	}
+	s.state.sequence++
+	sequence := s.state.sequence
+	var dropped int64
 	select {
-	case queue <- ev:
+	case queue <- queuedEvent{event: ev, sequence: sequence}:
+		q.pending[sequence] = time.Now()
+		q.status.Enqueued++
 	default:
-		dropped := s.dropped.Add(1)
-		s.logger.Error("audit queue full, dropping event",
-			"entity", ev.Entity, "action", ev.Action, "path", ev.Path,
-			"critical", ev.Critical, "dropped_total", dropped)
+		q.status.Overflow++
+		dropped = s.dropped.Add(1)
+	}
+	s.state.mu.Unlock()
+	if dropped > 0 {
+		s.logQueue(context.Background(), slog.LevelError, "audit queue full, dropping event", ev.Critical, nil)
+	} else {
+		s.logQueue(context.Background(), slog.LevelDebug, "audit event queued", ev.Critical, nil)
 	}
 }
 
@@ -121,14 +155,14 @@ func (s *Sender) Stop(ctx context.Context) {
 	if s.sync {
 		return
 	}
-	s.stopped.Store(true)
-	close(s.done)
+	s.stopOnce.Do(func() { s.state.mu.Lock(); s.stopped.Store(true); close(s.done); s.state.mu.Unlock() })
 	done := make(chan struct{})
 	go func() { s.wg.Wait(); close(done) }()
 	select {
 	case <-done:
 	case <-ctx.Done():
-		s.logger.WarnContext(ctx, "audit sender stop timed out, buffered events may be lost")
+		s.shutdownPending()
+		s.logger.WarnContext(ctx, "audit sender stop timed out, delivery remains unconfirmed")
 	}
 }
 
@@ -173,10 +207,12 @@ func (s *Sender) drain() {
 }
 
 // deliver sends one buffered event and logs failures.
-func (s *Sender) deliver(ev Event) {
-	if err := s.sendWithRetry(ev); err != nil {
-		s.logger.Error("audit send failed",
-			"error", err, "entity", ev.Entity, "action", ev.Action, "path", ev.Path)
+func (s *Sender) deliver(ev queuedEvent) {
+	s.beginDelivery(ev)
+	err := s.sendWithRetry(ev.event)
+	s.finishDelivery(ev.event, err, false)
+	if err != nil {
+		s.logQueue(context.Background(), slog.LevelError, "audit send failed", ev.event.Critical, err)
 	}
 }
 
@@ -187,6 +223,10 @@ func (s *Sender) sendWithRetry(ev Event) error {
 	var lastErr error
 	backoff := senderBaseBackoff
 	for attempt := 1; attempt <= senderMaxAttempts; attempt++ {
+		s.recordAttempt(ev, attempt > 1)
+		if attempt > 1 {
+			s.logQueue(context.Background(), slog.LevelDebug, "audit delivery retry", ev.Critical, nil)
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), clientTimeoutForRetry)
 		err := s.client.Send(ctx, ev)
 		cancel()
@@ -203,16 +243,14 @@ func (s *Sender) sendWithRetry(ev Event) error {
 }
 
 // sendInline sends one event inside the request (audit.sync: true) with a
-// single attempt bounded by senderSyncSendTimeout. In exchange for the strict
-// in-request durability the operator opted into, the send stays far below the
+// single best-effort attempt bounded by senderSyncSendTimeout. The send stays below the
 // server request/write timeouts, so login never stalls on a down Loki (I4).
 func (s *Sender) sendInline(ev Event) error {
+	s.recordAttempt(ev, false)
 	ctx, cancel := context.WithTimeout(context.Background(), senderSyncSendTimeout)
 	defer cancel()
 	if err := s.client.Send(ctx, ev); err != nil {
-		s.logger.Error("audit send failed",
-			"error", err, "entity", ev.Entity, "action", ev.Action, "path", ev.Path,
-			"critical", ev.Critical)
+		s.logQueue(ctx, slog.LevelError, "audit send failed", ev.Critical, err)
 		return err
 	}
 	return nil

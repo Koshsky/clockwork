@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/Koshsky/erp-backend/internal/database"
+	"github.com/Koshsky/erp-backend/internal/diagnostics"
 	internalerrors "github.com/Koshsky/erp-backend/internal/errors"
 	"github.com/Koshsky/erp-backend/internal/response"
 	errapi "github.com/Koshsky/erp-backend/pkg/errors"
@@ -102,12 +103,14 @@ func revisionConditions(c *gin.Context) (map[string]string, bool, error) {
 }
 
 func (m *Middleware) revisionInvalid(c *gin.Context) {
+	m.record(c, diagnostics.Revision, diagnostics.Rejected, nil)
 	c.Header("Revision-Status", "invalid")
 	response.BadRequest(c, errapi.CodeBadRequest, "invalid revision preconditions")
 	c.Abort()
 }
 
 func (m *Middleware) revisionFailure(c *gin.Context, err error) {
+	m.record(c, diagnostics.Revision, diagnostics.Unknown, err)
 	response.InternalError(c, m.logger, "revision storage unavailable", err)
 	c.Abort()
 }
@@ -175,6 +178,7 @@ func (m *Middleware) revisionWrite(c *gin.Context, conditions map[string]string)
 	if successfulRevision(writer) {
 		if mismatch {
 			writer.reset()
+			m.record(c, diagnostics.Revision, diagnostics.Conflict, nil)
 			c.Header("Revision-Status", "conflict")
 			response.Error(c, m.logger, errapi.Conflict("data changed; reload before retrying"))
 		} else if err = m.wrapRevisionSnapshot(c, writer, keys); err != nil {

@@ -24,6 +24,7 @@ import (
 	"github.com/Koshsky/erp-backend/internal/cache"
 	"github.com/Koshsky/erp-backend/internal/config"
 	"github.com/Koshsky/erp-backend/internal/database"
+	"github.com/Koshsky/erp-backend/internal/diagnostics"
 	"github.com/Koshsky/erp-backend/internal/idempotency"
 	"github.com/Koshsky/erp-backend/internal/logger"
 	"github.com/Koshsky/erp-backend/internal/metrics"
@@ -99,7 +100,8 @@ func InitializeApp(version string) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	pool, err := database.ProvidePostgresDB(postgresConfig, slogLogger, tracer, metricsMetrics)
+	outcomes := diagnostics.NewOutcomes()
+	pool, err := database.ProvidePostgresDB(postgresConfig, slogLogger, tracer, metricsMetrics, outcomes)
 	if err != nil {
 		return nil, err
 	}
@@ -118,7 +120,7 @@ func InitializeApp(version string) (*App, error) {
 	v := rbac.ProvideAll()
 	middleware := rbac.ProvideMiddleware(slogLogger, tracer, data, v)
 	duration := config.ProvideRBACRefreshInterval(configConfig)
-	policyStore := service.NewPolicyStore(slogLogger, ruleRepository, middleware, duration)
+	policyStore := service.NewPolicyStore(slogLogger, ruleRepository, middleware, duration, outcomes)
 	authMiddleware := auth.ProvideAuthMiddleware(slogLogger, jwtService, policyStore)
 	profilingConfig := config.ProvideProfilingConfig(configConfig)
 	profilerProfiler := profiler.ProvideProfiler(profilingConfig, slogLogger)
@@ -183,7 +185,7 @@ func InitializeApp(version string) (*App, error) {
 	auditHandler := delivery16.NewAuditHandler(slogLogger, client, middleware)
 	auditModule := audit.ProvideModule(auditHandler, auditConfig)
 	v2 := ProvideModules(module, userModule, planningModule, projectmgmtModule, timesheetModule, autocreateModule, authzModule, auditModule)
-	app, err := New(configConfig, slogLogger, pool, authMiddleware, profilerProfiler, metricsMetrics, tracer, idempotencyMiddleware, auditMiddleware, policyStore, userService, redisClient, provider, v2)
+	app, err := New(configConfig, slogLogger, pool, authMiddleware, profilerProfiler, metricsMetrics, outcomes, tracer, idempotencyMiddleware, auditMiddleware, policyStore, userService, redisClient, provider, v2)
 	if err != nil {
 		return nil, err
 	}

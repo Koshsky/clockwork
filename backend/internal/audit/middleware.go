@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/Koshsky/erp-backend/internal/config"
+	"github.com/Koshsky/erp-backend/internal/diagnostics"
 	userctx "github.com/Koshsky/erp-backend/internal/userctx"
 )
 
@@ -222,4 +223,14 @@ func (w *bodyWriter) Status() int {
 // Body returns the captured response body.
 func (w *bodyWriter) Body() []byte {
 	return w.buf.Bytes()
+}
+
+// Status exposes only delivery diagnostics, never audit payloads or identities.
+func (m *Middleware) Status() diagnostics.AuditStatus {
+	if m == nil || m.sender == nil {
+		return diagnostics.AuditStatus{}
+	}
+	s := m.sender.Status()
+	s.Enabled = m.cfg.Enabled
+	return s
 }

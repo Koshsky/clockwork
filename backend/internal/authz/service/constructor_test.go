@@ -42,7 +42,7 @@ func TestPolicyStoreConstructorPreservesLoadFailures(t *testing.T) {
 				failure = context.Canceled
 			}
 			repository := &failingPolicyRepository{failure: failure}
-			store := service.NewPolicyStore(slog.New(slog.DiscardHandler), repository, &rbac.Middleware{}, 0)
+			store := service.NewPolicyStore(slog.New(slog.DiscardHandler), repository, &rbac.Middleware{}, 0, nil)
 			if err := store.Reload(ctx); !errors.Is(err, failure) || repository.seen != ctx || repository.calls != 1 {
 				t.Fatalf("repository failure/context changed: err=%v calls=%d", err, repository.calls)
 			}

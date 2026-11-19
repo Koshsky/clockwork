@@ -27,7 +27,7 @@ func TestMigrationDiagnosticsPreserveOutcomesAndRelease(t *testing.T) {
 	}
 	text := output.String()
 	decoder := json.NewDecoder(strings.NewReader(text))
-	for _, expected := range []string{"checking database migrations", "golang-migrate schema ready", "checking database migrations", "migration check failed"} {
+	for i, expected := range []string{"checking database migrations", "golang-migrate schema ready", "diagnostic outcome", "checking database migrations", "diagnostic outcome", "migration check failed"} {
 		var event map[string]any
 		if err := decoder.Decode(&event); err != nil {
 			t.Fatal(err)
@@ -35,6 +35,7 @@ func TestMigrationDiagnosticsPreserveOutcomesAndRelease(t *testing.T) {
 		if event["msg"] != expected || event["version"] != "1.6.0" || event["component"] != "migration" {
 			t.Fatalf("migration outcome missing context: %v", event)
 		}
+		assertMigrationOutcome(t, event, expected, i)
 		if expected == "migration check failed" &&
 			(event["level"] != "ERROR" || event["error_code"] != "MIGRATION_EXECUTION") {
 			t.Fatalf("failed migration lost its classification: %v", event)
@@ -42,5 +43,18 @@ func TestMigrationDiagnosticsPreserveOutcomesAndRelease(t *testing.T) {
 	}
 	if strings.Contains(text, "password") || strings.Contains(text, "UPDATE schema_migrations") {
 		t.Fatal("migration diagnostics exposed a connection setting")
+	}
+}
+
+func assertMigrationOutcome(t *testing.T, event map[string]any, expected string, i int) {
+	t.Helper()
+	if expected == "diagnostic outcome" {
+		want := "ready"
+		if i == 4 {
+			want = "failed"
+		}
+		if event["stage"] != "migration" || event["outcome"] != want {
+			t.Fatalf("uncontrolled migration outcome: %v", event)
+		}
 	}
 }

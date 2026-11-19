@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	access "github.com/Koshsky/erp-backend/internal/authz/domain"
+	"github.com/Koshsky/erp-backend/internal/diagnostics"
 	"github.com/Koshsky/erp-backend/internal/timesheet/calendar/dto"
 	"github.com/Koshsky/erp-backend/internal/timesheet/calendar/repository/sqlc"
 	tracingpkg "github.com/Koshsky/erp-backend/internal/tracing"
@@ -48,9 +49,9 @@ func (s *Service) GetCalendar(
 	userID int64,
 	scope access.ListScope,
 	start, end date.Date,
-) (*dto.CalendarPlanning, error) {
+) (_ *dto.CalendarPlanning, failure error) {
 	ctx, finish := s.tracer.Start(ctx, "calendar.GetCalendar")
-	defer finish(nil)
+	defer func() { finish(failure); diagnostics.Failure(ctx, s.logger, diagnostics.Calendar, failure) }()
 
 	startT, endT := start.Time(), end.Time()
 	if endT.Before(startT) {

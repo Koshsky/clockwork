@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	access "github.com/Koshsky/erp-backend/internal/authz/domain"
+	"github.com/Koshsky/erp-backend/internal/diagnostics"
 	"github.com/Koshsky/erp-backend/internal/timesheet/calendar/dto"
 	"github.com/Koshsky/erp-backend/internal/timesheet/calendar/repository/sqlc"
 	"github.com/Koshsky/erp-backend/internal/tracing"
@@ -191,14 +192,20 @@ func TestCalendarReadFailuresStopSubsequentQueries(t *testing.T) {
 		t.Run(step, func(t *testing.T) {
 			t.Parallel()
 			failure := errors.New("calendar repository unavailable")
+			counts := diagnostics.NewOutcomes()
+			ctx := diagnostics.WithOutcomes(t.Context(), counts)
 			repo := &calendarReadRepository{failAt: step, failure: failure}
 			result, err := NewService(
 				slog.New(slog.DiscardHandler),
 				tracing.New(nil),
 				repo,
-			).GetCalendar(t.Context(), 7, lsAll(), "2026-01-01", "2026-01-07")
+			).GetCalendar(ctx, 7, lsAll(), "2026-01-01", "2026-01-07")
 			if !errors.Is(err, failure) || result != nil || repo.calls[len(repo.calls)-1] != step {
 				t.Fatalf("calendar error/query ordering changed: %+v, %v", repo, err)
+			}
+			if got := counts.Snapshot(); len(got) != 1 || got[0].Stage != diagnostics.Calendar ||
+				got[0].Outcome != diagnostics.Failed {
+				t.Fatal("calendar failure lost its controlled outcome")
 			}
 		})
 	}

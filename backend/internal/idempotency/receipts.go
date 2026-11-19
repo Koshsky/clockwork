@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/Koshsky/erp-backend/internal/diagnostics"
 	"github.com/Koshsky/erp-backend/internal/response"
 	"github.com/Koshsky/erp-backend/internal/userctx"
 	errapi "github.com/Koshsky/erp-backend/pkg/errors"
@@ -83,20 +84,24 @@ func (m *Middleware) OperationCapabilities(c *gin.Context) {
 func (m *Middleware) OperationReceipt(c *gin.Context) {
 	id := c.Param("operation_id")
 	if !validOperationID(id) || c.Request.URL.RawQuery != "" {
+		m.record(c, diagnostics.Receipt, diagnostics.Rejected, nil)
 		response.BadRequest(c, errapi.CodeBadRequest, "invalid durable operation request")
 		return
 	}
 	userID, err := userctx.GetUserID(c)
 	if err != nil || userID <= 0 {
+		m.record(c, diagnostics.Receipt, diagnostics.Rejected, nil)
 		response.Unauthorized(c, errapi.CodeUnauthorized, "authentication required")
 		return
 	}
 	if m.operations == nil {
+		m.record(c, diagnostics.Receipt, diagnostics.Unknown, nil)
 		response.InternalError(c, m.logger, "durable operations unavailable", nil)
 		return
 	}
 	receipt, running, err := m.operations.InspectOperation(c.Request.Context(), userID, id)
 	if err != nil {
+		m.record(c, diagnostics.Receipt, diagnostics.Unknown, nil)
 		response.InternalError(c, m.logger, "durable operation lookup failed", err)
 		return
 	}
@@ -110,5 +115,6 @@ func (m *Middleware) OperationReceipt(c *gin.Context) {
 			Response: receipt.ResponseBody, CompletedAt: &receipt.CompletedAt,
 		}
 	}
+	m.record(c, diagnostics.Receipt, diagnostics.Outcome(result.State), nil)
 	response.OK(c, result)
 }

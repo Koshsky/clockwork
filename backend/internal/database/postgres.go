@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Koshsky/erp-backend/internal/config"
+	"github.com/Koshsky/erp-backend/internal/diagnostics"
 	apperrors "github.com/Koshsky/erp-backend/internal/errors"
 	"github.com/Koshsky/erp-backend/internal/metrics"
 	"github.com/Koshsky/erp-backend/internal/migration"
@@ -20,6 +21,7 @@ func InitDBPool(
 	logger *slog.Logger,
 	tracer *tracingpkg.Tracer,
 	observer *metrics.Metrics,
+	outcomes *diagnostics.Outcomes,
 ) (*pgxpool.Pool, error) {
 	const op = "initDBPool"
 
@@ -61,7 +63,7 @@ func InitDBPool(
 	const migrationTimeout = 5 * time.Minute
 	migrationCtx, migrationCancel := context.WithTimeout(context.Background(), migrationTimeout)
 	defer migrationCancel()
-	if err = migration.Run(migrationCtx, pool, migrationLogger); err != nil {
+	if err = migration.Run(diagnostics.WithOutcomes(migrationCtx, outcomes), pool, migrationLogger); err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("%s: migrate: %w", op, err)
 	}
