@@ -51,10 +51,15 @@ text. O02 itself introduced no history, persistence, context buffer or diagnosti
 network transport; O08 adds the bounded web-only memory history described below. Every record is a disposable value, so diagnostics cannot retain a
 previous account's context or mutate a queued command.
 
-O08/O09 must build history/support reports from these safe records, not attach
-raw errors, application state, profile files or databases afterwards. Preview,
-rotation/size limits and explicit user-triggered export belong to those stages;
-O02 tests the content boundary, not a bundle feature that does not yet exist.
+O08/O09 build history/support reports from these safe records rather than attach
+raw errors, application state, profile files or databases afterwards. O02 tests
+the content boundary; [web diagnostics](web-diagnostics.md) and
+[Electron diagnostics](desktop-diagnostics.md) define preview, context, retention
+and explicit user-triggered export. Native fields additionally include fixed
+source/outcome/kind values, timestamps, aggregate queue counts/wall age,
+current-session active delivery durations, storage/reachability and coarse
+OS/Node/Electron versions. Account/server partition keys remain private and are
+never report fields. No queue rows, business identifiers or full databases are exported.
 
 ## Audit boundary
 

@@ -64,25 +64,36 @@ function createDiagnostics({ directory, version, now = Date.now, monotonic = () 
     if (total + extra > diskLimit) throw new Error('quota')
   }
   try { if (mode === 'available') prune() } catch { fail() }
+  let drainTimer = null
+  function schedule() {
+    if (scheduled || closed) return
+    scheduled = true; drainTimer = setTimeout(drain, 100); drainTimer.unref?.()
+  }
   function drain() {
-    scheduled = false
+    clearTimeout(drainTimer); drainTimer = null; scheduled = false
     if (mode !== 'available') return
+    const lines = [], limit = Math.min(FILE_LIMIT, Math.floor(diskLimit / 2))
+    let bytes = 0
     for (let i = 0; i < 16 && pending.length; i++) {
-      const item = pending.shift()
-      if (item.generation !== generation) continue
+      const item = pending[0]
+      if (item.generation !== generation) { pending.shift(); continue }
+      const line = JSON.stringify(item.value) + '\n', size = Buffer.byteLength(line)
+      if (lines.length && bytes + size > limit) break
+      pending.shift(); lines.push(line); bytes += size
+    }
+    if (lines.length) {
       try {
-        const line = JSON.stringify(item.value) + '\n', bytes = Buffer.byteLength(line)
         prune(bytes)
-        if (!currentFile || fs.lstatSync(currentFile).size + bytes > Math.min(FILE_LIMIT, diskLimit / 2)) {
+        if (!currentFile || fs.lstatSync(currentFile).size + bytes > limit) {
           currentFile = path.join(root, `${tag}-${String(wall()).padStart(16, '0')}-${randomBytes(4).toString('hex')}.jsonl`)
           fs.writeFileSync(currentFile, '', { flag: 'wx', mode: 0o600 })
         }
         const info = fs.lstatSync(currentFile)
         if (!info.isFile() || info.isSymbolicLink()) throw new Error('unsafe')
-        fs.appendFileSync(currentFile, line, { flag: fs.constants.O_WRONLY | fs.constants.O_APPEND | (fs.constants.O_NOFOLLOW || 0), mode: 0o600 })
-      } catch { fail(); break }
+        fs.appendFileSync(currentFile, lines.join(''), { flag: fs.constants.O_WRONLY | fs.constants.O_APPEND | (fs.constants.O_NOFOLLOW || 0), mode: 0o600 })
+      } catch { fail() }
     }
-    if (pending.length && !scheduled) { scheduled = true; setImmediate(drain) }
+    if (pending.length) schedule()
   }
   function record(source, event, error, metadata, outcome = 'observed', expected = generation) {
     if (closed || expected !== generation) return
@@ -95,7 +106,7 @@ function createDiagnostics({ directory, version, now = Date.now, monotonic = () 
       if (mode === 'available') {
         if (pending.length >= 128) { dropped = Math.min(dropped + 1, 1000000000); return }
         pending.push({ value, generation })
-        if (!scheduled) { scheduled = true; setImmediate(drain) }
+        schedule()
       }
     } catch { /* The business queue never depends on diagnostic storage. */ }
   }
@@ -161,7 +172,7 @@ function createDiagnostics({ directory, version, now = Date.now, monotonic = () 
     contextToken: () => generation,
     suspend() { if (pausedAt == null) pausedAt = monotonic(); record('main', 'runtime-start', null, null, 'suspended') },
     resume() { if (pausedAt != null) { pausedMs += monotonic() - pausedAt; pausedAt = null }; record('main', 'runtime-start', null, null, 'resumed') },
-    async close() { clearInterval(retentionTimer); await flush(); closed = true },
+    async close() { clearInterval(retentionTimer); await flush(); clearTimeout(drainTimer); closed = true },
   }
 }
 

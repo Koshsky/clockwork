@@ -2,8 +2,9 @@
 
 O01 design, revised 2026-11-18 for an open-source self-hosted product with a public
 demonstration instance. This supersedes the earlier full-stack proposal in commit
-`7de11fd`. Planning only: no instrumentation, service installation, access change,
-release or deployment is authorized by this document.
+`7de11fd`. The original design was planning-only; subsequent separately requested implementation
+is recorded in [local acceptance](observability-acceptance.md). This document does
+not authorize installation, access changes, notifications, release or deployment.
 
 Tracker: [epic](http://localhost:3456/tasks/93), [O01](http://localhost:3456/tasks/94).
 
@@ -204,9 +205,10 @@ privacy, bounded resources and unchanged business behavior. Record tested OSes
 and limitations. There is no mandatory week of production monitoring before a
 local diagnostic change can be accepted.
 
-O01 remains under review in Doing. All other statuses are preserved. Implementation,
-GitHub changes, notification tests, release and demo deployment need separate
-instructions; no part of revising the plan performs them.
+Local implementation and acceptance are complete under the subsequent task
+instructions. The product/optional/demo boundaries above are preserved. Monitoring
+activation, real notification tests, release and demo deployment remain separate
+operator decisions; closing the implementation tasks does not activate them.
 
 O02 implementation contracts are documented in [Diagnostic data](diagnostic-data.md).
 
@@ -231,3 +233,6 @@ O10 optional private monitoring example: [Operator guide](optional-monitoring.md
 O11 two optional dashboards and log-first diagnosis: [Troubleshooting](troubleshooting.md).
 
 Implementation reference: [Electron diagnostics](desktop-diagnostics.md).
+
+[Operator quickstart](diagnostics-quickstart.md) and
+[acceptance measurements and limitations](observability-acceptance.md).

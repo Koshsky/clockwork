@@ -20,7 +20,7 @@ async function run(executable, args, env) {
 }
 async function nativeChecks(executable, execute = run) {
   const env = { ...process.env, ELECTRON_RUN_AS_NODE: '1' }
-  await execute(executable, ['--test', path.join(__dirname, '../tests/desktop-storage.test.cjs'), path.join(__dirname, '../tests/desktop-read-concurrency.test.cjs'), path.join(__dirname, '../tests/desktop-command-queue.test.cjs'), path.join(__dirname, '../tests/desktop-sync.test.cjs')], env)
+  await execute(executable, ['--test', path.join(__dirname, '../tests/desktop-storage.test.cjs'), path.join(__dirname, '../tests/desktop-read-concurrency.test.cjs'), path.join(__dirname, '../tests/desktop-command-queue.test.cjs'), path.join(__dirname, '../tests/desktop-sync.test.cjs'), path.join(__dirname, '../tests/native-diagnostics.test.cjs'), path.join(__dirname, '../tests/native-diagnostics-ipc.test.cjs')], env)
   // Concurrent SQLite suites must not consume the durable-write stress budget.
   await execute(executable, ['--test', '--test-concurrency=1', path.join(__dirname, '../tests/desktop-storage-stress.test.cjs')], env)
 }

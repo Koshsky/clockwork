@@ -116,13 +116,17 @@ try {
     await expect(tab.locator('.tg-scroll')).toBeVisible()
   }
   // Exercise the real capture/PDF implementation under the unchanged web CSP.
-  const pdf = await page.evaluate(async () => {
-    const { freezeDiagram, snapshotPdf } = await import('/src/components/planner/PdfExport/snapshot.ts')
-    const source = document.querySelector('.tg-scroll')
-    const result = await snapshotPdf(freezeDiagram(source, true), { extent: 'selection', cancelled: () => false, scope: 'tasks', groups: [{ id: 801, title: 'Fixture process', rows: [{ id: 802, title: 'Fixture task' }] }], showMilestones: true, showTodayLine: true, showResources: true, style: 'color', barThickness: 20 }, 'fixture')
-    return { bytes: result.bytes.length, pages: result.pages.length }
-  })
-  expect(pdf.bytes).toBeGreaterThan(100); expect(pdf.pages).toBeGreaterThan(0)
+  for (const unit of ['day', 'week']) {
+    await page.evaluate(async unit => { (await import('/src/composables/usePlanningOrigin.ts')).usePlanningOrigin().unit.value = unit }, unit)
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+    const pdf = await page.evaluate(async () => {
+      const { freezeDiagram, snapshotPdf } = await import('/src/components/planner/PdfExport/snapshot.ts')
+      const source = document.querySelector('.tg-scroll')
+      const result = await snapshotPdf(freezeDiagram(source, true), { extent: 'selection', cancelled: () => false, scope: 'tasks', groups: [{ id: 801, title: 'Fixture process', rows: [{ id: 802, title: 'Fixture task' }] }], showMilestones: true, showTodayLine: true, showResources: true, style: 'color', barThickness: 20 }, 'fixture')
+      return { bytes: result.bytes.length, pages: result.pages.length }
+    })
+    expect(pdf.bytes).toBeGreaterThan(100); expect(pdf.pages).toBeGreaterThan(0)
+  }
   // A handled capture failure must appear in diagnostics, then a normal retry works.
   await page.evaluate(() => { document.querySelector('.tg-scroll').style.display = 'none' })
   await page.keyboard.press('Control+s')
@@ -175,7 +179,7 @@ try {
   expect(foreign).toEqual([]); expect(violations).toEqual([])
   expect(errors.filter(error => error !== 'intentional-private-canary')).toEqual([])
   expect(requests.some(p => /telemetry|diagnostic|report/.test(p))).toBe(false)
-  console.log('PASS web diagnostics: login/manual report, actual HTTP errors and request ID, promise/chunk hooks, two isolated tabs, navigation/Gantt/PDF/print/shortcuts, handled PDF error/retry, offline/recovery and cross-tab epoch reset; unchanged CSP and no upload')
+  console.log('PASS web diagnostics: login/manual report, actual HTTP errors and request ID, promise/chunk hooks, two isolated tabs, navigation/Gantt days+weeks/PDF/print/shortcuts, handled PDF error/retry, offline/recovery and cross-tab epoch reset; unchanged CSP and no upload')
 } finally {
   await browser?.close()
   await server.close()

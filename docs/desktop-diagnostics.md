@@ -32,7 +32,8 @@ outcome counters reset with the session/process; SQLite remains authoritative.
   the app is open and at startup/write/report; a stopped application cannot
   delete expired files until its next launch. A private HMAC partition key keeps
   filenames from disclosing identities or server URLs; it is never exported.
-- Pending writes are bounded at 128 records; the in-memory fallback keeps 50.
+- Pending writes are bounded at 128 records and batched in groups of at most 16
+  with up to 100 ms delay (preview/shutdown explicitly flush); the in-memory fallback keeps 50.
   The report reprojects at most 100 recent records, including stored records,
   so an edited log line cannot add arbitrary fields to an export.
 - Reports are capped at **512 KiB**. Main keeps at most two preview snapshots,
@@ -45,7 +46,8 @@ outcome counters reset with the session/process; SQLite remains authoritative.
   Logs from the same account/server may be read after restart. They are private
   local diagnostics, not an audit trail or a durable business-command receipt.
 - A full, read-only or unavailable diagnostic directory falls back to bounded
-  memory and reports `unavailable`. Logs may be dropped. It never rejects a
+  memory and reports `unavailable`. Logs may be dropped. After fixing the directory/capacity, restart the application
+  to retry persistent logging; there is no busy retry loop or SQLite reset. It never rejects a
   business acknowledgement, changes an intent or takes ownership of synchronization.
   A worker failure is recorded safely; the existing storage recovery flow is
   unchanged. An interrupted JSONL tail is ignored rather than exported raw.

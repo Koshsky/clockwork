@@ -64,6 +64,7 @@ test('rotation bounds bytes/retention and resanitizes tampered lines before an e
   assert(sizes.reduce((sum, info) => sum + info.size, 0) <= 8192)
   const filename = entries.find(name => name.endsWith('.jsonl'))
   await fs.appendFile(path.join(root, filename), '\n{"source":"main","outcome":"failed","secret":"private-secret","diagnostic":{"event":"diagnostic","error_code":"private-secret","stack":"private-secret"}}\n')
+  await fs.appendFile(path.join(root, filename), '{"secret":"private-secret') // Interrupted final JSONL record.
   assert(!JSON.stringify(await journal.report()).includes('private-secret'))
   now += 8 * 86400000
   assert.equal((await journal.report()).records.length, 0)
@@ -84,6 +85,10 @@ test('diagnostic storage failure leaves a bounded memory report and does not blo
     const report = await journal.report()
     assert.equal(report.journal.status, 'unavailable'); assert.equal(report.records.length, 50)
     assert.equal((await repository.queue({ limit: 4, after: 0 })).length, 1)
+    await storage.abort()
+    assert.equal((await journal.report()).records.at(-1).diagnostic.error_code, 'STORAGE_UNAVAILABLE')
+    const restarted = await createStorage({ directory, diagnostics: journal })
+    try { assert.equal((await restarted.forScope({ server: state(1).server, accountId: 1 }).queueStats()).pending, 1) } finally { await restarted.close() }
   } finally { await storage.close(); await journal.close() }
 })
 
@@ -106,4 +111,18 @@ test('queue aggregate counts only the selected scope, pending dependencies and k
     assert.equal((await store.forScope({ server: 'https://other.invalid/api/v1', accountId: 1 }).queueStats()).total, 0)
     assert(!JSON.stringify(stats).includes('operationId'))
   } finally { await store.close() }
+})
+
+test('a burst uses bounded batched writes and an explicit preview flushes pending records', async t => {
+  const nativeFs = require('node:fs'), { journal } = await fixture(t)
+  const append = nativeFs.appendFileSync
+  let writes = 0
+  nativeFs.appendFileSync = (...args) => { writes++; return append(...args) }
+  try {
+    journal.setContext(state(1))
+    for (let index = 0; index < 64; index++) journal.record('main', 'diagnostic', null, {}, 'observed')
+    assert.equal(writes, 0)
+    const report = await journal.report()
+    assert.equal(report.records.length, 64); assert.equal(writes, 4)
+  } finally { nativeFs.appendFileSync = append }
 })
